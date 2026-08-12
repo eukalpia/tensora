@@ -14,7 +14,8 @@ final class NativeTrainingRuntime {
       );
 
   static NativeTrainingRuntime? _instance;
-  static NativeTrainingRuntime get instance => _instance ??= NativeTrainingRuntime._();
+  static NativeTrainingRuntime get instance =>
+      _instance ??= NativeTrainingRuntime._();
 
   final NativeTrainingBindings _bindings;
 
@@ -47,17 +48,17 @@ final class NativeTrainingRuntime {
 
   int withRequiresGrad(int tensor, bool requiresGrad) => _newTensorHandle(
     'tensor.withRequiresGrad',
-    (out) => _bindings.tensorWithRequiresGrad(
-      tensor,
-      requiresGrad ? 1 : 0,
-      out,
-    ),
+    (out) =>
+        _bindings.tensorWithRequiresGrad(tensor, requiresGrad ? 1 : 0, out),
   );
 
   bool requiresGrad(int tensor) {
     final value = calloc<Uint8>();
     try {
-      _check(_bindings.tensorRequiresGrad(tensor, value), 'tensor.requiresGrad');
+      _check(
+        _bindings.tensorRequiresGrad(tensor, value),
+        'tensor.requiresGrad',
+      );
       return value.value != 0;
     } finally {
       calloc.free(value);
@@ -107,12 +108,8 @@ final class NativeTrainingRuntime {
     }
     return _newObjectHandle(
       'linear.create',
-      (out) => _bindings.linearCreate(
-        inFeatures,
-        outFeatures,
-        bias ? 1 : 0,
-        out,
-      ),
+      (out) =>
+          _bindings.linearCreate(inFeatures, outFeatures, bias ? 1 : 0, out),
     );
   }
 
@@ -130,11 +127,7 @@ final class NativeTrainingRuntime {
 
   void moduleToDevice(int module, Device device) {
     _check(
-      _bindings.moduleToDevice(
-        module,
-        device.isCpu ? 1 : 2,
-        device.index,
-      ),
+      _bindings.moduleToDevice(module, device.isCpu ? 1 : 2, device.index),
       'module.to',
     );
   }
@@ -145,11 +138,8 @@ final class NativeTrainingRuntime {
     _bindings.moduleParameterCount,
   );
 
-  int moduleBufferCount(int module) => _moduleCount(
-    module,
-    'module.bufferCount',
-    _bindings.moduleBufferCount,
-  );
+  int moduleBufferCount(int module) =>
+      _moduleCount(module, 'module.bufferCount', _bindings.moduleBufferCount);
 
   int moduleParameterAt(int module, int index) {
     if (index < 0) {
@@ -198,13 +188,8 @@ final class NativeTrainingRuntime {
     required double weightDecay,
   }) => _newObjectHandle(
     'optimizer.sgd',
-    (out) => _bindings.sgdCreate(
-      module,
-      learningRate,
-      momentum,
-      weightDecay,
-      out,
-    ),
+    (out) =>
+        _bindings.sgdCreate(module, learningRate, momentum, weightDecay, out),
   );
 
   int createAdam(
@@ -244,10 +229,8 @@ final class NativeTrainingRuntime {
     _bindings.optimizerRelease(optimizer);
   }
 
-  int liveModuleCount() => _uint64Counter(
-    'runtime.liveModuleCount',
-    _bindings.liveModuleCount,
-  );
+  int liveModuleCount() =>
+      _uint64Counter('runtime.liveModuleCount', _bindings.liveModuleCount);
 
   int liveOptimizerCount() => _uint64Counter(
     'runtime.liveOptimizerCount',
@@ -268,10 +251,7 @@ final class NativeTrainingRuntime {
     }
   }
 
-  int _uint64Counter(
-    String operation,
-    int Function(Pointer<Uint64>) call,
-  ) {
+  int _uint64Counter(String operation, int Function(Pointer<Uint64>) call) {
     final value = calloc<Uint64>();
     try {
       _check(call(value), operation);
@@ -281,15 +261,10 @@ final class NativeTrainingRuntime {
     }
   }
 
-  int _newTensorHandle(
-    String operation,
-    int Function(Pointer<Uint64>) call,
-  ) => _newObjectHandle(operation, call);
+  int _newTensorHandle(String operation, int Function(Pointer<Uint64>) call) =>
+      _newObjectHandle(operation, call);
 
-  int _newObjectHandle(
-    String operation,
-    int Function(Pointer<Uint64>) call,
-  ) {
+  int _newObjectHandle(String operation, int Function(Pointer<Uint64>) call) {
     final output = calloc<Uint64>();
     try {
       _check(call(output), operation);
@@ -325,9 +300,10 @@ final class NativeTrainingRuntime {
     if (status == 0) return;
 
     final pointer = _bindings.lastErrorMessage();
-    final message = pointer.address == 0
-        ? 'Native runtime returned status $status without a diagnostic.'
-        : pointer.toDartString();
+    final message =
+        pointer.address == 0
+            ? 'Native runtime returned status $status without a diagnostic.'
+            : pointer.toDartString();
 
     switch (status) {
       case 1:
