@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define TS_STATIC_ASSERT(name, expression) \
   typedef char name[(expression) ? 1 : -1]
@@ -136,6 +137,9 @@ int main(void) {
   tensor = 0;
   if (ts_tensor_full_f32(dims, 2, 3.0f, &tensor) != TS_OK) return 49;
   if (ts_tensor_release(tensor) != TS_OK) return 50;
+
+  if (strcmp(ts_status_name(TS_MODEL_ERROR), "MODEL_ERROR") != 0) return 51;
+  if (strcmp(ts_status_name(999), "UNKNOWN_STATUS") != 0) return 52;
 
   return 0;
 }

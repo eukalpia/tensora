@@ -22,7 +22,7 @@ TENSORA_WITH_ONNXRUNTIME=OFF # default
 
 A core CPU-only build therefore preserves Milestone 1 portability and dependency size. Feature-enabled builds fail configuration clearly when a requested dependency is unavailable; there is no silent fallback that changes semantics.
 
-Integration validation pins a tested baseline of PyTorch 2.13.0 and ONNX Runtime 1.29.0. These versions are validation baselines rather than ABI promises.
+Integration validation pins a tested baseline of PyTorch 2.13.0 and ONNX Runtime 1.26.0. These versions are validation baselines rather than ABI promises.
 
 ## 2. Tensor storage evolution
 

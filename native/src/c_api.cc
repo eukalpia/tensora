@@ -139,6 +139,8 @@ const char* ts_status_name(int32_t status) {
       return "INVALID_HANDLE";
     case TS_INTERNAL_ERROR:
       return "INTERNAL_ERROR";
+    case TS_MODEL_ERROR:
+      return "MODEL_ERROR";
   }
   return "UNKNOWN_STATUS";
 }
