@@ -40,6 +40,11 @@ final class NativeRuntimeException extends TensoraException {
   const NativeRuntimeException(super.message, {super.operation});
 }
 
+/// A model could not be loaded or executed by its native model runtime.
+final class ModelRuntimeException extends TensoraException {
+  const ModelRuntimeException(super.message, {super.operation});
+}
+
 /// A Tensor was used after deterministic disposal.
 final class DisposedTensorException extends TensoraException {
   const DisposedTensorException(super.message, {super.operation});
