@@ -9,6 +9,11 @@ final Finalizer<int> _tensorFinalizer = Finalizer<int>((handle) {
 });
 
 /// An immutable native-backed tensor.
+///
+/// Tensor wrappers are isolate-local in Milestone 1. Create or reconstruct a
+/// Tensor inside the isolate that will own and use it rather than sending the
+/// native handle wrapper through an isolate port.
+@pragma('vm:isolate-unsendable')
 final class Tensor {
   Tensor._(
     this._handle, {
