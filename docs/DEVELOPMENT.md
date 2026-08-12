@@ -2,7 +2,7 @@
 
 This guide defines how engineering work should be performed in the Tensora repository.
 
-The project is systems infrastructure spanning Dart, native code, device runtimes, model formats, and Flutter integration. A change is considered complete only when its behavior, ownership, failure modes, compatibility, tests, and relevant performance characteristics are understood.
+Tensora is systems infrastructure spanning Dart, native code, device runtimes, model formats, and Flutter integration. A change is considered complete only when its behavior, ownership, failure modes, compatibility, tests, and relevant performance characteristics are understood.
 
 ## 1. Work from an explicit scope
 
@@ -45,7 +45,20 @@ Benchmark
 
 A vertical slice proves the architecture. A directory full of declarations does not.
 
-## 3. Local branch workflow
+## 3. Current Milestone 1 toolchain
+
+Minimum source requirements:
+
+- Dart 3.7+ for the `tensora` package;
+- CMake 3.20+;
+- C11 compiler;
+- C++20 compiler.
+
+GitHub Actions additionally runs the current stable Dart SDK and a dedicated Dart 3.7 compatibility job.
+
+The native runtime is intentionally dependency-light in Milestone 1: it uses the C/C++ standard libraries and platform threading support rather than a large external numerical runtime.
+
+## 4. Branch workflow
 
 Create a focused branch from up-to-date `main`.
 
@@ -59,9 +72,9 @@ perf/camera-frame-path
 docs/model-format
 ```
 
-Keep the branch limited to one coherent objective.
+Keep the branch limited to one coherent objective. Do not develop broad incomplete features directly on `main`.
 
-## 4. Public contract first
+## 5. Public contract first
 
 For a new subsystem, define the public or internal contract before filling in implementation details.
 
@@ -78,7 +91,7 @@ Review:
 
 Do not stabilize an API merely because an implementation already exists.
 
-## 5. Test before expanding breadth
+## 6. Test before expanding breadth
 
 The first implementation of a feature should include the tests needed to prove its fundamental behavior before adding variants.
 
@@ -90,49 +103,135 @@ For parsers, include malformed input.
 
 For Flutter lifecycle behavior, include repeated mount/dispose and background/resume scenarios where test infrastructure allows.
 
-## 6. Build modes
+## 7. Build the native runtime
 
-The repository should eventually provide reproducible development and release configurations for:
+### Debug
 
-- Dart debug/test;
-- native debug;
-- native sanitizer builds;
-- optimized native release;
-- Flutter debug/profile/release as appropriate;
-- CUDA-enabled builds when hardware/runtime are available.
-
-Performance conclusions must come from appropriate optimized builds, not debug timings.
-
-## 7. Dart quality gate
-
-Before a Dart-facing change is considered ready:
-
-```text
-dart format
-static analysis
-unit tests
-integration tests relevant to the change
+```bash
+cmake -S native -B build/native-debug \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DTENSORA_BUILD_TESTS=ON \
+  -DTENSORA_BUILD_BENCHMARKS=ON
+cmake --build build/native-debug --config Debug --parallel
+ctest --test-dir build/native-debug --build-config Debug --output-on-failure
 ```
 
-Once concrete package commands exist, this document should list the exact repository commands rather than generic placeholders.
+### Release
 
-Warnings introduced by the change should be treated as defects unless explicitly justified.
+```bash
+cmake -S native -B build/native-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTENSORA_BUILD_TESTS=ON \
+  -DTENSORA_BUILD_BENCHMARKS=ON
+cmake --build build/native-release --config Release --parallel
+ctest --test-dir build/native-release --build-config Release --output-on-failure
+```
 
-## 8. Native quality gate
+The CMake targets compile with warnings treated as errors (`-Werror` on GCC/Clang and `/WX` on MSVC).
 
-Native changes should validate:
+### ASan + UBSan
 
-- compilation with supported compilers;
-- unit tests;
-- integration through the C ABI;
-- sanitizer coverage where applicable;
-- ownership and cleanup;
-- invalid input handling;
-- thread-safety assumptions.
+On a Clang/GCC environment where the sanitizers are supported:
 
-Do not allow C++ exceptions to escape the C ABI.
+```bash
+CC=clang CXX=clang++ cmake -S native -B build/native-sanitizers \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DTENSORA_ENABLE_SANITIZERS=ON \
+  -DTENSORA_BUILD_TESTS=ON \
+  -DTENSORA_BUILD_BENCHMARKS=OFF
+cmake --build build/native-sanitizers --parallel
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+ctest --test-dir build/native-sanitizers --output-on-failure
+```
 
-## 9. FFI rules
+Do not suppress genuine sanitizer defects.
+
+## 8. Dart quality gate
+
+From the core package:
+
+```bash
+cd packages/tensora
+dart pub get
+dart format --output=none --set-exit-if-changed lib test benchmark
+dart analyze --fatal-infos --fatal-warnings
+```
+
+The package enables strict casts, strict inference, and strict raw-type analysis.
+
+CI also resolves and analyzes the package on the minimum supported Dart 3.7 SDK so the `pubspec` floor is an executable compatibility claim.
+
+## 9. Dart ↔ native integration
+
+Build a native Release library, then point the Dart bridge at its absolute path.
+
+Linux:
+
+```bash
+export TENSORA_NATIVE_LIBRARY="$PWD/build/native-release/libtensora_native.so"
+```
+
+macOS:
+
+```bash
+export TENSORA_NATIVE_LIBRARY="$PWD/build/native-release/libtensora_native.dylib"
+```
+
+Windows PowerShell with a multi-config generator:
+
+```powershell
+$env:TENSORA_NATIVE_LIBRARY = "$PWD\build\native-release\Release\tensora_native.dll"
+```
+
+Then run:
+
+```bash
+cd packages/tensora
+dart test --reporter expanded
+```
+
+Do not replace native integration tests with mocks. Public native-backed behavior must cross the real Dart → FFI → C ABI → native runtime path.
+
+## 10. Run the example
+
+With `TENSORA_NATIVE_LIBRARY` still pointing at the built runtime:
+
+```bash
+cd examples/tensor_basics
+dart pub get
+dart analyze --fatal-infos --fatal-warnings
+dart run bin/main.dart
+```
+
+The example should print a `Shape([2, 2])` result and matrix multiplication values `[19.0, 22.0, 43.0, 50.0]`.
+
+## 11. Benchmarks
+
+Native benchmark smoke:
+
+```bash
+./build/native-release/tensora_native_benchmark --smoke
+```
+
+Windows multi-config build:
+
+```powershell
+.\build\native-release\Release\tensora_native_benchmark.exe --smoke
+```
+
+Dart/FFI benchmark:
+
+```bash
+cd packages/tensora
+dart run benchmark/tensor_benchmark.dart --smoke
+```
+
+A standard Dart run omits `--smoke`; `--large` includes the larger configured matrix case.
+
+Performance conclusions must come from optimized builds and must record hardware, OS, runtime/compiler configuration, shapes, warmup, iterations, and statistics. Do not report debug timings as performance evidence.
+
+## 12. FFI rules
 
 Every FFI entry point needs:
 
@@ -144,22 +243,22 @@ Every FFI entry point needs:
 - defined thread behavior;
 - tests from Dart through the native boundary.
 
-Avoid chatty scalar-level FFI APIs for tensor computation. Prefer coarse operations and graph/session execution where appropriate.
+Avoid chatty scalar-level FFI APIs for tensor computation. Milestone 1 crosses the boundary at tensor-operation granularity.
 
-## 10. Native handles
+## 13. Native handles
 
 Opaque handles must be validated before use.
 
-The runtime should be able to detect, where practical:
+The Milestone 1 registry rejects:
 
-- unknown handles;
+- zero/unknown handles;
 - already released handles;
-- wrong object type;
-- invalid runtime/context ownership.
+- wrong object types;
+- duplicate release.
 
-Never reinterpret arbitrary user-provided integers as trusted native pointers.
+Handles are identifiers, not reinterpret-cast native pointers. Released identifiers are not recycled during process lifetime.
 
-## 11. Memory engineering
+## 14. Memory engineering
 
 For changes that allocate memory, document:
 
@@ -174,21 +273,9 @@ Prefer RAII in native internals.
 
 Use explicit cleanup in Dart wrappers for expensive resources, with finalizers as a fallback only.
 
-## 12. Device transfers
+Milestone 1 exposes native live tensor/storage counters for lifecycle validation; they are diagnostic infrastructure, not a replacement for sanitizer/leak tooling.
 
-A change that moves tensor data between host and device must make that behavior explicit.
-
-Profiler instrumentation should eventually record:
-
-- source device;
-- destination device;
-- byte count;
-- synchronization introduced;
-- transfer duration where measurable.
-
-Do not hide expensive transfers inside unrelated convenience APIs.
-
-## 13. Concurrency
+## 15. Concurrency and isolates
 
 Before making a type shareable across threads or isolates, define:
 
@@ -199,13 +286,29 @@ Before making a type shareable across threads or isolates, define:
 - cancellation interaction;
 - shutdown behavior.
 
-Training state should be assumed mutable and non-shareable until explicitly designed otherwise.
+Milestone 1 native tensors are immutable. Registry lookup/retain/release is synchronized, while numerical computation occurs outside the registry lock.
 
-## 14. Flutter development
+Dart `Tensor` wrappers are isolate-local and intentionally unsendable in Milestone 1. Cross-isolate tensor sharing requires a future explicit ownership/transfer design.
 
-Flutter-specific code belongs in Flutter-facing packages.
+## 16. Device transfers
 
-For any inference path verify:
+A change that moves tensor data between host and device must make that behavior explicit.
+
+Milestone 1 has CPU storage only. `fromList` is an explicit host import and `toList()` an explicit host extraction. Normal tensor operations do not shuttle numerical payloads through Dart.
+
+Future profiler instrumentation should record:
+
+- source device;
+- destination device;
+- byte count;
+- synchronization introduced;
+- transfer duration where measurable.
+
+## 17. Flutter development
+
+Flutter-specific code belongs in Flutter-facing packages and is outside Milestone 1.
+
+For any future inference path verify:
 
 - heavy work is outside the UI isolate;
 - cancellation is safe;
@@ -214,26 +317,11 @@ For any inference path verify:
 - lifecycle transitions do not leak;
 - large images/audio buffers are not copied through Dart without necessity.
 
-## 15. Camera development
+## 18. Model-format development
 
-Realtime vision requires explicit backpressure.
+Model bundle parsing is security-sensitive and is outside Milestone 1.
 
-The implementation must define:
-
-- maximum queue depth;
-- frame-dropping policy;
-- ownership of a frame while inference is running;
-- behavior when camera closes;
-- behavior when model/session closes;
-- cancellation behavior.
-
-Never allow camera frames to accumulate without a fixed bound.
-
-## 16. Model-format development
-
-Model bundle parsing is security-sensitive.
-
-Any change to `.tmodel` must include:
+Any future change to `.tmodel` must include:
 
 - schema update;
 - format-version implications;
@@ -243,7 +331,7 @@ Any change to `.tmodel` must include:
 - compatibility documentation;
 - migration notes for breaking format changes.
 
-## 17. Dependency policy
+## 19. Dependency policy
 
 Before adding a dependency, document why Tensora should own the integration instead of implementing a smaller boundary itself.
 
@@ -260,7 +348,7 @@ Evaluate:
 
 Native backend dependencies should be modular so unused large runtimes do not automatically ship to every application.
 
-## 18. Performance workflow
+## 20. Performance workflow
 
 Performance work follows this sequence:
 
@@ -274,22 +362,7 @@ Performance work follows this sequence:
 
 Do not optimize from intuition alone when measurement is feasible.
 
-## 19. Benchmark hygiene
-
-Always distinguish:
-
-- cold startup;
-- warm execution;
-- one-time compilation/provider initialization;
-- steady-state latency;
-- throughput;
-- memory.
-
-Report p50/p95/p99 where latency distributions matter.
-
-Avoid using a single best run as representative performance.
-
-## 20. Documentation workflow
+## 21. Documentation workflow
 
 When public behavior changes, update documentation in the same pull request.
 
@@ -297,14 +370,13 @@ Relevant documentation may include:
 
 - README;
 - architecture;
-- model format;
 - compatibility matrix;
 - API docs;
 - examples;
 - benchmarks;
 - release notes.
 
-## 21. Review checklist
+## 22. Review checklist
 
 Before requesting review, verify:
 
@@ -319,9 +391,10 @@ Before requesting review, verify:
 - [ ] benchmarks are present for performance claims;
 - [ ] no placeholder code is presented as supported behavior;
 - [ ] documentation is updated;
-- [ ] no credentials or accidental large artifacts are committed.
+- [ ] no credentials or accidental large artifacts are committed;
+- [ ] validation corresponds to the current pull-request head revision.
 
-## 22. Completion standard
+## 23. Completion standard
 
 Do not use “done” to mean “compiles locally.”
 

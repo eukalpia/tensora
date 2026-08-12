@@ -63,21 +63,26 @@ known limitations
 
 Generated documentation should derive from this source where practical to avoid drift.
 
-## 3. Initial platform direction
+## 3. Current Milestone 1 matrix
 
-The intended platform direction includes:
+Milestone 1 is pre-1.0 and is classified as **Beta** rather than Stable. Validation currently proves source-built desktop CPU execution; Tensora does not yet publish packaged native runtime binaries.
 
-```text
-Linux x64
-Windows x64
-macOS arm64
-Android arm64
-iOS arm64
-```
+| Surface | State | Validated scope | Current limitations |
+| --- | --- | --- | --- |
+| Dart core package | Beta | Dart 3.7 minimum compatibility job plus current stable Dart CI | Native desktop runtime must be built/provided separately |
+| C ABI | Beta | ABI version 1, C11 consumer compile/link test, fixed-width statuses/handles | Pre-1.0 ABI may evolve through documented compatibility changes |
+| CPU backend | Beta | Native execution in Debug/Release CI | CPU only; no optimized BLAS contract yet |
+| `float32` | Beta | Creation, transforms, elementwise ops, reduction, 2D matmul | No other dtype is supported |
+| Linux desktop source build | Beta | Native tests + Dart FFI integration in GitHub-hosted CI | No published binary/package compatibility promise yet |
+| macOS desktop source build | Beta | Native tests + Dart FFI integration in GitHub-hosted CI | No published binary/package compatibility promise yet |
+| Windows desktop source build | Beta | Native tests + Dart FFI integration in GitHub-hosted CI | No published binary/package compatibility promise yet |
+| CUDA / GPU | Unsupported | None | Planned for a later milestone |
+| Android / iOS runtime | Unsupported | None | Flutter/mobile runtime is not Milestone 1 |
+| Autograd / training | Unsupported | None | Planned for a later milestone |
+| ONNX inference | Unsupported | None | Planned for a later milestone |
+| `.tmodel` | Unsupported | Design documentation only | No parser/runtime implementation yet |
 
-This list is directional only until concrete matrix entries are implemented and tested.
-
-Additional architectures and platforms may be added through the normal compatibility process.
+The desktop rows above deliberately do not claim a broad architecture matrix. Exact architecture-specific release support will be named only when Tensora begins publishing native artifacts and validating those artifacts on the corresponding target environments.
 
 ## 4. Backend direction
 
@@ -89,13 +94,13 @@ Planned backend categories include:
 - ONNX Runtime inference;
 - platform-specific acceleration providers where justified.
 
-A public compatibility matrix must distinguish backend support from platform support. For example, “Android supported” does not mean every Android device/provider/operator is supported.
+Only the CPU backend is implemented in Milestone 1. A public compatibility matrix must distinguish backend support from platform support. For example, a future statement that “Android is supported” will not imply that every Android device/provider/operator is supported.
 
 ## 5. DType compatibility
 
 A dtype is supported only for a specific operation/backend/device combination where tested.
 
-Planned dtype vocabulary:
+The long-term dtype vocabulary may include:
 
 ```text
 bool
@@ -110,9 +115,11 @@ float32
 float64
 ```
 
+Milestone 1 implements only `float32` on CPU for the documented operation set.
+
 Do not claim universal float16 or bfloat16 support across CPU/GPU/mobile providers.
 
-Capability queries should allow callers to inspect support before execution where practical.
+Capability queries should allow callers to inspect support before execution where practical once multiple device/provider combinations exist.
 
 ## 6. Public Dart API compatibility
 
@@ -126,13 +133,15 @@ Within a stable major version:
 - deprecate before removal where feasible;
 - document migrations.
 
+Milestone 1 is pre-1.0 Beta. Its API should still evolve intentionally and through compatibility review rather than accidental churn.
+
 Experimental namespaces may have weaker guarantees but must be clearly marked.
 
 ## 7. Native ABI compatibility
 
 The C ABI is versioned independently where necessary.
 
-The runtime must expose an ABI version and reject incompatible callers cleanly.
+Milestone 1 introduces **ABI version 1**. The runtime exposes the ABI version and Dart rejects an incompatible runtime before creating tensors.
 
 ABI changes must define:
 
@@ -141,13 +150,13 @@ ABI changes must define:
 - minimum runtime expected by Dart bindings;
 - migration implications.
 
-Never rely on C++ class layout compatibility across releases.
+Never rely on C++ class layout compatibility across releases. Public ABI types use C-compatible fixed-width primitives, opaque handles, and `size_t` where buffer capacities/ranks require it.
 
 ## 8. `.tmodel` compatibility
 
-The `.tmodel` container has its own format version.
+The `.tmodel` container will have its own format version once implemented.
 
-A bundle declares at least:
+A future bundle will declare at least:
 
 - format version;
 - minimum supported Tensora runtime;
@@ -168,7 +177,7 @@ Do not serialize or expose internal IR as a long-lived public format unless a de
 
 Upstream provider versions can affect behavior materially.
 
-The support matrix should record tested version ranges for major native dependencies such as:
+The support matrix should record tested version ranges for major future native dependencies such as:
 
 - CUDA toolkit/runtime;
 - cuDNN or related libraries where used;
@@ -176,7 +185,7 @@ The support matrix should record tested version ranges for major native dependen
 - ONNX Runtime;
 - platform SDKs.
 
-Avoid accepting arbitrary provider versions without validation if known incompatibilities exist.
+Milestone 1 deliberately has no large numerical runtime dependency.
 
 ## 11. Hardware claims
 
@@ -194,7 +203,7 @@ Cross-compilation alone proves only that a build artifact can be produced.
 
 Fallback behavior must be part of compatibility semantics.
 
-A policy may allow:
+A policy may later allow:
 
 ```text
 requested backend unavailable
@@ -206,13 +215,11 @@ alternative backend
 
 But fallback must be observable in diagnostics/profiling.
 
-Large implicit GPU↔CPU transfers must not be hidden.
-
-Callers should be able to configure strict failure when fallback is undesirable.
+Milestone 1 has only CPU and performs no hidden backend fallback.
 
 ## 13. Model/operator compatibility
 
-A model loader should distinguish:
+A future model loader should distinguish:
 
 - format unsupported;
 - operator unsupported;
@@ -224,6 +231,8 @@ A model loader should distinguish:
 
 Avoid collapsing these into a generic “model failed” error.
 
+For Milestone 1 tensor operations, unsupported rank/shape/device/dtype behavior fails explicitly through typed Tensora errors.
+
 ## 14. Reproducibility compatibility
 
 Tensora should document that identical seeds do not necessarily guarantee bitwise-identical floating-point results across:
@@ -234,6 +243,8 @@ Tensora should document that identical seeds do not necessarily guarantee bitwis
 - different runtime versions.
 
 Where deterministic modes exist, their scope and cost must be documented.
+
+Milestone 1 reference tests use mathematically known values and justified float tolerances rather than promising bitwise equality across all future implementations.
 
 ## 15. Deprecation policy
 
@@ -287,15 +298,8 @@ Supports training
 
 without enough qualification to identify the tested backend/platform scope.
 
-Prefer statements such as:
+Prefer precise statements tied to executable validation.
 
-```text
-CUDA training: beta on Linux x64 with tested runtime versions X–Y
-ONNX CPU inference: stable on listed desktop targets
-```
+## 19. Promotion beyond Beta
 
-once those facts are actually established.
-
-## 19. Current state
-
-During the foundation phase, compatibility entries are **planned, not supported**. The repository should not publish a stable support matrix until executable implementations and tests exist.
+Milestone 1 surfaces may be promoted from Beta only after release packaging and compatibility validation are broad enough to establish a durable production contract. A green source-build CI matrix is necessary evidence, but it is not by itself a promise that arbitrary compilers, operating-system versions, architectures, or binary-distribution environments are supported.
