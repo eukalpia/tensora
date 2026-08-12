@@ -96,15 +96,11 @@ final class OnnxSession {
   /// The initial portable-inference contract accepts dense float32 tensors.
   /// Outputs default to every model output and are returned in model/requested
   /// order through the insertion-ordered Dart map.
-  Map<String, Tensor> run(
-    Map<String, Tensor> inputs, {
-    List<String>? outputs,
-  }) {
+  Map<String, Tensor> run(Map<String, Tensor> inputs, {List<String>? outputs}) {
     _ensureLive('run');
     _validateInputs(inputs);
-    final requestedOutputs = outputs == null
-        ? outputNames
-        : List<String>.unmodifiable(outputs);
+    final requestedOutputs =
+        outputs == null ? outputNames : List<String>.unmodifiable(outputs);
     _validateOutputs(requestedOutputs);
 
     final orderedInputs = <Tensor>[];
@@ -112,7 +108,9 @@ final class OnnxSession {
       orderedInputs.add(inputs[name]!);
     }
     final inputHandles = orderedInputs
-        .map((tensor) => tensor.nativeHandleForRuntime(nativeTensorAdoptionToken))
+        .map(
+          (tensor) => tensor.nativeHandleForRuntime(nativeTensorAdoptionToken),
+        )
         .toList(growable: false);
 
     final handles = NativeInferenceRuntime.instance.run(
@@ -126,10 +124,7 @@ final class OnnxSession {
     try {
       for (final handle in handles) {
         adopted.add(
-          Tensor.adoptNativeHandleForRuntime(
-            handle,
-            nativeTensorAdoptionToken,
-          ),
+          Tensor.adoptNativeHandleForRuntime(handle, nativeTensorAdoptionToken),
         );
       }
       return <String, Tensor>{
