@@ -17,10 +17,7 @@ void main() {
   });
 
   test('invalid module handles fail deterministically across operations', () {
-    expect(
-      () => runtime.moduleForward(0, 0),
-      throwsA(invalidHandleError),
-    );
+    expect(() => runtime.moduleForward(0, 0), throwsA(invalidHandleError));
     expect(
       () => runtime.moduleSetTraining(0, true),
       throwsA(invalidHandleError),
@@ -29,33 +26,17 @@ void main() {
       () => runtime.moduleToDevice(0, Device.cpu),
       throwsA(invalidHandleError),
     );
-    expect(
-      () => runtime.moduleParameterCount(0),
-      throwsA(invalidHandleError),
-    );
-    expect(
-      () => runtime.moduleBufferCount(0),
-      throwsA(invalidHandleError),
-    );
-    expect(
-      () => runtime.moduleParameterAt(0, 0),
-      throwsA(invalidHandleError),
-    );
-    expect(
-      () => runtime.moduleBufferAt(0, 0),
-      throwsA(invalidHandleError),
-    );
+    expect(() => runtime.moduleParameterCount(0), throwsA(invalidHandleError));
+    expect(() => runtime.moduleBufferCount(0), throwsA(invalidHandleError));
+    expect(() => runtime.moduleParameterAt(0, 0), throwsA(invalidHandleError));
+    expect(() => runtime.moduleBufferAt(0, 0), throwsA(invalidHandleError));
     expect(() => runtime.moduleRelease(0), throwsA(invalidHandleError));
   });
 
   test('invalid optimizer handles fail without corrupting diagnostics', () {
     expect(
-      () => runtime.createSgd(
-        0,
-        learningRate: 0.01,
-        momentum: 0,
-        weightDecay: 0,
-      ),
+      () =>
+          runtime.createSgd(0, learningRate: 0.01, momentum: 0, weightDecay: 0),
       throwsA(invalidHandleError),
     );
     expect(
