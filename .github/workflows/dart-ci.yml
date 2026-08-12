@@ -36,9 +36,13 @@ jobs:
         working-directory: packages/tensora
         run: dart pub get
 
-      - name: Check package formatting
+      - name: Format package in runner
         working-directory: packages/tensora
-        run: dart format --output=none --set-exit-if-changed lib test benchmark
+        run: dart format lib test benchmark
+
+      - name: Verify package formatting
+        working-directory: packages/tensora
+        run: git diff --exit-code -- lib test benchmark
 
       - name: Analyze package
         working-directory: packages/tensora
@@ -48,9 +52,13 @@ jobs:
         working-directory: examples/tensor_basics
         run: dart pub get
 
-      - name: Check example formatting
+      - name: Format example in runner
         working-directory: examples/tensor_basics
-        run: dart format --output=none --set-exit-if-changed bin
+        run: dart format bin
+
+      - name: Verify example formatting
+        working-directory: examples/tensor_basics
+        run: git diff --exit-code -- bin
 
       - name: Analyze example
         working-directory: examples/tensor_basics
