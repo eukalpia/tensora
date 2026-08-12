@@ -45,10 +45,13 @@ jobs:
       - name: Run native tests
         run: ctest --test-dir build/native --build-config ${{ matrix.build_type }} --output-on-failure
 
-      - name: Run benchmark smoke
-        if: matrix.build_type == 'Release'
+      - name: Run benchmark smoke on Unix
+        if: matrix.build_type == 'Release' && runner.os != 'Windows'
         run: ./build/native/tensora_native_benchmark --smoke
-        shell: bash
+
+      - name: Run benchmark smoke on Windows
+        if: matrix.build_type == 'Release' && runner.os == 'Windows'
+        run: .\build\native\Release\tensora_native_benchmark.exe --smoke
 
   native-sanitizers:
     name: Native ASan + UBSan
