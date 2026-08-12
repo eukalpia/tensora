@@ -344,7 +344,7 @@ ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
     }
     *out_tensor = 0;
 
-    tensora::Device target;
+    tensora::Device target = tensora::Device::kCpu;
     tensora::Status status = tensora::DeviceFromCode(device, &target);
     if (!status.ok()) return status;
     if (target == tensora::Device::kCpu && device_index != 0) {
