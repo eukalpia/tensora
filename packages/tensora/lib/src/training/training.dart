@@ -129,10 +129,7 @@ abstract base class Module {
     _disposed = true;
   }
 
-  List<Tensor> _collectTensors(
-    int count,
-    int Function(int index) getHandle,
-  ) {
+  List<Tensor> _collectTensors(int count, int Function(int index) getHandle) {
     final tensors = <Tensor>[];
     try {
       for (var index = 0; index < count; index++) {
@@ -168,11 +165,7 @@ final class Linear extends Module {
     : super._(handle);
 
   /// Creates a Linear layer with shape `[inFeatures, outFeatures]`.
-  factory Linear(
-    int inFeatures,
-    int outFeatures, {
-    bool bias = true,
-  }) {
+  factory Linear(int inFeatures, int outFeatures, {bool bias = true}) {
     final handle = NativeTrainingRuntime.instance.createLinear(
       inFeatures,
       outFeatures,
