@@ -107,18 +107,35 @@ jobs:
       - name: Build fully enabled runtime
         run: cmake --build build/full-coverage --parallel 2
 
-      - name: Collect enabled training and inference coverage
+      - name: Collect primary training coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/training_integration_test.dart
+          --coverage-path=coverage/training.info
+          --reporter expanded
+
+      - name: Collect training edge coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/training_edge_integration_test.dart
+          --coverage-path=coverage/training-edge.info
+          --reporter expanded
+
+      - name: Collect inference coverage in isolated process
         working-directory: packages/tensora
         env:
           TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
           TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
           LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
         run: >-
-          dart test
-          integration_test/training_integration_test.dart
-          integration_test/training_edge_integration_test.dart
-          integration_test/inference_integration_test.dart
-          --coverage-path=coverage/enabled.info
+          dart test integration_test/inference_integration_test.dart
+          --coverage-path=coverage/inference.info
           --reporter expanded
 
       - name: Enforce 90 percent merged library line coverage
@@ -129,7 +146,12 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          reports = [Path('coverage/core.info'), Path('coverage/enabled.info')]
+          reports = [
+              Path('coverage/core.info'),
+              Path('coverage/training.info'),
+              Path('coverage/training-edge.info'),
+              Path('coverage/inference.info'),
+          ]
           for report in reports:
               if not report.exists():
                   raise SystemExit(f'{report} was not produced')
