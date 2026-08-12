@@ -1,0 +1,9 @@
+name: tensora_tensor_basics
+publish_to: none
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+
+dependencies:
+  tensora:
+    path: ../../packages/tensora

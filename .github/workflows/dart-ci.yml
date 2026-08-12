@@ -1,0 +1,114 @@
+name: Dart FFI CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dart-ffi-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dart-quality:
+    name: Dart format + analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Check package formatting
+        working-directory: packages/tensora
+        run: dart format --output=none --set-exit-if-changed lib test benchmark
+
+      - name: Analyze package
+        working-directory: packages/tensora
+        run: dart analyze --fatal-infos --fatal-warnings
+
+      - name: Resolve example dependencies
+        working-directory: examples/tensor_basics
+        run: dart pub get
+
+      - name: Check example formatting
+        working-directory: examples/tensor_basics
+        run: dart format --output=none --set-exit-if-changed bin
+
+      - name: Analyze example
+        working-directory: examples/tensor_basics
+        run: dart analyze --fatal-infos --fatal-warnings
+
+  ffi-platform:
+    name: Dart FFI ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            native_library: build/native/libtensora_native.so
+          - os: macos-latest
+            native_library: build/native/libtensora_native.dylib
+          - os: windows-latest
+            native_library: build/native/Release/tensora_native.dll
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/${{ matrix.native_library }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Configure native runtime
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build native runtime
+        run: cmake --build build/native --config Release --parallel
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run Dart FFI tests
+        working-directory: packages/tensora
+        run: dart test --reporter expanded
+
+      - name: Resolve example dependencies
+        working-directory: examples/tensor_basics
+        run: dart pub get
+
+      - name: Run tensor basics example
+        working-directory: examples/tensor_basics
+        run: dart run bin/main.dart
+
+      - name: Run Dart benchmark smoke
+        if: runner.os == 'Linux'
+        working-directory: packages/tensora
+        run: dart run benchmark/tensor_benchmark.dart --smoke
