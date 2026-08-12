@@ -76,10 +76,7 @@ void main() {
     expect(model.isDisposed, isTrue);
     expect(model.train, throwsA(isA<DisposedTensorException>()));
     expect(model.eval, throwsA(isA<DisposedTensorException>()));
-    expect(
-      () => model.to(Device.cpu),
-      throwsA(isA<DisposedTensorException>()),
-    );
+    expect(() => model.to(Device.cpu), throwsA(isA<DisposedTensorException>()));
     expect(model.parameters, throwsA(isA<DisposedTensorException>()));
     expect(model.buffers, throwsA(isA<DisposedTensorException>()));
     expect(
