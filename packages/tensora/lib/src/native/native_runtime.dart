@@ -21,7 +21,7 @@ final class NativeRuntime {
     }
   }
 
-  static const int expectedAbiVersion = 1;
+  static const int expectedAbiVersion = 2;
 
   static NativeRuntime? _instance;
 
@@ -55,7 +55,7 @@ final class NativeRuntime {
     if (Platform.isWindows) return 'tensora_native.dll';
 
     throw UnsupportedOperationException(
-      'Milestone 1 native runtime discovery supports Linux, macOS, and Windows.',
+      'Native runtime discovery supports Linux, macOS, and Windows.',
       operation: 'runtime.load',
     );
   }
@@ -86,6 +86,16 @@ final class NativeRuntime {
       );
     });
   }
+
+  int toDevice(int handle, Device device) => _newHandle(
+    'tensor.to',
+    (out) => _bindings.tensorToDevice(
+      handle,
+      device.isCpu ? 1 : 2,
+      device.index,
+      out,
+    ),
+  );
 
   int reshape(int handle, Shape shape) {
     return _withDimensions(shape, (dims, rank) {
@@ -202,11 +212,24 @@ final class NativeRuntime {
   }
 
   Device device(int handle) {
-    final value = calloc<Uint32>();
+    final kind = calloc<Uint32>();
+    final index = calloc<Int32>();
     try {
-      _check(_bindings.tensorDevice(handle, value), 'tensor.device');
-      return switch (value.value) {
-        1 => Device.cpu,
+      _check(_bindings.tensorDevice(handle, kind), 'tensor.device');
+      _check(_bindings.tensorDeviceIndex(handle, index), 'tensor.deviceIndex');
+      return switch (kind.value) {
+        1 when index.value == 0 => Device.cpu,
+        1 =>
+          throw NativeRuntimeException(
+            'Native CPU tensor returned invalid device index ${index.value}.',
+            operation: 'tensor.device',
+          ),
+        2 when index.value >= 0 => Device.cuda(index.value),
+        2 =>
+          throw NativeRuntimeException(
+            'Native CUDA tensor returned invalid device index ${index.value}.',
+            operation: 'tensor.device',
+          ),
         final code =>
           throw NativeRuntimeException(
             'Native runtime returned unknown device code $code.',
@@ -214,7 +237,8 @@ final class NativeRuntime {
           ),
       };
     } finally {
-      calloc.free(value);
+      calloc.free(index);
+      calloc.free(kind);
     }
   }
 
@@ -222,6 +246,19 @@ final class NativeRuntime {
     final value = calloc<Uint64>();
     try {
       _check(_bindings.tensorNumel(handle, value), 'tensor.numel');
+      return value.value;
+    } finally {
+      calloc.free(value);
+    }
+  }
+
+  int cudaDeviceCount() {
+    final value = calloc<Uint32>();
+    try {
+      _check(
+        _bindings.runtimeCudaDeviceCount(value),
+        'runtime.cudaDeviceCount',
+      );
       return value.value;
     } finally {
       calloc.free(value);
