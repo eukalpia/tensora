@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:tensora/src/native/native_inference_runtime.dart';
 import 'package:tensora/tensora.dart';
 import 'package:test/test.dart';
@@ -55,5 +57,20 @@ void main() {
     expect(runtime.available(), isTrue);
     expect(runtime.providers(), isNotEmpty);
     expect(runtime.liveSessionCount(), greaterThanOrEqualTo(0));
+  });
+
+  test('finalizer release path returns the session counter to baseline', () {
+    final modelPath = Platform.environment['TENSORA_ONNX_TEST_MODEL'];
+    expect(modelPath, isNotNull);
+    final baseline = runtime.liveSessionCount();
+    final session = runtime.createSession(
+      modelPath!,
+      enableProfiling: false,
+      profilingPrefix: null,
+    );
+
+    expect(runtime.liveSessionCount(), baseline + 1);
+    runtime.releaseFromFinalizer(session);
+    expect(runtime.liveSessionCount(), baseline);
   });
 }
