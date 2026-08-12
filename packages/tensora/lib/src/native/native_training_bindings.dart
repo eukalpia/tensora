@@ -36,8 +36,7 @@ typedef _ModuleToDeviceNative = Int32 Function(Uint64, Uint32, Int32);
 typedef _ModuleToDeviceDart = int Function(int, int, int);
 typedef _ModuleCountNative = Int32 Function(Uint64, Pointer<Size>);
 typedef _ModuleCountDart = int Function(int, Pointer<Size>);
-typedef _ModuleTensorAtNative =
-    Int32 Function(Uint64, Size, Pointer<Uint64>);
+typedef _ModuleTensorAtNative = Int32 Function(Uint64, Size, Pointer<Uint64>);
 typedef _ModuleTensorAtDart = int Function(int, int, Pointer<Uint64>);
 typedef _ModulePathNative = Int32 Function(Uint64, Pointer<Utf8>);
 typedef _ModulePathDart = int Function(int, Pointer<Utf8>);
@@ -59,15 +58,7 @@ typedef _AdamCreateNative =
       Pointer<Uint64>,
     );
 typedef _AdamCreateDart =
-    int Function(
-      int,
-      double,
-      double,
-      double,
-      double,
-      double,
-      Pointer<Uint64>,
-    );
+    int Function(int, double, double, double, double, double, Pointer<Uint64>);
 
 final class NativeTrainingBindings {
   NativeTrainingBindings(DynamicLibrary library)
@@ -75,77 +66,91 @@ final class NativeTrainingBindings {
           .lookupFunction<_LastErrorNative, _LastErrorDart>(
             'ts_last_error_message',
           ),
-      trainingAvailable = library.lookupFunction<_ByteOutputNative, _ByteOutputDart>(
-        'ts_training_available',
-      ),
-      cudaDeviceCount = library.lookupFunction<_Uint32OutputNative, _Uint32OutputDart>(
-        'ts_runtime_cuda_device_count',
-      ),
+      trainingAvailable = library
+          .lookupFunction<_ByteOutputNative, _ByteOutputDart>(
+            'ts_training_available',
+          ),
+      cudaDeviceCount = library
+          .lookupFunction<_Uint32OutputNative, _Uint32OutputDart>(
+            'ts_runtime_cuda_device_count',
+          ),
       manualSeed = library.lookupFunction<_ManualSeedNative, _ManualSeedDart>(
         'ts_manual_seed',
       ),
-      tensorWithRequiresGrad = library.lookupFunction<
-        _TensorBoolTransformNative,
-        _TensorBoolTransformDart
-      >('ts_tensor_with_requires_grad'),
-      tensorRequiresGrad = library.lookupFunction<
-        _TensorBoolMetadataNative,
-        _TensorBoolMetadataDart
-      >('ts_tensor_requires_grad'),
-      tensorBackward = library.lookupFunction<_TensorStatusNative, _TensorStatusDart>(
-        'ts_tensor_backward',
-      ),
+      tensorWithRequiresGrad = library
+          .lookupFunction<_TensorBoolTransformNative, _TensorBoolTransformDart>(
+            'ts_tensor_with_requires_grad',
+          ),
+      tensorRequiresGrad = library
+          .lookupFunction<_TensorBoolMetadataNative, _TensorBoolMetadataDart>(
+            'ts_tensor_requires_grad',
+          ),
+      tensorBackward = library
+          .lookupFunction<_TensorStatusNative, _TensorStatusDart>(
+            'ts_tensor_backward',
+          ),
       tensorGrad = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
         'ts_tensor_grad',
       ),
       tensorRelu = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
         'ts_tensor_relu',
       ),
-      tensorSigmoid = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
-        'ts_tensor_sigmoid',
-      ),
+      tensorSigmoid = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_sigmoid',
+          ),
       tensorTanh = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
         'ts_tensor_tanh',
       ),
       mseLoss = library.lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
         'ts_mse_loss',
       ),
-      crossEntropyLoss = library.lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
-        'ts_cross_entropy_loss',
-      ),
-      linearCreate = library.lookupFunction<_LinearCreateNative, _LinearCreateDart>(
-        'ts_linear_create',
-      ),
-      moduleForward = library.lookupFunction<_ModuleForwardNative, _ModuleForwardDart>(
-        'ts_module_forward',
-      ),
-      moduleSetTraining = library.lookupFunction<_ModuleBoolNative, _ModuleBoolDart>(
-        'ts_module_set_training',
-      ),
-      moduleToDevice = library.lookupFunction<_ModuleToDeviceNative, _ModuleToDeviceDart>(
-        'ts_module_to_device',
-      ),
-      moduleParameterCount = library.lookupFunction<_ModuleCountNative, _ModuleCountDart>(
-        'ts_module_parameter_count',
-      ),
-      moduleParameterAt = library.lookupFunction<_ModuleTensorAtNative, _ModuleTensorAtDart>(
-        'ts_module_parameter_at',
-      ),
-      moduleBufferCount = library.lookupFunction<_ModuleCountNative, _ModuleCountDart>(
-        'ts_module_buffer_count',
-      ),
-      moduleBufferAt = library.lookupFunction<_ModuleTensorAtNative, _ModuleTensorAtDart>(
-        'ts_module_buffer_at',
-      ),
+      crossEntropyLoss = library
+          .lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
+            'ts_cross_entropy_loss',
+          ),
+      linearCreate = library
+          .lookupFunction<_LinearCreateNative, _LinearCreateDart>(
+            'ts_linear_create',
+          ),
+      moduleForward = library
+          .lookupFunction<_ModuleForwardNative, _ModuleForwardDart>(
+            'ts_module_forward',
+          ),
+      moduleSetTraining = library
+          .lookupFunction<_ModuleBoolNative, _ModuleBoolDart>(
+            'ts_module_set_training',
+          ),
+      moduleToDevice = library
+          .lookupFunction<_ModuleToDeviceNative, _ModuleToDeviceDart>(
+            'ts_module_to_device',
+          ),
+      moduleParameterCount = library
+          .lookupFunction<_ModuleCountNative, _ModuleCountDart>(
+            'ts_module_parameter_count',
+          ),
+      moduleParameterAt = library
+          .lookupFunction<_ModuleTensorAtNative, _ModuleTensorAtDart>(
+            'ts_module_parameter_at',
+          ),
+      moduleBufferCount = library
+          .lookupFunction<_ModuleCountNative, _ModuleCountDart>(
+            'ts_module_buffer_count',
+          ),
+      moduleBufferAt = library
+          .lookupFunction<_ModuleTensorAtNative, _ModuleTensorAtDart>(
+            'ts_module_buffer_at',
+          ),
       moduleSave = library.lookupFunction<_ModulePathNative, _ModulePathDart>(
         'ts_module_save',
       ),
       moduleLoad = library.lookupFunction<_ModulePathNative, _ModulePathDart>(
         'ts_module_load',
       ),
-      moduleRelease = library.lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
-        'ts_module_release',
-      ),
+      moduleRelease = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_module_release',
+          ),
       sgdCreate = library.lookupFunction<_SgdCreateNative, _SgdCreateDart>(
         'ts_sgd_create',
       ),
@@ -155,21 +160,26 @@ final class NativeTrainingBindings {
       adamWCreate = library.lookupFunction<_AdamCreateNative, _AdamCreateDart>(
         'ts_adamw_create',
       ),
-      optimizerZeroGrad = library.lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
-        'ts_optimizer_zero_grad',
-      ),
-      optimizerStep = library.lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
-        'ts_optimizer_step',
-      ),
-      optimizerRelease = library.lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
-        'ts_optimizer_release',
-      ),
-      liveModuleCount = library.lookupFunction<_Uint64OutputNative, _Uint64OutputDart>(
-        'ts_runtime_live_module_count',
-      ),
-      liveOptimizerCount = library.lookupFunction<_Uint64OutputNative, _Uint64OutputDart>(
-        'ts_runtime_live_optimizer_count',
-      );
+      optimizerZeroGrad = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_optimizer_zero_grad',
+          ),
+      optimizerStep = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_optimizer_step',
+          ),
+      optimizerRelease = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_optimizer_release',
+          ),
+      liveModuleCount = library
+          .lookupFunction<_Uint64OutputNative, _Uint64OutputDart>(
+            'ts_runtime_live_module_count',
+          ),
+      liveOptimizerCount = library
+          .lookupFunction<_Uint64OutputNative, _Uint64OutputDart>(
+            'ts_runtime_live_optimizer_count',
+          );
 
   final _LastErrorDart lastErrorMessage;
   final _ByteOutputDart trainingAvailable;
