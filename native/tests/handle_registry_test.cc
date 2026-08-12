@@ -1,10 +1,9 @@
-#include "tensora.h"
-
 #include <cstdint>
 #include <iostream>
 #include <memory>
 
 #include "runtime/handle_registry.h"
+#include "tensor/tensor.h"
 
 int main() {
   uint64_t wrong_type_handle = 0;
@@ -18,9 +17,12 @@ int main() {
     return 1;
   }
 
-  uint64_t numel = 0;
-  if (ts_tensor_numel(wrong_type_handle, &numel) != TS_INVALID_HANDLE) {
-    std::cerr << "tensor ABI accepted a handle with the wrong object type\n";
+  std::shared_ptr<tensora::Tensor> tensor;
+  const tensora::Status lookup_status =
+      tensora::HandleRegistry::Instance().Lookup<tensora::Tensor>(
+          wrong_type_handle, tensora::HandleType::kTensor, &tensor);
+  if (lookup_status.code() != TS_INVALID_HANDLE || tensor) {
+    std::cerr << "handle registry accepted a handle with the wrong object type\n";
     return 2;
   }
 
@@ -32,8 +34,11 @@ int main() {
     return 3;
   }
 
-  if (ts_tensor_numel(wrong_type_handle, &numel) != TS_INVALID_HANDLE) {
-    std::cerr << "tensor ABI accepted a stale wrong-type handle\n";
+  const tensora::Status stale_status =
+      tensora::HandleRegistry::Instance().Lookup<tensora::Tensor>(
+          wrong_type_handle, tensora::HandleType::kTensor, &tensor);
+  if (stale_status.code() != TS_INVALID_HANDLE) {
+    std::cerr << "handle registry accepted a stale handle\n";
     return 4;
   }
 

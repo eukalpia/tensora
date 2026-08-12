@@ -64,18 +64,23 @@ if(TENSORA_BUILD_TESTS)
   )
   target_link_libraries(tensora_native_tests PRIVATE tensora_native Threads::Threads)
 
-  add_executable(tensora_handle_registry_tests tests/handle_registry_test.cc)
+  add_executable(tensora_handle_registry_tests
+    tests/handle_registry_test.cc
+    src/core/status.cc
+    src/runtime/handle_registry.cc
+  )
   target_include_directories(tensora_handle_registry_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
-  target_link_libraries(tensora_handle_registry_tests PRIVATE tensora_native)
+  target_link_libraries(tensora_handle_registry_tests PRIVATE Threads::Threads)
 
   add_executable(tensora_c_abi_tests tests/c_abi_test.c)
   target_include_directories(tensora_c_abi_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
   target_link_libraries(tensora_c_abi_tests PRIVATE tensora_native)
+  set_target_properties(tensora_c_abi_tests PROPERTIES LINKER_LANGUAGE CXX)
 
   if(MSVC)
     target_compile_options(tensora_native_tests PRIVATE /W4 /WX /permissive-)
