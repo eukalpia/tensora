@@ -22,10 +22,10 @@ class SessionState {
   SessionState(const std::string& model_path,
                bool enable_profiling,
                const std::string& profiling_prefix)
-      : profiling_enabled(enable_profiling),
-        session(Environment(),
+      : session(Environment(),
                 std::filesystem::path(model_path).c_str(),
-                MakeOptions(enable_profiling, profiling_prefix)) {
+                MakeOptions(enable_profiling, profiling_prefix)),
+        profiling_enabled(enable_profiling) {
     Ort::AllocatorWithDefaultOptions allocator;
     const size_t input_count = session.GetInputCount();
     input_names.reserve(input_count);
@@ -83,6 +83,7 @@ class SessionState {
   std::vector<std::string> output_names;
   bool profiling_enabled = false;
   bool profiling_ended = false;
+  std::string profiling_path;
   std::mutex mutex;
 };
 
@@ -310,10 +311,6 @@ Status SessionRun(uint64_t session,
 
   try {
     std::lock_guard<std::mutex> lock(state->mutex);
-    if (state->profiling_ended) {
-      return InvalidArgument(
-          "onnx_session_run: profiling has ended for this session");
-    }
 
     std::vector<std::vector<float>> host_buffers(inputs.size());
     std::vector<std::vector<int64_t>> shapes(inputs.size());
@@ -378,14 +375,16 @@ Status SessionEndProfiling(uint64_t session, std::string* out_path) {
     return InvalidArgument("onnx_session_end_profiling: profiling is not enabled");
   }
   if (state->profiling_ended) {
-    return InvalidArgument("onnx_session_end_profiling: profiling already ended");
+    *out_path = state->profiling_path;
+    return Status::Ok();
   }
 
   try {
     Ort::AllocatorWithDefaultOptions allocator;
     auto path = state->session.EndProfilingAllocated(allocator);
-    *out_path = path.get();
+    state->profiling_path = path.get();
     state->profiling_ended = true;
+    *out_path = state->profiling_path;
     return Status::Ok();
   } catch (const Ort::Exception& error) {
     return OrtFailure("onnx_session_end_profiling", error);
