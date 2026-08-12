@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 
 namespace tensora {
 namespace {
@@ -21,12 +22,28 @@ Status MakeTensor(ShapeInfo shape,
 }
 
 Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
-  if (tensor.device() != Device::kCpu) {
-    return Unsupported(std::string(operation) + ": only CPU is supported");
+  if (tensor.device() != Device::kCpu || tensor.device_index() != 0) {
+    return Unsupported(std::string(operation) + ": CPU backend requires cpu:0");
   }
   if (tensor.dtype() != DType::kFloat32) {
     return Unsupported(std::string(operation) + ": only float32 is supported");
   }
+  return Status::Ok();
+}
+
+Status CpuStorageFor(const Tensor& tensor,
+                     const char* operation,
+                     std::shared_ptr<CpuStorage>* out) {
+  if (out == nullptr) {
+    return InvalidArgument(std::string(operation) +
+                           ": output storage pointer is null");
+  }
+  auto storage = std::dynamic_pointer_cast<CpuStorage>(tensor.storage());
+  if (!storage) {
+    return Unsupported(std::string(operation) +
+                       ": tensor is not backed by CPU storage");
+  }
+  *out = std::move(storage);
   return Status::Ok();
 }
 
@@ -59,8 +76,12 @@ Status CpuBackend::Reshape(const Tensor& tensor,
     return InvalidShape("reshape: target shape must preserve element count");
   }
 
+  std::shared_ptr<CpuStorage> input_storage;
+  status = CpuStorageFor(tensor, "reshape", &input_storage);
+  if (!status.ok()) return status;
+
   std::shared_ptr<CpuStorage> storage;
-  const auto& values = tensor.storage()->values();
+  const auto& values = input_storage->values();
   status = CpuStorage::FromData(values.data(), tensor.numel(), &storage);
   if (!status.ok()) return status;
   return MakeTensor(shape, std::move(storage), out);
@@ -74,6 +95,10 @@ Status CpuBackend::Transpose2D(const Tensor& tensor,
     return InvalidShape("transpose: Milestone 1 requires a rank-2 tensor");
   }
 
+  std::shared_ptr<CpuStorage> input_storage;
+  status = CpuStorageFor(tensor, "transpose", &input_storage);
+  if (!status.ok()) return status;
+
   const int64_t rows = tensor.shape().dimensions[0];
   const int64_t cols = tensor.shape().dimensions[1];
   const int64_t output_dims[2] = {cols, rows};
@@ -85,7 +110,7 @@ Status CpuBackend::Transpose2D(const Tensor& tensor,
   status = CpuStorage::Filled(output_shape.numel, 0.0f, &storage);
   if (!status.ok()) return status;
 
-  const auto& input = tensor.storage()->values();
+  const auto& input = input_storage->values();
   auto& output = storage->mutable_values();
   for (int64_t row = 0; row < rows; ++row) {
     for (int64_t col = 0; col < cols; ++col) {
@@ -109,12 +134,19 @@ Status CpuBackend::Add(const Tensor& left,
         "add: Milestone 1 elementwise operations require equal shapes");
   }
 
+  std::shared_ptr<CpuStorage> left_storage;
+  std::shared_ptr<CpuStorage> right_storage;
+  status = CpuStorageFor(left, "add", &left_storage);
+  if (!status.ok()) return status;
+  status = CpuStorageFor(right, "add", &right_storage);
+  if (!status.ok()) return status;
+
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(left.numel(), 0.0f, &storage);
   if (!status.ok()) return status;
 
-  const auto& a = left.storage()->values();
-  const auto& b = right.storage()->values();
+  const auto& a = left_storage->values();
+  const auto& b = right_storage->values();
   auto& result = storage->mutable_values();
   for (size_t i = 0; i < result.size(); ++i) {
     result[i] = a[i] + b[i];
@@ -135,12 +167,19 @@ Status CpuBackend::Multiply(const Tensor& left,
         "multiply: Milestone 1 elementwise operations require equal shapes");
   }
 
+  std::shared_ptr<CpuStorage> left_storage;
+  std::shared_ptr<CpuStorage> right_storage;
+  status = CpuStorageFor(left, "multiply", &left_storage);
+  if (!status.ok()) return status;
+  status = CpuStorageFor(right, "multiply", &right_storage);
+  if (!status.ok()) return status;
+
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(left.numel(), 0.0f, &storage);
   if (!status.ok()) return status;
 
-  const auto& a = left.storage()->values();
-  const auto& b = right.storage()->values();
+  const auto& a = left_storage->values();
+  const auto& b = right_storage->values();
   auto& result = storage->mutable_values();
   for (size_t i = 0; i < result.size(); ++i) {
     result[i] = a[i] * b[i];
@@ -154,12 +193,16 @@ Status CpuBackend::Sum(const Tensor& tensor,
   Status status = EnsureCpuFloat32(tensor, "sum");
   if (!status.ok()) return status;
 
+  std::shared_ptr<CpuStorage> input_storage;
+  status = CpuStorageFor(tensor, "sum", &input_storage);
+  if (!status.ok()) return status;
+
   ShapeInfo scalar_shape;
   status = ValidateShape(nullptr, 0, &scalar_shape);
   if (!status.ok()) return status;
 
   float value = 0.0f;
-  for (float item : tensor.storage()->values()) {
+  for (float item : input_storage->values()) {
     value += item;
   }
 
@@ -190,6 +233,13 @@ Status CpuBackend::Matmul(const Tensor& left,
     return InvalidShape("matmul: inner dimensions must match");
   }
 
+  std::shared_ptr<CpuStorage> left_storage;
+  std::shared_ptr<CpuStorage> right_storage;
+  status = CpuStorageFor(left, "matmul", &left_storage);
+  if (!status.ok()) return status;
+  status = CpuStorageFor(right, "matmul", &right_storage);
+  if (!status.ok()) return status;
+
   const int64_t output_dims[2] = {m, n};
   ShapeInfo output_shape;
   status = ValidateShape(output_dims, 2, &output_shape);
@@ -199,8 +249,8 @@ Status CpuBackend::Matmul(const Tensor& left,
   status = CpuStorage::Filled(output_shape.numel, 0.0f, &storage);
   if (!status.ok()) return status;
 
-  const auto& a = left.storage()->values();
-  const auto& b = right.storage()->values();
+  const auto& a = left_storage->values();
+  const auto& b = right_storage->values();
   auto& c = storage->mutable_values();
 
   for (int64_t row = 0; row < m; ++row) {
