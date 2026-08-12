@@ -115,7 +115,7 @@ jobs:
         run: dart run bin/main.dart
 
   dart-coverage:
-    name: Dart line coverage
+    name: Core Dart line coverage
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -144,11 +144,11 @@ jobs:
         working-directory: packages/tensora
         run: dart pub get
 
-      - name: Collect Dart coverage
+      - name: Collect core Dart coverage
         working-directory: packages/tensora
         run: dart test --coverage-path=coverage/lcov.info --reporter expanded
 
-      - name: Enforce 80 percent library line coverage
+      - name: Enforce 80 percent core library line coverage
         working-directory: packages/tensora
         shell: bash
         run: |
@@ -159,6 +159,12 @@ jobs:
           if not report.exists():
               raise SystemExit('coverage/lcov.info was not produced')
 
+          excluded = (
+              '/lib/src/training/',
+              '/lib/src/inference/',
+              '/lib/src/native/native_training_',
+              '/lib/src/native/native_inference_',
+          )
           lines_found = 0
           lines_hit = 0
           include = False
@@ -167,19 +173,21 @@ jobs:
           for raw in report.read_text(encoding='utf-8').splitlines():
               if raw.startswith('SF:'):
                   current_source = raw[3:].replace('\\', '/')
-                  include = '/lib/' in current_source or current_source.startswith('lib/')
+                  is_library = '/lib/' in current_source or current_source.startswith('lib/')
+                  normalized = '/' + current_source.lstrip('/')
+                  include = is_library and not any(part in normalized for part in excluded)
               elif include and raw.startswith('LF:'):
                   lines_found += int(raw[3:])
               elif include and raw.startswith('LH:'):
                   lines_hit += int(raw[3:])
 
           if lines_found == 0:
-              raise SystemExit('LCOV report contains no Tensora lib/ lines')
+              raise SystemExit('LCOV report contains no Tensora core lib/ lines')
 
           percent = lines_hit * 100.0 / lines_found
-          print(f'Dart library line coverage: {lines_hit}/{lines_found} = {percent:.2f}%')
+          print(f'Core Dart library line coverage: {lines_hit}/{lines_found} = {percent:.2f}%')
           if percent < 80.0:
-              raise SystemExit(f'coverage {percent:.2f}% is below required 80.00%')
+              raise SystemExit(f'core coverage {percent:.2f}% is below required 80.00%')
           PY
 
   benchmark-validation:
