@@ -64,10 +64,7 @@ void main() {
     addTearDown(session.dispose);
     addTearDown(input.dispose);
 
-    expect(
-      () => session.run({}),
-      throwsA(isA<InvalidArgumentException>()),
-    );
+    expect(() => session.run({}), throwsA(isA<InvalidArgumentException>()));
     expect(
       () => session.run({'wrong': input}),
       throwsA(isA<InvalidArgumentException>()),
@@ -136,10 +133,7 @@ void main() {
     final profile = File(profilePath);
     expect(profile.existsSync(), isTrue);
     profile.deleteSync();
-    expect(
-      session.endProfiling,
-      throwsA(isA<InvalidArgumentException>()),
-    );
+    expect(session.endProfiling, throwsA(isA<InvalidArgumentException>()));
 
     session.dispose();
     session.dispose();
@@ -153,9 +147,6 @@ void main() {
   test('endProfiling rejects sessions created without profiling', () {
     final session = OnnxSession(modelPath!);
     addTearDown(session.dispose);
-    expect(
-      session.endProfiling,
-      throwsA(isA<InvalidArgumentException>()),
-    );
+    expect(session.endProfiling, throwsA(isA<InvalidArgumentException>()));
   });
 }
