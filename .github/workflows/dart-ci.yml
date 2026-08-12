@@ -114,6 +114,120 @@ jobs:
         working-directory: examples/tensor_basics
         run: dart run bin/main.dart
 
+  dart-coverage:
+    name: Dart line coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/native/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Configure native runtime
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build native runtime
+        run: cmake --build build/native --config Release --parallel
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Collect Dart coverage
+        working-directory: packages/tensora
+        run: dart test --coverage-path=coverage/lcov.info --reporter expanded
+
+      - name: Enforce 80 percent library line coverage
+        working-directory: packages/tensora
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          report = Path('coverage/lcov.info')
+          if not report.exists():
+              raise SystemExit('coverage/lcov.info was not produced')
+
+          lines_found = 0
+          lines_hit = 0
+          include = False
+          current_source = None
+
+          for raw in report.read_text(encoding='utf-8').splitlines():
+              if raw.startswith('SF:'):
+                  current_source = raw[3:].replace('\\', '/')
+                  include = '/lib/' in current_source or current_source.startswith('lib/')
+              elif include and raw.startswith('LF:'):
+                  lines_found += int(raw[3:])
+              elif include and raw.startswith('LH:'):
+                  lines_hit += int(raw[3:])
+
+          if lines_found == 0:
+              raise SystemExit('LCOV report contains no Tensora lib/ lines')
+
+          percent = lines_hit * 100.0 / lines_found
+          print(f'Dart library line coverage: {lines_hit}/{lines_found} = {percent:.2f}%')
+          if percent < 80.0:
+              raise SystemExit(f'coverage {percent:.2f}% is below required 80.00%')
+          PY
+
+  benchmark-validation:
+    name: Benchmark validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/native/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Record benchmark environment
+        shell: bash
+        run: |
+          uname -a
+          lscpu
+          cmake --version
+          c++ --version
+          dart --version
+
+      - name: Configure native Release benchmark
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=ON
+
+      - name: Build native Release benchmark
+        run: cmake --build build/native --config Release --parallel
+
+      - name: Run native benchmark baseline
+        run: ./build/native/tensora_native_benchmark --smoke
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run Dart FFI benchmark
+        working-directory: packages/tensora
+        run: dart run benchmark/tensor_benchmark.dart
+
   ffi-platform:
     name: Dart FFI ${{ matrix.os }}
     strategy:
