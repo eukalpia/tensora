@@ -5,6 +5,7 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <vector>
 
 #include "backends/backend.h"
 #include "core/status.h"
@@ -65,6 +66,22 @@ Status BackendFor(const Tensor& tensor, const Backend** out_backend) {
   return Dispatcher::For(tensor.device(), out_backend);
 }
 
+Status DeviceFromCode(uint32_t code, Device* out_device) {
+  if (out_device == nullptr) {
+    return InvalidArgument("device: output pointer is null");
+  }
+  switch (code) {
+    case TS_DEVICE_CPU:
+      *out_device = Device::kCpu;
+      return Status::Ok();
+    case TS_DEVICE_CUDA:
+      *out_device = Device::kCuda;
+      return Status::Ok();
+    default:
+      return Unsupported("device: unknown device kind");
+  }
+}
+
 using BinaryOperation = Status (Backend::*)(
     const Tensor&, const Tensor&, std::shared_ptr<Tensor>*) const;
 
@@ -86,7 +103,8 @@ Status RunBinaryOperation(ts_tensor_t left,
   status = LookupTensor(right, &right_object);
   if (!status.ok()) return status;
 
-  if (left_object->device() != right_object->device()) {
+  if (left_object->device() != right_object->device() ||
+      left_object->device_index() != right_object->device_index()) {
     return InvalidArgument(std::string(operation) +
                            ": input tensors must use the same device");
   }
@@ -132,6 +150,17 @@ const char* ts_status_name(int32_t status) {
 
 ts_status_t ts_noop(void) {
   return tensora::GuardedAbiCall("noop", [] { return tensora::Status::Ok(); });
+}
+
+ts_status_t ts_runtime_cuda_device_count(uint32_t* out_count) {
+  return tensora::GuardedAbiCall("runtime_cuda_device_count", [&] {
+    if (out_count == nullptr) {
+      return tensora::InvalidArgument(
+          "runtime_cuda_device_count: output pointer is null");
+    }
+    *out_count = 0;
+    return tensora::Status::Ok();
+  });
 }
 
 ts_status_t ts_tensor_from_f32(const float* data,
@@ -273,6 +302,22 @@ ts_status_t ts_tensor_device(ts_tensor_t tensor, uint32_t* out_device) {
   });
 }
 
+ts_status_t ts_tensor_device_index(ts_tensor_t tensor,
+                                   int32_t* out_device_index) {
+  return tensora::GuardedAbiCall("tensor_device_index", [&] {
+    if (out_device_index == nullptr) {
+      return tensora::InvalidArgument(
+          "tensor_device_index: output device index pointer is null");
+    }
+
+    std::shared_ptr<tensora::Tensor> object;
+    tensora::Status status = tensora::LookupTensor(tensor, &object);
+    if (!status.ok()) return status;
+    *out_device_index = object->device_index();
+    return tensora::Status::Ok();
+  });
+}
+
 ts_status_t ts_tensor_numel(ts_tensor_t tensor, uint64_t* out_numel) {
   return tensora::GuardedAbiCall("tensor_numel", [&] {
     if (out_numel == nullptr) {
@@ -285,6 +330,62 @@ ts_status_t ts_tensor_numel(ts_tensor_t tensor, uint64_t* out_numel) {
     if (!status.ok()) return status;
     *out_numel = object->numel();
     return tensora::Status::Ok();
+  });
+}
+
+ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
+                                uint32_t device,
+                                int32_t device_index,
+                                ts_tensor_t* out_tensor) {
+  return tensora::GuardedAbiCall("tensor_to_device", [&] {
+    if (out_tensor == nullptr) {
+      return tensora::InvalidArgument(
+          "tensor_to_device: output handle pointer is null");
+    }
+    *out_tensor = 0;
+
+    tensora::Device target;
+    tensora::Status status = tensora::DeviceFromCode(device, &target);
+    if (!status.ok()) return status;
+    if (target == tensora::Device::kCpu && device_index != 0) {
+      return tensora::InvalidArgument(
+          "tensor_to_device: CPU device index must be zero");
+    }
+    if (target == tensora::Device::kCuda) {
+      if (device_index < 0) {
+        return tensora::InvalidArgument(
+            "tensor_to_device: CUDA device index cannot be negative");
+      }
+      return tensora::Unsupported(
+          "tensor_to_device: CUDA training backend is not enabled");
+    }
+
+    std::shared_ptr<tensora::Tensor> object;
+    status = tensora::LookupTensor(tensor, &object);
+    if (!status.ok()) return status;
+    if (object->dtype() != tensora::DType::kFloat32) {
+      return tensora::Unsupported(
+          "tensor_to_device: only float32 is supported");
+    }
+
+    std::vector<float> values(static_cast<size_t>(object->numel()));
+    size_t written = 0;
+    status = object->storage()->CopyToHostF32(
+        values.data(), values.size(), &written);
+    if (!status.ok()) return status;
+    if (written != values.size()) {
+      return tensora::InternalError(
+          "tensor_to_device: storage returned an inconsistent element count");
+    }
+
+    const tensora::Backend* backend = nullptr;
+    status = tensora::Dispatcher::For(target, &backend);
+    if (!status.ok()) return status;
+
+    std::shared_ptr<tensora::Tensor> result;
+    status = backend->FromData(object->shape(), values.data(), &result);
+    if (!status.ok()) return status;
+    return tensora::InsertTensor(std::move(result), out_tensor);
   });
 }
 
@@ -420,9 +521,14 @@ ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
           "tensor_copy_to_host_f32: output values pointer is null");
     }
 
-    const auto& values = object->storage()->values();
-    std::copy(values.begin(), values.end(), out_values);
-    *out_written = values.size();
+    status = object->storage()->CopyToHostF32(
+        out_values, capacity, out_written);
+    if (!status.ok()) return status;
+    if (*out_written != object->numel()) {
+      *out_written = 0;
+      return tensora::InternalError(
+          "tensor_copy_to_host_f32: storage returned an inconsistent element count");
+    }
     return tensora::Status::Ok();
   });
 }
