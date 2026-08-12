@@ -25,6 +25,7 @@ class CpuStorage final : public TensorStorage {
   CpuStorage(const CpuStorage&) = delete;
   CpuStorage& operator=(const CpuStorage&) = delete;
 
+  StorageKind kind() const override { return StorageKind::kCpu; }
   const std::vector<float>& values() const { return values_; }
   std::vector<float>& mutable_values() { return values_; }
   uint64_t numel() const { return static_cast<uint64_t>(values_.size()); }
