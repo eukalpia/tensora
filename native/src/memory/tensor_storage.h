@@ -8,6 +8,11 @@
 
 namespace tensora {
 
+enum class StorageKind : uint32_t {
+  kCpu = 1,
+  kTorch = 2,
+};
+
 class TensorStorage {
  public:
   virtual ~TensorStorage() = default;
@@ -15,6 +20,7 @@ class TensorStorage {
   TensorStorage(const TensorStorage&) = delete;
   TensorStorage& operator=(const TensorStorage&) = delete;
 
+  virtual StorageKind kind() const = 0;
   virtual Status CopyToHostF32(float* out_values,
                                size_t capacity,
                                size_t* out_written) const = 0;
