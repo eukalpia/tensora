@@ -468,7 +468,7 @@ The following should not delay initial usefulness:
 - inventing proprietary weight formats without necessity;
 - creating a cloud hosting product;
 - creating a vector database;
-- creating a generic agent framework;
+- creating an unrelated general-purpose workflow platform;
 - creating empty packages to make the project look complete.
 
 ## Release philosophy
