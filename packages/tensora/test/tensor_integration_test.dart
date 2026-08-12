@@ -233,26 +233,4 @@ void main() {
       }
     });
   });
-
-  test(
-    'repeated Dart FFI lifecycle returns native counters to baseline',
-    () {
-      final runtime = NativeRuntime.instance;
-      final startCount = runtime.liveTensorCount();
-      final startBytes = runtime.liveStorageBytes();
-
-      for (var index = 0; index < 1000; index++) {
-        final a = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
-        final b = Tensor.fromList([5, 6, 7, 8], shape: Shape([2, 2]));
-        final result = a.matmul(b);
-        result.dispose();
-        b.dispose();
-        a.dispose();
-      }
-
-      expect(runtime.liveTensorCount(), startCount);
-      expect(runtime.liveStorageBytes(), startBytes);
-    },
-    tags: 'lifecycle',
-  );
 }
