@@ -1,5 +1,11 @@
 #include "training/training_bridge.h"
 
+#include <string>
+#include <vector>
+
+#include "backends/backend.h"
+#include "runtime/dispatcher.h"
+
 namespace tensora::training {
 namespace {
 
@@ -61,7 +67,11 @@ Status Transfer(const Tensor& tensor,
 }
 
 Status WithRequiresGrad(const Tensor&, bool, std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument(
+        "tensor_with_requires_grad: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("tensor_with_requires_grad");
 }
 
@@ -70,42 +80,61 @@ Status RequiresGrad(const Tensor&, uint8_t* out_requires_grad) {
     return InvalidArgument("tensor_requires_grad: output pointer is null");
   }
   *out_requires_grad = 0;
-  return Disabled("tensor_requires_grad");
+  return Status::Ok();
 }
 
 Status Backward(const Tensor&) { return Disabled("tensor_backward"); }
 
 Status Gradient(const Tensor&, std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("tensor_grad: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("tensor_grad");
 }
 
 Status Relu(const Tensor&, std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("tensor_relu: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("tensor_relu");
 }
 
 Status Sigmoid(const Tensor&, std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("tensor_sigmoid: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("tensor_sigmoid");
 }
 
 Status Tanh(const Tensor&, std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("tensor_tanh: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("tensor_tanh");
 }
 
 Status MseLoss(const Tensor&,
                const Tensor&,
                std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("mse_loss: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("mse_loss");
 }
 
 Status CrossEntropyLoss(const Tensor&,
                         const Tensor&,
                         std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument(
+        "cross_entropy_loss: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("cross_entropy_loss");
 }
 
@@ -113,14 +142,20 @@ Status LinearCreate(int64_t,
                     int64_t,
                     bool,
                     uint64_t* out_module) {
-  if (out_module != nullptr) *out_module = 0;
+  if (out_module == nullptr) {
+    return InvalidArgument("linear_create: output handle pointer is null");
+  }
+  *out_module = 0;
   return Disabled("linear_create");
 }
 
 Status ModuleForward(uint64_t,
                      const Tensor&,
                      std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("module_forward: output tensor pointer is null");
+  }
+  *out = nullptr;
   return Disabled("module_forward");
 }
 
@@ -133,26 +168,38 @@ Status ModuleToDevice(uint64_t, Device, int32_t) {
 }
 
 Status ModuleParameterCount(uint64_t, size_t* out_count) {
-  if (out_count != nullptr) *out_count = 0;
+  if (out_count == nullptr) {
+    return InvalidArgument("module_parameter_count: output pointer is null");
+  }
+  *out_count = 0;
   return Disabled("module_parameter_count");
 }
 
 Status ModuleParameterAt(uint64_t,
                          size_t,
                          std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("module_parameter_at: output pointer is null");
+  }
+  *out = nullptr;
   return Disabled("module_parameter_at");
 }
 
 Status ModuleBufferCount(uint64_t, size_t* out_count) {
-  if (out_count != nullptr) *out_count = 0;
+  if (out_count == nullptr) {
+    return InvalidArgument("module_buffer_count: output pointer is null");
+  }
+  *out_count = 0;
   return Disabled("module_buffer_count");
 }
 
 Status ModuleBufferAt(uint64_t,
                       size_t,
                       std::shared_ptr<Tensor>* out) {
-  if (out != nullptr) *out = nullptr;
+  if (out == nullptr) {
+    return InvalidArgument("module_buffer_at: output pointer is null");
+  }
+  *out = nullptr;
   return Disabled("module_buffer_at");
 }
 
@@ -171,7 +218,10 @@ Status SgdCreate(uint64_t,
                  double,
                  double,
                  uint64_t* out_optimizer) {
-  if (out_optimizer != nullptr) *out_optimizer = 0;
+  if (out_optimizer == nullptr) {
+    return InvalidArgument("sgd_create: output handle pointer is null");
+  }
+  *out_optimizer = 0;
   return Disabled("sgd_create");
 }
 
@@ -182,7 +232,10 @@ Status AdamCreate(uint64_t,
                   double,
                   double,
                   uint64_t* out_optimizer) {
-  if (out_optimizer != nullptr) *out_optimizer = 0;
+  if (out_optimizer == nullptr) {
+    return InvalidArgument("adam_create: output handle pointer is null");
+  }
+  *out_optimizer = 0;
   return Disabled("adam_create");
 }
 
@@ -193,7 +246,10 @@ Status AdamWCreate(uint64_t,
                    double,
                    double,
                    uint64_t* out_optimizer) {
-  if (out_optimizer != nullptr) *out_optimizer = 0;
+  if (out_optimizer == nullptr) {
+    return InvalidArgument("adamw_create: output handle pointer is null");
+  }
+  *out_optimizer = 0;
   return Disabled("adamw_create");
 }
 
