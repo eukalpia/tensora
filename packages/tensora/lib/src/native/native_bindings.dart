@@ -104,10 +104,10 @@ final class NativeBindings {
         _TensorUint32MetadataNative,
         _TensorUint32MetadataDart
       >('ts_tensor_device'),
-      tensorDeviceIndex = library.lookupFunction<
-        _TensorInt32MetadataNative,
-        _TensorInt32MetadataDart
-      >('ts_tensor_device_index'),
+      tensorDeviceIndex = library
+          .lookupFunction<_TensorInt32MetadataNative, _TensorInt32MetadataDart>(
+            'ts_tensor_device_index',
+          ),
       tensorNumel = library.lookupFunction<
         _TensorUint64MetadataNative,
         _TensorUint64MetadataDart
