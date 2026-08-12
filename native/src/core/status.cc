@@ -29,6 +29,10 @@ Status InternalError(std::string message) {
   return Status(TS_INTERNAL_ERROR, std::move(message));
 }
 
+Status ModelError(std::string message) {
+  return Status(TS_MODEL_ERROR, std::move(message));
+}
+
 void ClearLastError() { g_last_error.clear(); }
 
 void SetLastError(const Status& status) {
