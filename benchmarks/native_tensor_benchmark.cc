@@ -37,8 +37,10 @@ bool benchmark_matmul(int64_t size, int warmup, int iterations) {
 
   ts_tensor_t a = 0;
   ts_tensor_t b = 0;
-  if (!check(ts_tensor_from_f32(values.data(), dims, 2, &a), "create a") ||
-      !check(ts_tensor_from_f32(values.data(), dims, 2, &b), "create b")) {
+  if (!check(ts_tensor_from_f32(values.data(), values.size(), dims, 2, &a),
+             "create a") ||
+      !check(ts_tensor_from_f32(values.data(), values.size(), dims, 2, &b),
+             "create b")) {
     return false;
   }
 
