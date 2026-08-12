@@ -11,20 +11,10 @@ typedef _LastErrorDart = Pointer<Utf8> Function();
 typedef _NoopNative = Int32 Function();
 typedef _NoopDart = int Function();
 
-typedef _TensorFromF32Native = Int32 Function(
-  Pointer<Float>,
-  Size,
-  Pointer<Int64>,
-  Size,
-  Pointer<Uint64>,
-);
-typedef _TensorFromF32Dart = int Function(
-  Pointer<Float>,
-  int,
-  Pointer<Int64>,
-  int,
-  Pointer<Uint64>,
-);
+typedef _TensorFromF32Native =
+    Int32 Function(Pointer<Float>, Size, Pointer<Int64>, Size, Pointer<Uint64>);
+typedef _TensorFromF32Dart =
+    int Function(Pointer<Float>, int, Pointer<Int64>, int, Pointer<Uint64>);
 
 typedef _TensorFullF32Native =
     Int32 Function(Pointer<Int64>, Size, Float, Pointer<Uint64>);
