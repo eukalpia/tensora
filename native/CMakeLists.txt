@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(tensora_native VERSION 0.2.0 LANGUAGES C CXX)
+project(tensora_native VERSION 0.3.0 LANGUAGES C CXX)
 
 option(TENSORA_BUILD_TESTS "Build Tensora native tests" ON)
 option(TENSORA_BUILD_BENCHMARKS "Build Tensora native benchmarks" ON)
 option(TENSORA_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(TENSORA_WITH_TORCH "Build the LibTorch training backend" OFF)
 option(TENSORA_WITH_ONNXRUNTIME "Build the ONNX Runtime inference backend" OFF)
+set(TENSORA_ONNXRUNTIME_ROOT "" CACHE PATH "Root directory of an ONNX Runtime C/C++ distribution")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -21,6 +22,7 @@ set(TENSORA_NATIVE_SOURCES
   src/backends/cpu/cpu_backend.cc
   src/c_api.cc
   src/core/status.cc
+  src/inference/inference_c_api.cc
   src/memory/cpu_storage.cc
   src/runtime/dispatcher.cc
   src/runtime/handle_registry.cc
@@ -42,11 +44,40 @@ else()
   )
 endif()
 
+if(TENSORA_WITH_ONNXRUNTIME)
+  if(NOT TENSORA_ONNXRUNTIME_ROOT)
+    message(FATAL_ERROR "TENSORA_WITH_ONNXRUNTIME requires TENSORA_ONNXRUNTIME_ROOT")
+  endif()
+  find_path(TENSORA_ONNXRUNTIME_INCLUDE_DIR
+    NAMES onnxruntime_cxx_api.h
+    PATHS "${TENSORA_ONNXRUNTIME_ROOT}/include"
+    NO_DEFAULT_PATH
+  )
+  find_library(TENSORA_ONNXRUNTIME_LIBRARY
+    NAMES onnxruntime
+    PATHS "${TENSORA_ONNXRUNTIME_ROOT}/lib"
+    NO_DEFAULT_PATH
+  )
+  if(NOT TENSORA_ONNXRUNTIME_INCLUDE_DIR OR NOT TENSORA_ONNXRUNTIME_LIBRARY)
+    message(FATAL_ERROR "ONNX Runtime headers or library were not found under TENSORA_ONNXRUNTIME_ROOT")
+  endif()
+  list(APPEND TENSORA_NATIVE_SOURCES
+    src/inference/inference_bridge_onnx.cc
+  )
+else()
+  list(APPEND TENSORA_NATIVE_SOURCES
+    src/inference/inference_bridge_stub.cc
+  )
+endif()
+
 add_library(tensora_native SHARED ${TENSORA_NATIVE_SOURCES})
 
 target_compile_definitions(tensora_native PRIVATE TENSORA_NATIVE_BUILD)
 if(TENSORA_WITH_TORCH)
   target_compile_definitions(tensora_native PRIVATE TENSORA_WITH_TORCH=1)
+endif()
+if(TENSORA_WITH_ONNXRUNTIME)
+  target_compile_definitions(tensora_native PRIVATE TENSORA_WITH_ONNXRUNTIME=1)
 endif()
 
 target_include_directories(tensora_native
@@ -55,6 +86,9 @@ target_include_directories(tensora_native
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+if(TENSORA_WITH_ONNXRUNTIME)
+  target_include_directories(tensora_native PRIVATE ${TENSORA_ONNXRUNTIME_INCLUDE_DIR})
+endif()
 target_link_libraries(tensora_native PRIVATE Threads::Threads)
 
 if(TENSORA_WITH_TORCH)
@@ -63,6 +97,9 @@ if(TENSORA_WITH_TORCH)
     separate_arguments(TORCH_CXX_FLAGS_LIST NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
     target_compile_options(tensora_native PRIVATE ${TORCH_CXX_FLAGS_LIST})
   endif()
+endif()
+if(TENSORA_WITH_ONNXRUNTIME)
+  target_link_libraries(tensora_native PRIVATE ${TENSORA_ONNXRUNTIME_LIBRARY})
 endif()
 
 if(MSVC)
@@ -78,8 +115,8 @@ if(TENSORA_ENABLE_SANITIZERS)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     message(FATAL_ERROR "TENSORA_ENABLE_SANITIZERS requires Clang or GCC")
   endif()
-  if(TENSORA_WITH_TORCH)
-    message(FATAL_ERROR "Run Tensora sanitizers in a core build; third-party LibTorch binaries are not instrumented by this configuration")
+  if(TENSORA_WITH_TORCH OR TENSORA_WITH_ONNXRUNTIME)
+    message(FATAL_ERROR "Run Tensora sanitizers in a core build; third-party runtime binaries are not instrumented by this configuration")
   endif()
 
   set(TENSORA_SANITIZER_FLAGS -fsanitize=address,undefined -fno-omit-frame-pointer)
@@ -117,6 +154,9 @@ if(TENSORA_BUILD_TESTS)
   if(TENSORA_WITH_TORCH)
     target_compile_definitions(tensora_c_abi_tests PRIVATE TENSORA_WITH_TORCH=1)
   endif()
+  if(TENSORA_WITH_ONNXRUNTIME)
+    target_compile_definitions(tensora_c_abi_tests PRIVATE TENSORA_WITH_ONNXRUNTIME=1)
+  endif()
 
   if(TENSORA_WITH_TORCH)
     add_executable(tensora_training_tests tests/training_test.cc)
@@ -126,6 +166,14 @@ if(TENSORA_BUILD_TESTS)
     target_link_libraries(tensora_training_tests PRIVATE tensora_native)
   endif()
 
+  if(TENSORA_WITH_ONNXRUNTIME)
+    add_executable(tensora_inference_tests tests/inference_test.cc)
+    target_include_directories(tensora_inference_tests PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(tensora_inference_tests PRIVATE tensora_native Threads::Threads)
+  endif()
+
   if(MSVC)
     target_compile_options(tensora_native_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_handle_registry_tests PRIVATE /W4 /WX /permissive-)
@@ -133,12 +181,18 @@ if(TENSORA_BUILD_TESTS)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE /W4 /WX /permissive-)
     endif()
+    if(TENSORA_WITH_ONNXRUNTIME)
+      target_compile_options(tensora_inference_tests PRIVATE /W4 /WX /permissive-)
+    endif()
   else()
     target_compile_options(tensora_native_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_handle_registry_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_c_abi_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    if(TENSORA_WITH_ONNXRUNTIME)
+      target_compile_options(tensora_inference_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
   endif()
 
@@ -156,6 +210,9 @@ if(TENSORA_BUILD_TESTS)
   add_test(NAME tensora_c_abi_tests COMMAND tensora_c_abi_tests)
   if(TENSORA_WITH_TORCH)
     add_test(NAME tensora_training_tests COMMAND tensora_training_tests)
+  endif()
+  if(TENSORA_WITH_ONNXRUNTIME)
+    add_test(NAME tensora_inference_tests COMMAND tensora_inference_tests)
   endif()
 endif()
 
