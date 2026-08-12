@@ -66,12 +66,15 @@ void main() {
       );
     });
 
-    test('creation requires explicit CPU host import before device transfer', () {
-      expect(
-        () => Tensor.ones(Shape([1]), device: Device.cuda(0)),
-        throwsA(isA<UnsupportedOperationException>()),
-      );
-    });
+    test(
+      'creation requires explicit CPU host import before device transfer',
+      () {
+        expect(
+          () => Tensor.ones(Shape([1]), device: Device.cuda(0)),
+          throwsA(isA<UnsupportedOperationException>()),
+        );
+      },
+    );
 
     test('reshape preserves values and element count', () {
       final input = Tensor.fromList([1, 2, 3, 4, 5, 6], shape: Shape([2, 3]));
@@ -166,7 +169,10 @@ void main() {
         expect(tensor.isDisposed, isTrue);
         expect(tensor.toList, throwsA(isA<DisposedTensorException>()));
         expect(tensor.sum, throwsA(isA<DisposedTensorException>()));
-        expect(() => tensor.to(Device.cpu), throwsA(isA<DisposedTensorException>()));
+        expect(
+          () => tensor.to(Device.cpu),
+          throwsA(isA<DisposedTensorException>()),
+        );
       },
     );
 
