@@ -93,10 +93,10 @@ jobs:
         working-directory: packages/tensora
         run: dart analyze --fatal-infos --fatal-warnings lib integration_test
 
-      - name: Run Dart training integration suite
+      - name: Run primary Dart training integration suite
         working-directory: packages/tensora
-        run: >-
-          dart test
-          integration_test/training_integration_test.dart
-          integration_test/training_edge_integration_test.dart
-          --reporter expanded
+        run: dart test integration_test/training_integration_test.dart --reporter expanded
+
+      - name: Run Dart training edge suite in isolated process
+        working-directory: packages/tensora
+        run: dart test integration_test/training_edge_integration_test.dart --reporter expanded
