@@ -10,9 +10,9 @@ final Finalizer<int> _tensorFinalizer = Finalizer<int>((handle) {
 
 /// An immutable native-backed tensor.
 ///
-/// Tensor wrappers are isolate-local in Milestone 1. Create or reconstruct a
-/// Tensor inside the isolate that will own and use it rather than sending the
-/// native handle wrapper through an isolate port.
+/// Tensor wrappers are isolate-local. Create or reconstruct a Tensor inside the
+/// isolate that will own and use it rather than sending the native handle
+/// wrapper through an isolate port.
 @pragma('vm:isolate-unsendable')
 final class Tensor {
   Tensor._(
@@ -31,7 +31,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateSupported(dtype: dtype, device: device, operation: 'fromList');
+    _validateCreation(dtype: dtype, device: device, operation: 'fromList');
     if (values.length != shape.numel) {
       throw InvalidShapeException(
         'Input contains ${values.length} values, but $shape requires '
@@ -65,7 +65,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateSupported(dtype: dtype, device: device, operation: 'full');
+    _validateCreation(dtype: dtype, device: device, operation: 'full');
     final handle = NativeRuntime.instance.full(shape, value.toDouble());
     return _adopt(handle);
   }
@@ -88,6 +88,15 @@ final class Tensor {
   /// Whether deterministic native release has completed.
   bool get isDisposed => _disposed;
 
+  /// Returns an independent tensor on [target].
+  ///
+  /// CPU-to-CPU transfer is always available. CUDA transfer requires a native
+  /// runtime built with the optional training backend and a visible CUDA device.
+  Tensor to(Device target) {
+    _ensureLive('to');
+    return _adopt(NativeRuntime.instance.toDevice(_handle, target));
+  }
+
   /// Returns an independent contiguous tensor with [newShape].
   Tensor reshape(Shape newShape) {
     _ensureLive('reshape');
@@ -101,14 +110,14 @@ final class Tensor {
     return _adopt(NativeRuntime.instance.transpose2D(_handle));
   }
 
-  /// Elementwise addition. Milestone 1 requires exactly equal shapes.
+  /// Elementwise addition. The current core contract requires equal shapes.
   Tensor add(Tensor other) {
     _ensureLive('add');
     other._ensureLive('add');
     return _adopt(NativeRuntime.instance.add(_handle, other._handle));
   }
 
-  /// Elementwise multiplication. Milestone 1 requires exactly equal shapes.
+  /// Elementwise multiplication. The current core contract requires equal shapes.
   Tensor multiply(Tensor other) {
     _ensureLive('multiply');
     other._ensureLive('multiply');
@@ -168,20 +177,20 @@ final class Tensor {
     }
   }
 
-  static void _validateSupported({
+  static void _validateCreation({
     required DType dtype,
     required Device device,
     required String operation,
   }) {
     if (dtype != DType.float32) {
       throw UnsupportedOperationException(
-        'Milestone 1 supports only DType.float32.',
+        'Tensor creation currently supports only DType.float32.',
         operation: 'tensor.$operation',
       );
     }
-    if (!identical(device, Device.cpu)) {
+    if (device != Device.cpu) {
       throw UnsupportedOperationException(
-        'Milestone 1 supports only Device.cpu.',
+        'Create host tensors on Device.cpu and transfer them explicitly.',
         operation: 'tensor.$operation',
       );
     }
