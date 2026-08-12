@@ -1,0 +1,75 @@
+name: Inference CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inference-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inference-cpu:
+    name: ONNX Runtime CPU inference
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ORT_VERSION: '1.26.0'
+      ORT_SHA256: '1254da24fb389cf39dc0ff3451ab48301740ffbfcbaf646849df92f80ee92c57'
+      TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned ONNX fixture dependency
+        run: python -m pip install onnx==1.21.0 numpy
+
+      - name: Generate deterministic ONNX fixture
+        run: python native/tests/generate_onnx_fixture.py "$TENSORA_ONNX_TEST_MODEL"
+
+      - name: Download pinned ONNX Runtime distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="build/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          mkdir -p build
+          curl --fail --location --retry 3 \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+            --output "$archive"
+          echo "${ORT_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C build
+          echo "ORT_ROOT=${GITHUB_WORKSPACE}/build/onnxruntime-linux-x64-${ORT_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Configure inference-enabled runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/inference
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_WITH_ONNXRUNTIME=ON
+          -DTENSORA_ONNXRUNTIME_ROOT="$ORT_ROOT"
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build inference-enabled runtime
+        run: cmake --build build/inference --config Release --parallel 2
+
+      - name: Run native inference acceptance suite
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: ${{ env.ORT_ROOT }}/lib
+        run: ctest --test-dir build/inference --build-config Release --output-on-failure
