@@ -1,6 +1,18 @@
 name: CUDA Hardware Validation
 
 on:
+  push:
+    branches:
+      - 'feature/m2-m3-training-inference'
+    paths:
+      - 'native/**'
+      - 'packages/tensora/**'
+      - '.github/workflows/cuda-validation.yml'
+  pull_request:
+    paths:
+      - 'native/**'
+      - 'packages/tensora/**'
+      - '.github/workflows/cuda-validation.yml'
   workflow_dispatch:
 
 permissions:
@@ -8,7 +20,7 @@ permissions:
 
 concurrency:
   group: cuda-hardware-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   cuda-training:
