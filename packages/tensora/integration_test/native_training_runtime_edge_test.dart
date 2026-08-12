@@ -60,24 +60,27 @@ void main() {
     expect(runtime.liveOptimizerCount(), greaterThanOrEqualTo(0));
   });
 
-  test('finalizer release paths return module and optimizer counters to baseline', () {
-    final baselineModules = runtime.liveModuleCount();
-    final baselineOptimizers = runtime.liveOptimizerCount();
-    final module = runtime.createLinear(1, 1, true);
-    final optimizer = runtime.createSgd(
-      module,
-      learningRate: 0.01,
-      momentum: 0,
-      weightDecay: 0,
-    );
+  test(
+    'finalizer release paths return module and optimizer counters to baseline',
+    () {
+      final baselineModules = runtime.liveModuleCount();
+      final baselineOptimizers = runtime.liveOptimizerCount();
+      final module = runtime.createLinear(1, 1, true);
+      final optimizer = runtime.createSgd(
+        module,
+        learningRate: 0.01,
+        momentum: 0,
+        weightDecay: 0,
+      );
 
-    expect(runtime.liveModuleCount(), baselineModules + 1);
-    expect(runtime.liveOptimizerCount(), baselineOptimizers + 1);
+      expect(runtime.liveModuleCount(), baselineModules + 1);
+      expect(runtime.liveOptimizerCount(), baselineOptimizers + 1);
 
-    runtime.optimizerReleaseFromFinalizer(optimizer);
-    runtime.moduleReleaseFromFinalizer(module);
+      runtime.optimizerReleaseFromFinalizer(optimizer);
+      runtime.moduleReleaseFromFinalizer(module);
 
-    expect(runtime.liveOptimizerCount(), baselineOptimizers);
-    expect(runtime.liveModuleCount(), baselineModules);
-  });
+      expect(runtime.liveOptimizerCount(), baselineOptimizers);
+      expect(runtime.liveModuleCount(), baselineModules);
+    },
+  );
 }
