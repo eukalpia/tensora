@@ -42,10 +42,7 @@ void main() {
     });
 
     test('reshape preserves values and element count', () {
-      final input = Tensor.fromList(
-        [1, 2, 3, 4, 5, 6],
-        shape: Shape([2, 3]),
-      );
+      final input = Tensor.fromList([1, 2, 3, 4, 5, 6], shape: Shape([2, 3]));
       final reshaped = input.reshape(Shape([3, 2]));
       addTearDown(input.dispose);
       addTearDown(reshaped.dispose);
@@ -55,10 +52,7 @@ void main() {
     });
 
     test('2D transpose matches the mathematical reference', () {
-      final input = Tensor.fromList(
-        [1, 2, 3, 4, 5, 6],
-        shape: Shape([2, 3]),
-      );
+      final input = Tensor.fromList([1, 2, 3, 4, 5, 6], shape: Shape([2, 3]));
       final transposed = input.transpose();
       addTearDown(input.dispose);
       addTearDown(transposed.dispose);
@@ -119,10 +113,7 @@ void main() {
       addTearDown(left.dispose);
       addTearDown(right.dispose);
 
-      expect(
-        () => left.matmul(right),
-        throwsA(isA<InvalidShapeException>()),
-      );
+      expect(() => left.matmul(right), throwsA(isA<InvalidShapeException>()));
     });
 
     test('fromList rejects host payload with the wrong length', () {
@@ -132,31 +123,29 @@ void main() {
       );
     });
 
-    test('dispose is deterministic, double-dispose is safe, use-after fails',
-        () {
-      final tensor = Tensor.ones(Shape([2, 2]));
+    test(
+      'dispose is deterministic, double-dispose is safe, use-after fails',
+      () {
+        final tensor = Tensor.ones(Shape([2, 2]));
 
-      tensor.dispose();
-      tensor.dispose();
+        tensor.dispose();
+        tensor.dispose();
 
-      expect(tensor.isDisposed, isTrue);
-      expect(
-        tensor.toList,
-        throwsA(isA<DisposedTensorException>()),
-      );
-      expect(
-        tensor.sum,
-        throwsA(isA<DisposedTensorException>()),
-      );
-    });
+        expect(tensor.isDisposed, isTrue);
+        expect(tensor.toList, throwsA(isA<DisposedTensorException>()));
+        expect(tensor.sum, throwsA(isA<DisposedTensorException>()));
+      },
+    );
 
-    test('invalid native handles are converted into structured Dart errors',
-        () {
-      expect(
-        () => NativeRuntime.instance.numel(0x7ffffffffffffffe),
-        throwsA(isA<NativeRuntimeException>()),
-      );
-    });
+    test(
+      'invalid native handles are converted into structured Dart errors',
+      () {
+        expect(
+          () => NativeRuntime.instance.numel(0x7ffffffffffffffe),
+          throwsA(isA<NativeRuntimeException>()),
+        );
+      },
+    );
   });
 
   group('Tensor property invariants', () {
@@ -167,10 +156,7 @@ void main() {
             rows * columns,
             (index) => (index * 3 - 7) / 5,
           );
-          final input = Tensor.fromList(
-            values,
-            shape: Shape([rows, columns]),
-          );
+          final input = Tensor.fromList(values, shape: Shape([rows, columns]));
           final transposed = input.transpose();
           final restored = transposed.transpose();
 

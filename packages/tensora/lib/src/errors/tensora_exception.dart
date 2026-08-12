@@ -1,9 +1,6 @@
 /// Base type for recoverable Tensora failures.
 sealed class TensoraException implements Exception {
-  const TensoraException(
-    this.message, {
-    this.operation,
-  });
+  const TensoraException(this.message, {this.operation});
 
   /// Human-readable diagnostic message.
   final String message;

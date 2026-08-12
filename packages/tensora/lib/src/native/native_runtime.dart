@@ -33,10 +33,7 @@ final class NativeRuntime {
   static NativeRuntime _load() {
     final path = _resolveLibraryPath();
     try {
-      return NativeRuntime._(
-        NativeBindings(DynamicLibrary.open(path)),
-        path,
-      );
+      return NativeRuntime._(NativeBindings(DynamicLibrary.open(path)), path);
     } on TensoraException {
       rethrow;
     } catch (error) {
@@ -99,29 +96,25 @@ final class NativeRuntime {
   }
 
   int transpose2D(int handle) => _newHandle(
-        'tensor.transpose',
-        (out) => _bindings.tensorTranspose2D(handle, out),
-      );
+    'tensor.transpose',
+    (out) => _bindings.tensorTranspose2D(handle, out),
+  );
 
-  int add(int left, int right) => _newHandle(
-        'tensor.add',
-        (out) => _bindings.tensorAdd(left, right, out),
-      );
+  int add(int left, int right) =>
+      _newHandle('tensor.add', (out) => _bindings.tensorAdd(left, right, out));
 
   int multiply(int left, int right) => _newHandle(
-        'tensor.multiply',
-        (out) => _bindings.tensorMultiply(left, right, out),
-      );
+    'tensor.multiply',
+    (out) => _bindings.tensorMultiply(left, right, out),
+  );
 
-  int sum(int handle) => _newHandle(
-        'tensor.sum',
-        (out) => _bindings.tensorSum(handle, out),
-      );
+  int sum(int handle) =>
+      _newHandle('tensor.sum', (out) => _bindings.tensorSum(handle, out));
 
   int matmul(int left, int right) => _newHandle(
-        'tensor.matmul',
-        (out) => _bindings.tensorMatmul(left, right, out),
-      );
+    'tensor.matmul',
+    (out) => _bindings.tensorMatmul(left, right, out),
+  );
 
   Shape shape(int handle) {
     final rankPointer = calloc<Size>();
@@ -196,7 +189,8 @@ final class NativeRuntime {
       _check(_bindings.tensorDType(handle, value), 'tensor.dtype');
       return switch (value.value) {
         1 => DType.float32,
-        final code => throw NativeRuntimeException(
+        final code =>
+          throw NativeRuntimeException(
             'Native runtime returned unknown dtype code $code.',
             operation: 'tensor.dtype',
           ),
@@ -212,7 +206,8 @@ final class NativeRuntime {
       _check(_bindings.tensorDevice(handle, value), 'tensor.device');
       return switch (value.value) {
         1 => Device.cpu,
-        final code => throw NativeRuntimeException(
+        final code =>
+          throw NativeRuntimeException(
             'Native runtime returned unknown device code $code.',
             operation: 'tensor.device',
           ),
@@ -296,10 +291,7 @@ final class NativeRuntime {
     }
   }
 
-  int _newHandle(
-    String operation,
-    int Function(Pointer<Uint64> out) call,
-  ) {
+  int _newHandle(String operation, int Function(Pointer<Uint64> out) call) {
     final output = calloc<Uint64>();
     try {
       _check(call(output), operation);
@@ -339,9 +331,10 @@ final class NativeRuntime {
     if (status == 0) return;
 
     final errorPointer = _bindings.lastErrorMessage();
-    final message = errorPointer.address == 0
-        ? 'Native runtime returned status $status without a diagnostic.'
-        : errorPointer.toDartString();
+    final message =
+        errorPointer.address == 0
+            ? 'Native runtime returned status $status without a diagnostic.'
+            : errorPointer.toDartString();
 
     switch (status) {
       case 1:

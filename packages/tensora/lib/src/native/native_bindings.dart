@@ -11,101 +11,45 @@ typedef _LastErrorDart = Pointer<Utf8> Function();
 typedef _NoopNative = Int32 Function();
 typedef _NoopDart = int Function();
 
-typedef _TensorFromF32Native = Int32 Function(
-  Pointer<Float>,
-  Pointer<Int64>,
-  Size,
-  Pointer<Uint64>,
-);
-typedef _TensorFromF32Dart = int Function(
-  Pointer<Float>,
-  Pointer<Int64>,
-  int,
-  Pointer<Uint64>,
-);
+typedef _TensorFromF32Native =
+    Int32 Function(Pointer<Float>, Pointer<Int64>, Size, Pointer<Uint64>);
+typedef _TensorFromF32Dart =
+    int Function(Pointer<Float>, Pointer<Int64>, int, Pointer<Uint64>);
 
-typedef _TensorFullF32Native = Int32 Function(
-  Pointer<Int64>,
-  Size,
-  Float,
-  Pointer<Uint64>,
-);
-typedef _TensorFullF32Dart = int Function(
-  Pointer<Int64>,
-  int,
-  double,
-  Pointer<Uint64>,
-);
+typedef _TensorFullF32Native =
+    Int32 Function(Pointer<Int64>, Size, Float, Pointer<Uint64>);
+typedef _TensorFullF32Dart =
+    int Function(Pointer<Int64>, int, double, Pointer<Uint64>);
 
 typedef _TensorRankNative = Int32 Function(Uint64, Pointer<Size>);
 typedef _TensorRankDart = int Function(int, Pointer<Size>);
 
-typedef _TensorShapeNative = Int32 Function(
-  Uint64,
-  Pointer<Int64>,
-  Size,
-  Pointer<Size>,
-);
-typedef _TensorShapeDart = int Function(
-  int,
-  Pointer<Int64>,
-  int,
-  Pointer<Size>,
-);
+typedef _TensorShapeNative =
+    Int32 Function(Uint64, Pointer<Int64>, Size, Pointer<Size>);
+typedef _TensorShapeDart =
+    int Function(int, Pointer<Int64>, int, Pointer<Size>);
 
-typedef _TensorUint32MetadataNative = Int32 Function(
-  Uint64,
-  Pointer<Uint32>,
-);
-typedef _TensorUint32MetadataDart = int Function(
-  int,
-  Pointer<Uint32>,
-);
+typedef _TensorUint32MetadataNative = Int32 Function(Uint64, Pointer<Uint32>);
+typedef _TensorUint32MetadataDart = int Function(int, Pointer<Uint32>);
 
-typedef _TensorUint64MetadataNative = Int32 Function(
-  Uint64,
-  Pointer<Uint64>,
-);
-typedef _TensorUint64MetadataDart = int Function(
-  int,
-  Pointer<Uint64>,
-);
+typedef _TensorUint64MetadataNative = Int32 Function(Uint64, Pointer<Uint64>);
+typedef _TensorUint64MetadataDart = int Function(int, Pointer<Uint64>);
 
-typedef _TensorReshapeNative = Int32 Function(
-  Uint64,
-  Pointer<Int64>,
-  Size,
-  Pointer<Uint64>,
-);
-typedef _TensorReshapeDart = int Function(
-  int,
-  Pointer<Int64>,
-  int,
-  Pointer<Uint64>,
-);
+typedef _TensorReshapeNative =
+    Int32 Function(Uint64, Pointer<Int64>, Size, Pointer<Uint64>);
+typedef _TensorReshapeDart =
+    int Function(int, Pointer<Int64>, int, Pointer<Uint64>);
 
 typedef _TensorUnaryNative = Int32 Function(Uint64, Pointer<Uint64>);
 typedef _TensorUnaryDart = int Function(int, Pointer<Uint64>);
 
-typedef _TensorBinaryNative = Int32 Function(
-  Uint64,
-  Uint64,
-  Pointer<Uint64>,
-);
+typedef _TensorBinaryNative = Int32 Function(Uint64, Uint64, Pointer<Uint64>);
 typedef _TensorBinaryDart = int Function(int, int, Pointer<Uint64>);
 
-typedef _TensorCopyToHostNative = Int32 Function(
-  Uint64,
-  Pointer<Float>,
-  Size,
-  Pointer<Size>,
-);
-typedef _TensorCopyToHostDart = int Function(
-  int,
-  Pointer<Float>,
-  int,
-  Pointer<Size>,
-);
+typedef _TensorCopyToHostNative =
+    Int32 Function(Uint64, Pointer<Float>, Size, Pointer<Size>);
+typedef _TensorCopyToHostDart =
+    int Function(int, Pointer<Float>, int, Pointer<Size>);
 
 typedef _TensorLifetimeNative = Int32 Function(Uint64);
 typedef _TensorLifetimeDart = int Function(int);
@@ -115,75 +59,84 @@ typedef _RuntimeCounterDart = int Function(Pointer<Uint64>);
 
 final class NativeBindings {
   NativeBindings(DynamicLibrary library)
-      : abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
-          'ts_abi_version',
-        ),
-        lastErrorMessage =
-            library.lookupFunction<_LastErrorNative, _LastErrorDart>(
-          'ts_last_error_message',
-        ),
-        noop = library.lookupFunction<_NoopNative, _NoopDart>('ts_noop'),
-        tensorFromF32 =
-            library.lookupFunction<_TensorFromF32Native, _TensorFromF32Dart>(
-          'ts_tensor_from_f32',
-        ),
-        tensorFullF32 =
-            library.lookupFunction<_TensorFullF32Native, _TensorFullF32Dart>(
-          'ts_tensor_full_f32',
-        ),
-        tensorRank = library.lookupFunction<_TensorRankNative, _TensorRankDart>(
-          'ts_tensor_rank',
-        ),
-        tensorShape =
-            library.lookupFunction<_TensorShapeNative, _TensorShapeDart>(
-          'ts_tensor_shape',
-        ),
-        tensorDType = library.lookupFunction<_TensorUint32MetadataNative,
-            _TensorUint32MetadataDart>('ts_tensor_dtype'),
-        tensorDevice = library.lookupFunction<_TensorUint32MetadataNative,
-            _TensorUint32MetadataDart>('ts_tensor_device'),
-        tensorNumel = library.lookupFunction<_TensorUint64MetadataNative,
-            _TensorUint64MetadataDart>('ts_tensor_numel'),
-        tensorReshape =
-            library.lookupFunction<_TensorReshapeNative, _TensorReshapeDart>(
-          'ts_tensor_reshape',
-        ),
-        tensorTranspose2D =
-            library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
-          'ts_tensor_transpose2d',
-        ),
-        tensorAdd =
-            library.lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
-          'ts_tensor_add',
-        ),
-        tensorMultiply =
-            library.lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
-          'ts_tensor_multiply',
-        ),
-        tensorSum =
-            library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
-          'ts_tensor_sum',
-        ),
-        tensorMatmul =
-            library.lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
-          'ts_tensor_matmul',
-        ),
-        tensorCopyToHostF32 = library.lookupFunction<_TensorCopyToHostNative,
-            _TensorCopyToHostDart>('ts_tensor_copy_to_host_f32'),
-        tensorRetain =
-            library.lookupFunction<_TensorLifetimeNative, _TensorLifetimeDart>(
-          'ts_tensor_retain',
-        ),
-        tensorRelease =
-            library.lookupFunction<_TensorLifetimeNative, _TensorLifetimeDart>(
-          'ts_tensor_release',
-        ),
-        runtimeLiveTensorCount =
-            library.lookupFunction<_RuntimeCounterNative, _RuntimeCounterDart>(
-                'ts_runtime_live_tensor_count'),
-        runtimeLiveStorageBytes =
-            library.lookupFunction<_RuntimeCounterNative, _RuntimeCounterDart>(
-                'ts_runtime_live_storage_bytes');
+    : abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
+        'ts_abi_version',
+      ),
+      lastErrorMessage = library
+          .lookupFunction<_LastErrorNative, _LastErrorDart>(
+            'ts_last_error_message',
+          ),
+      noop = library.lookupFunction<_NoopNative, _NoopDart>('ts_noop'),
+      tensorFromF32 = library
+          .lookupFunction<_TensorFromF32Native, _TensorFromF32Dart>(
+            'ts_tensor_from_f32',
+          ),
+      tensorFullF32 = library
+          .lookupFunction<_TensorFullF32Native, _TensorFullF32Dart>(
+            'ts_tensor_full_f32',
+          ),
+      tensorRank = library.lookupFunction<_TensorRankNative, _TensorRankDart>(
+        'ts_tensor_rank',
+      ),
+      tensorShape = library
+          .lookupFunction<_TensorShapeNative, _TensorShapeDart>(
+            'ts_tensor_shape',
+          ),
+      tensorDType = library.lookupFunction<
+        _TensorUint32MetadataNative,
+        _TensorUint32MetadataDart
+      >('ts_tensor_dtype'),
+      tensorDevice = library.lookupFunction<
+        _TensorUint32MetadataNative,
+        _TensorUint32MetadataDart
+      >('ts_tensor_device'),
+      tensorNumel = library.lookupFunction<
+        _TensorUint64MetadataNative,
+        _TensorUint64MetadataDart
+      >('ts_tensor_numel'),
+      tensorReshape = library
+          .lookupFunction<_TensorReshapeNative, _TensorReshapeDart>(
+            'ts_tensor_reshape',
+          ),
+      tensorTranspose2D = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_transpose2d',
+          ),
+      tensorAdd = library
+          .lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
+            'ts_tensor_add',
+          ),
+      tensorMultiply = library
+          .lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
+            'ts_tensor_multiply',
+          ),
+      tensorSum = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+        'ts_tensor_sum',
+      ),
+      tensorMatmul = library
+          .lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
+            'ts_tensor_matmul',
+          ),
+      tensorCopyToHostF32 = library
+          .lookupFunction<_TensorCopyToHostNative, _TensorCopyToHostDart>(
+            'ts_tensor_copy_to_host_f32',
+          ),
+      tensorRetain = library
+          .lookupFunction<_TensorLifetimeNative, _TensorLifetimeDart>(
+            'ts_tensor_retain',
+          ),
+      tensorRelease = library
+          .lookupFunction<_TensorLifetimeNative, _TensorLifetimeDart>(
+            'ts_tensor_release',
+          ),
+      runtimeLiveTensorCount = library
+          .lookupFunction<_RuntimeCounterNative, _RuntimeCounterDart>(
+            'ts_runtime_live_tensor_count',
+          ),
+      runtimeLiveStorageBytes = library
+          .lookupFunction<_RuntimeCounterNative, _RuntimeCounterDart>(
+            'ts_runtime_live_storage_bytes',
+          );
 
   final _AbiVersionDart abiVersion;
   final _LastErrorDart lastErrorMessage;

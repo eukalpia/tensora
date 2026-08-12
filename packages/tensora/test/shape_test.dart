@@ -50,10 +50,7 @@ void main() {
     });
 
     test('rejects element-count overflow before native allocation', () {
-      expect(
-        () => Shape([Shape.maxNumel, 2]),
-        throwsArgumentError,
-      );
+      expect(() => Shape([Shape.maxNumel, 2]), throwsArgumentError);
     });
   });
 }

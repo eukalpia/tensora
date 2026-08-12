@@ -49,16 +49,14 @@ final class Tensor {
     Shape shape, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
-  }) =>
-      Tensor.full(shape, 0, dtype: dtype, device: device);
+  }) => Tensor.full(shape, 0, dtype: dtype, device: device);
 
   /// Creates a native float32 tensor initialized to one.
   factory Tensor.ones(
     Shape shape, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
-  }) =>
-      Tensor.full(shape, 1, dtype: dtype, device: device);
+  }) => Tensor.full(shape, 1, dtype: dtype, device: device);
 
   /// Creates a native float32 tensor filled with [value].
   factory Tensor.full(
@@ -163,12 +161,7 @@ final class Tensor {
           operation: 'tensor.adopt',
         );
       }
-      return Tensor._(
-        handle,
-        shape: shape,
-        dtype: dtype,
-        device: device,
-      );
+      return Tensor._(handle, shape: shape, dtype: dtype, device: device);
     } catch (_) {
       runtime.releaseFromFinalizer(handle);
       rethrow;

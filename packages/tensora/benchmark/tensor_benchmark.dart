@@ -49,11 +49,18 @@ void main(List<String> arguments) {
 
   stdout.writeln('Tensora Dart/FFI benchmark');
   stdout.writeln(
-      'os=${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+    'os=${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+  );
   stdout.writeln('processors=${Platform.numberOfProcessors}');
   stdout.writeln('dart=${Platform.version.split('\n').first}');
   stdout.writeln('native=${runtime.libraryPath}');
-  stdout.writeln('mode=${smoke ? 'smoke' : large ? 'large' : 'standard'}');
+  stdout.writeln(
+    'mode=${smoke
+        ? 'smoke'
+        : large
+        ? 'large'
+        : 'standard'}',
+  );
 
   _measure(
     'ffi_noop',
@@ -86,9 +93,10 @@ void main(List<String> arguments) {
     },
   );
 
-  final sizes = smoke
-      ? const [64]
-      : large
+  final sizes =
+      smoke
+          ? const [64]
+          : large
           ? const [64, 256, 1024]
           : const [64, 256];
   for (final size in sizes) {

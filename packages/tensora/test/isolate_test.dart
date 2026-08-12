@@ -17,10 +17,7 @@ void main() {
     final targetPort = await readyPort.first as SendPort;
 
     try {
-      expect(
-        () => targetPort.send(tensor),
-        throwsA(isA<ArgumentError>()),
-      );
+      expect(() => targetPort.send(tensor), throwsA(isA<ArgumentError>()));
     } finally {
       isolate.kill(priority: Isolate.immediate);
       readyPort.close();
