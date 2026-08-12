@@ -35,7 +35,8 @@ enum {
   TS_OUT_OF_MEMORY = 3,
   TS_UNSUPPORTED = 4,
   TS_INVALID_HANDLE = 5,
-  TS_INTERNAL_ERROR = 6
+  TS_INTERNAL_ERROR = 6,
+  TS_MODEL_ERROR = 7
 };
 
 enum {
@@ -47,9 +48,7 @@ enum {
   TS_DEVICE_CUDA = 2u
 };
 
-/*
- * ABI and error diagnostics.
- */
+/* ABI and error diagnostics. */
 TS_API uint32_t ts_abi_version(void);
 TS_API const char* ts_last_error_message(void);
 TS_API const char* ts_status_name(int32_t status);
@@ -59,6 +58,7 @@ TS_API ts_status_t ts_noop(void);
 TS_API ts_status_t ts_training_available(uint8_t* out_available);
 TS_API ts_status_t ts_runtime_cuda_device_count(uint32_t* out_count);
 TS_API ts_status_t ts_manual_seed(uint64_t seed);
+TS_API ts_status_t ts_onnx_available(uint8_t* out_available);
 
 /* Tensor creation. */
 TS_API ts_status_t ts_tensor_from_f32(const float* data,
@@ -180,6 +180,47 @@ TS_API ts_status_t ts_optimizer_zero_grad(ts_optimizer_t optimizer);
 TS_API ts_status_t ts_optimizer_step(ts_optimizer_t optimizer);
 TS_API ts_status_t ts_optimizer_release(ts_optimizer_t optimizer);
 
+/* ONNX Runtime provider discovery. Names are UTF-8 and NUL-terminated. */
+TS_API ts_status_t ts_onnx_provider_count(size_t* out_count);
+TS_API ts_status_t ts_onnx_provider_name(size_t index,
+                                         char* out_name,
+                                         size_t capacity,
+                                         size_t* out_required);
+
+/* Reusable ONNX sessions. */
+TS_API ts_status_t ts_onnx_session_create(const char* model_path,
+                                          uint8_t enable_profiling,
+                                          const char* profiling_prefix,
+                                          ts_onnx_session_t* out_session);
+TS_API ts_status_t ts_onnx_session_input_count(ts_onnx_session_t session,
+                                               size_t* out_count);
+TS_API ts_status_t ts_onnx_session_output_count(ts_onnx_session_t session,
+                                                size_t* out_count);
+TS_API ts_status_t ts_onnx_session_input_name(ts_onnx_session_t session,
+                                              size_t index,
+                                              char* out_name,
+                                              size_t capacity,
+                                              size_t* out_required);
+TS_API ts_status_t ts_onnx_session_output_name(ts_onnx_session_t session,
+                                               size_t index,
+                                               char* out_name,
+                                               size_t capacity,
+                                               size_t* out_required);
+TS_API ts_status_t ts_onnx_session_run(ts_onnx_session_t session,
+                                       const char* const* input_names,
+                                       const ts_tensor_t* input_tensors,
+                                       size_t input_count,
+                                       const char* const* output_names,
+                                       size_t output_count,
+                                       ts_tensor_t* out_tensors,
+                                       size_t out_capacity,
+                                       size_t* out_written);
+TS_API ts_status_t ts_onnx_session_end_profiling(ts_onnx_session_t session,
+                                                 char* out_path,
+                                                 size_t capacity,
+                                                 size_t* out_required);
+TS_API ts_status_t ts_onnx_session_release(ts_onnx_session_t session);
+
 /* Explicit native -> host copy. */
 TS_API ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
                                               float* out_values,
@@ -195,6 +236,7 @@ TS_API ts_status_t ts_runtime_live_tensor_count(uint64_t* out_count);
 TS_API ts_status_t ts_runtime_live_storage_bytes(uint64_t* out_bytes);
 TS_API ts_status_t ts_runtime_live_module_count(uint64_t* out_count);
 TS_API ts_status_t ts_runtime_live_optimizer_count(uint64_t* out_count);
+TS_API ts_status_t ts_runtime_live_onnx_session_count(uint64_t* out_count);
 
 #ifdef __cplusplus
 }  /* extern "C" */
