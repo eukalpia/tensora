@@ -2,7 +2,9 @@ import '../device/device.dart';
 import '../dtype/dtype.dart';
 import '../errors/tensora_exception.dart';
 import '../native/native_runtime.dart';
+import '../native/native_training_runtime.dart';
 import '../shape/shape.dart';
+import 'native_adoption.dart';
 
 final Finalizer<int> _tensorFinalizer = Finalizer<int>((handle) {
   NativeRuntime.instance.releaseFromFinalizer(handle);
@@ -88,13 +90,24 @@ final class Tensor {
   /// Whether deterministic native release has completed.
   bool get isDisposed => _disposed;
 
+  /// Whether this Tensor currently participates as an autograd value.
+  bool get requiresGrad {
+    _ensureLive('requiresGrad');
+    return NativeTrainingRuntime.instance.requiresGrad(_handle);
+  }
+
   /// Returns an independent tensor on [target].
-  ///
-  /// CPU-to-CPU transfer is always available. CUDA transfer requires a native
-  /// runtime built with the optional training backend and a visible CUDA device.
   Tensor to(Device target) {
     _ensureLive('to');
     return _adopt(NativeRuntime.instance.toDevice(_handle, target));
+  }
+
+  /// Returns a detached leaf tensor with the requested autograd state.
+  Tensor withRequiresGrad([bool value = true]) {
+    _ensureLive('withRequiresGrad');
+    return _adopt(
+      NativeTrainingRuntime.instance.withRequiresGrad(_handle, value),
+    );
   }
 
   /// Returns an independent contiguous tensor with [newShape].
@@ -137,6 +150,36 @@ final class Tensor {
     return _adopt(NativeRuntime.instance.matmul(_handle, other._handle));
   }
 
+  /// Applies ReLU through the native training backend.
+  Tensor relu() {
+    _ensureLive('relu');
+    return _adopt(NativeTrainingRuntime.instance.relu(_handle));
+  }
+
+  /// Applies sigmoid through the native training backend.
+  Tensor sigmoid() {
+    _ensureLive('sigmoid');
+    return _adopt(NativeTrainingRuntime.instance.sigmoid(_handle));
+  }
+
+  /// Applies tanh through the native training backend.
+  Tensor tanh() {
+    _ensureLive('tanh');
+    return _adopt(NativeTrainingRuntime.instance.tanh(_handle));
+  }
+
+  /// Runs reverse-mode autograd from this scalar loss Tensor.
+  void backward() {
+    _ensureLive('backward');
+    NativeTrainingRuntime.instance.backward(_handle);
+  }
+
+  /// Returns a snapshot of this Tensor's accumulated gradient.
+  Tensor grad() {
+    _ensureLive('grad');
+    return _adopt(NativeTrainingRuntime.instance.grad(_handle));
+  }
+
   /// Explicitly copies all native float32 values into Dart memory.
   List<double> toList() {
     _ensureLive('toList');
@@ -144,9 +187,6 @@ final class Tensor {
   }
 
   /// Deterministically releases this Tensor's native reference.
-  ///
-  /// Calling [dispose] more than once is safe. Once disposal succeeds, every
-  /// Tensor operation fails in Dart without touching the released handle.
   void dispose() {
     if (_disposed) return;
 
@@ -154,6 +194,23 @@ final class Tensor {
     _tensorFinalizer.detach(this);
     _handle = 0;
     _disposed = true;
+  }
+
+  /// @nodoc
+  static Tensor adoptNativeHandleForRuntime(int handle, Object capability) {
+    if (!identical(capability, nativeTensorAdoptionToken)) {
+      throw StateError('Native tensor adoption capability is invalid.');
+    }
+    return _adopt(handle);
+  }
+
+  /// @nodoc
+  int nativeHandleForRuntime(Object capability) {
+    if (!identical(capability, nativeTensorAdoptionToken)) {
+      throw StateError('Native tensor access capability is invalid.');
+    }
+    _ensureLive('nativeHandle');
+    return _handle;
   }
 
   static Tensor _adopt(int handle) {
