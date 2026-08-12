@@ -69,9 +69,10 @@ final class NativeInferenceBindings {
       available = library.lookupFunction<_ByteOutputNative, _ByteOutputDart>(
         'ts_onnx_available',
       ),
-      providerCount = library.lookupFunction<_SizeOutputNative, _SizeOutputDart>(
-        'ts_onnx_provider_count',
-      ),
+      providerCount = library
+          .lookupFunction<_SizeOutputNative, _SizeOutputDart>(
+            'ts_onnx_provider_count',
+          ),
       providerName = library
           .lookupFunction<_ProviderNameNative, _ProviderNameDart>(
             'ts_onnx_provider_name',
@@ -99,10 +100,10 @@ final class NativeInferenceBindings {
       sessionRun = library.lookupFunction<_SessionRunNative, _SessionRunDart>(
         'ts_onnx_session_run',
       ),
-      sessionEndProfiling = library.lookupFunction<
-        _SessionEndProfilingNative,
-        _SessionEndProfilingDart
-      >('ts_onnx_session_end_profiling'),
+      sessionEndProfiling = library
+          .lookupFunction<_SessionEndProfilingNative, _SessionEndProfilingDart>(
+            'ts_onnx_session_end_profiling',
+          ),
       sessionRelease = library
           .lookupFunction<_SessionReleaseNative, _SessionReleaseDart>(
             'ts_onnx_session_release',
