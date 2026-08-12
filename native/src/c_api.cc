@@ -2,10 +2,10 @@
 
 #include <algorithm>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <new>
 #include <string>
-#include <vector>
 
 #include "backends/backend.h"
 #include "core/status.h"
@@ -14,6 +14,7 @@
 #include "runtime/handle_registry.h"
 #include "tensor/shape.h"
 #include "tensor/tensor.h"
+#include "training/training_bridge.h"
 
 namespace tensora {
 namespace {
@@ -63,7 +64,7 @@ Status InsertTensor(std::shared_ptr<Tensor> tensor, ts_tensor_t* out_handle) {
 }
 
 Status BackendFor(const Tensor& tensor, const Backend** out_backend) {
-  return Dispatcher::For(tensor.device(), out_backend);
+  return Dispatcher::ForTensor(tensor, out_backend);
 }
 
 Status DeviceFromCode(uint32_t code, Device* out_device) {
@@ -103,14 +104,8 @@ Status RunBinaryOperation(ts_tensor_t left,
   status = LookupTensor(right, &right_object);
   if (!status.ok()) return status;
 
-  if (left_object->device() != right_object->device() ||
-      left_object->device_index() != right_object->device_index()) {
-    return InvalidArgument(std::string(operation) +
-                           ": input tensors must use the same device");
-  }
-
   const Backend* backend = nullptr;
-  status = BackendFor(*left_object, &backend);
+  status = Dispatcher::ForTensors(*left_object, *right_object, &backend);
   if (!status.ok()) return status;
 
   std::shared_ptr<Tensor> result;
@@ -154,12 +149,7 @@ ts_status_t ts_noop(void) {
 
 ts_status_t ts_runtime_cuda_device_count(uint32_t* out_count) {
   return tensora::GuardedAbiCall("runtime_cuda_device_count", [&] {
-    if (out_count == nullptr) {
-      return tensora::InvalidArgument(
-          "runtime_cuda_device_count: output pointer is null");
-    }
-    *out_count = 0;
-    return tensora::Status::Ok();
+    return tensora::training::CudaDeviceCount(out_count);
   });
 }
 
@@ -347,43 +337,14 @@ ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
     tensora::Device target = tensora::Device::kCpu;
     tensora::Status status = tensora::DeviceFromCode(device, &target);
     if (!status.ok()) return status;
-    if (target == tensora::Device::kCpu && device_index != 0) {
-      return tensora::InvalidArgument(
-          "tensor_to_device: CPU device index must be zero");
-    }
-    if (target == tensora::Device::kCuda) {
-      if (device_index < 0) {
-        return tensora::InvalidArgument(
-            "tensor_to_device: CUDA device index cannot be negative");
-      }
-      return tensora::Unsupported(
-          "tensor_to_device: CUDA training backend is not enabled");
-    }
 
     std::shared_ptr<tensora::Tensor> object;
     status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
-    if (object->dtype() != tensora::DType::kFloat32) {
-      return tensora::Unsupported(
-          "tensor_to_device: only float32 is supported");
-    }
-
-    std::vector<float> values(static_cast<size_t>(object->numel()));
-    size_t written = 0;
-    status = object->storage()->CopyToHostF32(
-        values.data(), values.size(), &written);
-    if (!status.ok()) return status;
-    if (written != values.size()) {
-      return tensora::InternalError(
-          "tensor_to_device: storage returned an inconsistent element count");
-    }
-
-    const tensora::Backend* backend = nullptr;
-    status = tensora::Dispatcher::For(target, &backend);
-    if (!status.ok()) return status;
 
     std::shared_ptr<tensora::Tensor> result;
-    status = backend->FromData(object->shape(), values.data(), &result);
+    status = tensora::training::Transfer(
+        *object, target, device_index, &result);
     if (!status.ok()) return status;
     return tensora::InsertTensor(std::move(result), out_tensor);
   });
@@ -565,7 +526,14 @@ ts_status_t ts_runtime_live_storage_bytes(uint64_t* out_bytes) {
       return tensora::InvalidArgument(
           "runtime_live_storage_bytes: output pointer is null");
     }
-    *out_bytes = tensora::CpuStorage::LiveBytes();
+    const uint64_t core_bytes = tensora::CpuStorage::LiveBytes();
+    const uint64_t training_bytes = tensora::training::LiveStorageBytes();
+    if (training_bytes >
+        std::numeric_limits<uint64_t>::max() - core_bytes) {
+      return tensora::InternalError(
+          "runtime_live_storage_bytes: counter overflow");
+    }
+    *out_bytes = core_bytes + training_bytes;
     return tensora::Status::Ok();
   });
 }
