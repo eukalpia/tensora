@@ -77,15 +77,9 @@ final class NativeInferenceRuntime {
     }
   }
 
-  List<String> inputNames(int session) => _sessionNames(
-    session,
-    input: true,
-  );
+  List<String> inputNames(int session) => _sessionNames(session, input: true);
 
-  List<String> outputNames(int session) => _sessionNames(
-    session,
-    input: false,
-  );
+  List<String> outputNames(int session) => _sessionNames(session, input: false);
 
   List<int> run(
     int session, {
@@ -97,15 +91,21 @@ final class NativeInferenceRuntime {
       throw ArgumentError('inputNames and inputHandles must have equal length');
     }
     if (outputNames.isEmpty) {
-      throw ArgumentError.value(outputNames, 'outputNames', 'must not be empty');
+      throw ArgumentError.value(
+        outputNames,
+        'outputNames',
+        'must not be empty',
+      );
     }
 
-    final nativeInputNames = inputNames.isEmpty
-        ? nullptr.cast<Pointer<Utf8>>()
-        : calloc<Pointer<Utf8>>(inputNames.length);
-    final nativeInputHandles = inputHandles.isEmpty
-        ? nullptr.cast<Uint64>()
-        : calloc<Uint64>(inputHandles.length);
+    final nativeInputNames =
+        inputNames.isEmpty
+            ? nullptr.cast<Pointer<Utf8>>()
+            : calloc<Pointer<Utf8>>(inputNames.length);
+    final nativeInputHandles =
+        inputHandles.isEmpty
+            ? nullptr.cast<Uint64>()
+            : calloc<Uint64>(inputHandles.length);
     final nativeOutputNames = calloc<Pointer<Utf8>>(outputNames.length);
     final nativeOutputs = calloc<Uint64>(outputNames.length);
     final written = calloc<Size>();
@@ -166,25 +166,29 @@ final class NativeInferenceRuntime {
   }
 
   String endProfiling(int session) {
-    const capacity = 65536;
-    final buffer = calloc<Uint8>(capacity).cast<Utf8>();
     final required = calloc<Size>();
     try {
       _check(
-        _bindings.sessionEndProfiling(session, buffer, capacity, required),
+        _bindings.sessionEndProfiling(
+          session,
+          nullptr.cast<Utf8>(),
+          0,
+          required,
+        ),
         'onnx.session.endProfiling',
       );
-      if (required.value == 0 || required.value > capacity) {
-        throw NativeRuntimeException(
-          'Native runtime returned an invalid profiling path size '
-          '${required.value}.',
-          operation: 'onnx.session.endProfiling',
-        );
-      }
-      return buffer.toDartString();
+      return _readSizedUtf8(
+        required.value,
+        (buffer, capacity, secondRequired) => _bindings.sessionEndProfiling(
+          session,
+          buffer,
+          capacity,
+          secondRequired,
+        ),
+        'onnx.session.endProfiling',
+      );
     } finally {
       calloc.free(required);
-      calloc.free(buffer);
     }
   }
 
@@ -234,12 +238,8 @@ final class NativeInferenceRuntime {
       );
       return _readSizedUtf8(
         required.value,
-        (buffer, capacity, secondRequired) => _bindings.providerName(
-          index,
-          buffer,
-          capacity,
-          secondRequired,
-        ),
+        (buffer, capacity, secondRequired) =>
+            _bindings.providerName(index, buffer, capacity, secondRequired),
         'onnx.providerName',
       );
     } finally {
@@ -249,45 +249,45 @@ final class NativeInferenceRuntime {
 
   String _sessionName(int session, int index, {required bool input}) {
     final required = calloc<Size>();
-    final operation = input
-        ? 'onnx.session.inputName'
-        : 'onnx.session.outputName';
+    final operation =
+        input ? 'onnx.session.inputName' : 'onnx.session.outputName';
     try {
       _check(
         input
             ? _bindings.sessionInputName(
-                session,
-                index,
-                nullptr.cast<Utf8>(),
-                0,
-                required,
-              )
+              session,
+              index,
+              nullptr.cast<Utf8>(),
+              0,
+              required,
+            )
             : _bindings.sessionOutputName(
-                session,
-                index,
-                nullptr.cast<Utf8>(),
-                0,
-                required,
-              ),
+              session,
+              index,
+              nullptr.cast<Utf8>(),
+              0,
+              required,
+            ),
         operation,
       );
       return _readSizedUtf8(
         required.value,
-        (buffer, capacity, secondRequired) => input
-            ? _bindings.sessionInputName(
-                session,
-                index,
-                buffer,
-                capacity,
-                secondRequired,
-              )
-            : _bindings.sessionOutputName(
-                session,
-                index,
-                buffer,
-                capacity,
-                secondRequired,
-              ),
+        (buffer, capacity, secondRequired) =>
+            input
+                ? _bindings.sessionInputName(
+                  session,
+                  index,
+                  buffer,
+                  capacity,
+                  secondRequired,
+                )
+                : _bindings.sessionOutputName(
+                  session,
+                  index,
+                  buffer,
+                  capacity,
+                  secondRequired,
+                ),
         operation,
       );
     } finally {
@@ -327,9 +327,10 @@ final class NativeInferenceRuntime {
   void _check(int status, String operation) {
     if (status == 0) return;
     final pointer = _bindings.lastErrorMessage();
-    final message = pointer.address == 0
-        ? 'Native runtime returned status $status without a diagnostic.'
-        : pointer.toDartString();
+    final message =
+        pointer.address == 0
+            ? 'Native runtime returned status $status without a diagnostic.'
+            : pointer.toDartString();
     switch (status) {
       case 1:
         throw InvalidArgumentException(message, operation: operation);
