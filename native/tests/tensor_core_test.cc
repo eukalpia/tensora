@@ -44,8 +44,8 @@ void check_near(float actual, float expected, float tolerance = 1e-5f) {
 ts_tensor_t make_tensor(const std::vector<float>& values,
                         const std::vector<int64_t>& shape) {
   ts_tensor_t handle = 0;
-  CHECK_STATUS(ts_tensor_from_f32(values.data(), shape.data(), shape.size(),
-                                  &handle),
+  CHECK_STATUS(ts_tensor_from_f32(values.data(), values.size(), shape.data(),
+                                  shape.size(), &handle),
                TS_OK);
   CHECK_TRUE(handle != 0);
   return handle;
@@ -78,8 +78,7 @@ void test_abi_and_metadata() {
              "INVALID_HANDLE");
   CHECK_TRUE(std::string(ts_status_name(TS_INTERNAL_ERROR)) ==
              "INTERNAL_ERROR");
-  CHECK_TRUE(std::string(ts_status_name(999)) ==
-             "UNKNOWN_STATUS");
+  CHECK_TRUE(std::string(ts_status_name(999)) == "UNKNOWN_STATUS");
 
   const std::vector<int64_t> shape{2, 2};
   const auto handle = make_tensor({1, 2, 3, 4}, shape);
@@ -209,7 +208,18 @@ void test_invalid_inputs() {
                TS_INVALID_ARGUMENT);
 
   const int64_t shape[1] = {2};
-  CHECK_STATUS(ts_tensor_from_f32(nullptr, shape, 1, &out),
+  const float values[2] = {1.0f, 2.0f};
+  CHECK_STATUS(ts_tensor_from_f32(nullptr, 2, shape, 1, &out),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(ts_tensor_from_f32(values, 1, shape, 1, &out),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(ts_tensor_from_f32(values, 3, shape, 1, &out),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(ts_tensor_from_f32(values, 2, shape, 1, nullptr),
+               TS_INVALID_ARGUMENT);
+
+  const float scalar = 7.0f;
+  CHECK_STATUS(ts_tensor_from_f32(&scalar, 0, nullptr, 0, &out),
                TS_INVALID_ARGUMENT);
 
   CHECK_STATUS(ts_tensor_numel(999999999ULL, nullptr), TS_INVALID_ARGUMENT);

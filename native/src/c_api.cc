@@ -1,12 +1,12 @@
 #include "tensora.h"
 
 #include <algorithm>
-#include <cstring>
 #include <exception>
 #include <memory>
 #include <new>
 #include <string>
 
+#include "backends/backend.h"
 #include "core/status.h"
 #include "memory/cpu_storage.h"
 #include "runtime/dispatcher.h"
@@ -65,6 +65,42 @@ Status BackendFor(const Tensor& tensor, const Backend** out_backend) {
   return Dispatcher::For(tensor.device(), out_backend);
 }
 
+using BinaryOperation = Status (Backend::*)(
+    const Tensor&, const Tensor&, std::shared_ptr<Tensor>*) const;
+
+Status RunBinaryOperation(ts_tensor_t left,
+                          ts_tensor_t right,
+                          ts_tensor_t* out_tensor,
+                          const char* operation,
+                          BinaryOperation function) {
+  if (out_tensor == nullptr) {
+    return InvalidArgument(std::string(operation) +
+                           ": output handle pointer is null");
+  }
+  *out_tensor = 0;
+
+  std::shared_ptr<Tensor> left_object;
+  std::shared_ptr<Tensor> right_object;
+  Status status = LookupTensor(left, &left_object);
+  if (!status.ok()) return status;
+  status = LookupTensor(right, &right_object);
+  if (!status.ok()) return status;
+
+  if (left_object->device() != right_object->device()) {
+    return InvalidArgument(std::string(operation) +
+                           ": input tensors must use the same device");
+  }
+
+  const Backend* backend = nullptr;
+  status = BackendFor(*left_object, &backend);
+  if (!status.ok()) return status;
+
+  std::shared_ptr<Tensor> result;
+  status = (backend->*function)(*left_object, *right_object, &result);
+  if (!status.ok()) return status;
+  return InsertTensor(std::move(result), out_tensor);
+}
+
 }  // namespace
 }  // namespace tensora
 
@@ -99,6 +135,7 @@ ts_status_t ts_noop(void) {
 }
 
 ts_status_t ts_tensor_from_f32(const float* data,
+                               size_t data_length,
                                const int64_t* dims,
                                size_t rank,
                                ts_tensor_t* out_tensor) {
@@ -112,7 +149,12 @@ ts_status_t ts_tensor_from_f32(const float* data,
     tensora::ShapeInfo shape;
     tensora::Status status = tensora::ValidateShape(dims, rank, &shape);
     if (!status.ok()) return status;
-    if (shape.numel > 0 && data == nullptr) {
+
+    if (shape.numel != static_cast<uint64_t>(data_length)) {
+      return tensora::InvalidArgument(
+          "tensor_from_f32: data length must equal validated shape element count");
+    }
+    if (data_length > 0 && data == nullptr) {
       return tensora::InvalidArgument(
           "tensor_from_f32: input data pointer is null");
     }
@@ -159,6 +201,7 @@ ts_status_t ts_tensor_rank(ts_tensor_t tensor, size_t* out_rank) {
     if (out_rank == nullptr) {
       return tensora::InvalidArgument("tensor_rank: output rank pointer is null");
     }
+
     std::shared_ptr<tensora::Tensor> object;
     tensora::Status status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
@@ -176,6 +219,7 @@ ts_status_t ts_tensor_shape(ts_tensor_t tensor,
       return tensora::InvalidArgument(
           "tensor_shape: output rank pointer is null");
     }
+
     std::shared_ptr<tensora::Tensor> object;
     tensora::Status status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
@@ -205,6 +249,7 @@ ts_status_t ts_tensor_dtype(ts_tensor_t tensor, uint32_t* out_dtype) {
       return tensora::InvalidArgument(
           "tensor_dtype: output dtype pointer is null");
     }
+
     std::shared_ptr<tensora::Tensor> object;
     tensora::Status status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
@@ -219,6 +264,7 @@ ts_status_t ts_tensor_device(ts_tensor_t tensor, uint32_t* out_device) {
       return tensora::InvalidArgument(
           "tensor_device: output device pointer is null");
     }
+
     std::shared_ptr<tensora::Tensor> object;
     tensora::Status status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
@@ -233,6 +279,7 @@ ts_status_t ts_tensor_numel(ts_tensor_t tensor, uint64_t* out_numel) {
       return tensora::InvalidArgument(
           "tensor_numel: output numel pointer is null");
     }
+
     std::shared_ptr<tensora::Tensor> object;
     tensora::Status status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
@@ -299,31 +346,8 @@ ts_status_t ts_tensor_add(ts_tensor_t left,
                           ts_tensor_t right,
                           ts_tensor_t* out_tensor) {
   return tensora::GuardedAbiCall("tensor_add", [&] {
-    if (out_tensor == nullptr) {
-      return tensora::InvalidArgument(
-          "tensor_add: output handle pointer is null");
-    }
-    *out_tensor = 0;
-
-    std::shared_ptr<tensora::Tensor> left_object;
-    std::shared_ptr<tensora::Tensor> right_object;
-    tensora::Status status = tensora::LookupTensor(left, &left_object);
-    if (!status.ok()) return status;
-    status = tensora::LookupTensor(right, &right_object);
-    if (!status.ok()) return status;
-    if (left_object->device() != right_object->device()) {
-      return tensora::InvalidArgument(
-          "tensor_add: input tensors must use the same device");
-    }
-
-    const tensora::Backend* backend = nullptr;
-    status = tensora::BackendFor(*left_object, &backend);
-    if (!status.ok()) return status;
-
-    std::shared_ptr<tensora::Tensor> result;
-    status = backend->Add(*left_object, *right_object, &result);
-    if (!status.ok()) return status;
-    return tensora::InsertTensor(std::move(result), out_tensor);
+    return tensora::RunBinaryOperation(
+        left, right, out_tensor, "tensor_add", &tensora::Backend::Add);
   });
 }
 
@@ -331,31 +355,9 @@ ts_status_t ts_tensor_multiply(ts_tensor_t left,
                                ts_tensor_t right,
                                ts_tensor_t* out_tensor) {
   return tensora::GuardedAbiCall("tensor_multiply", [&] {
-    if (out_tensor == nullptr) {
-      return tensora::InvalidArgument(
-          "tensor_multiply: output handle pointer is null");
-    }
-    *out_tensor = 0;
-
-    std::shared_ptr<tensora::Tensor> left_object;
-    std::shared_ptr<tensora::Tensor> right_object;
-    tensora::Status status = tensora::LookupTensor(left, &left_object);
-    if (!status.ok()) return status;
-    status = tensora::LookupTensor(right, &right_object);
-    if (!status.ok()) return status;
-    if (left_object->device() != right_object->device()) {
-      return tensora::InvalidArgument(
-          "tensor_multiply: input tensors must use the same device");
-    }
-
-    const tensora::Backend* backend = nullptr;
-    status = tensora::BackendFor(*left_object, &backend);
-    if (!status.ok()) return status;
-
-    std::shared_ptr<tensora::Tensor> result;
-    status = backend->Multiply(*left_object, *right_object, &result);
-    if (!status.ok()) return status;
-    return tensora::InsertTensor(std::move(result), out_tensor);
+    return tensora::RunBinaryOperation(left, right, out_tensor,
+                                       "tensor_multiply",
+                                       &tensora::Backend::Multiply);
   });
 }
 
@@ -386,31 +388,8 @@ ts_status_t ts_tensor_matmul(ts_tensor_t left,
                              ts_tensor_t right,
                              ts_tensor_t* out_tensor) {
   return tensora::GuardedAbiCall("tensor_matmul", [&] {
-    if (out_tensor == nullptr) {
-      return tensora::InvalidArgument(
-          "tensor_matmul: output handle pointer is null");
-    }
-    *out_tensor = 0;
-
-    std::shared_ptr<tensora::Tensor> left_object;
-    std::shared_ptr<tensora::Tensor> right_object;
-    tensora::Status status = tensora::LookupTensor(left, &left_object);
-    if (!status.ok()) return status;
-    status = tensora::LookupTensor(right, &right_object);
-    if (!status.ok()) return status;
-    if (left_object->device() != right_object->device()) {
-      return tensora::InvalidArgument(
-          "tensor_matmul: input tensors must use the same device");
-    }
-
-    const tensora::Backend* backend = nullptr;
-    status = tensora::BackendFor(*left_object, &backend);
-    if (!status.ok()) return status;
-
-    std::shared_ptr<tensora::Tensor> result;
-    status = backend->Matmul(*left_object, *right_object, &result);
-    if (!status.ok()) return status;
-    return tensora::InsertTensor(std::move(result), out_tensor);
+    return tensora::RunBinaryOperation(
+        left, right, out_tensor, "tensor_matmul", &tensora::Backend::Matmul);
   });
 }
 

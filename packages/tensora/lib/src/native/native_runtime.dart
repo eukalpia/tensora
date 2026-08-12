@@ -69,7 +69,8 @@ final class NativeRuntime {
       return _withDimensions(shape, (dims, rank) {
         return _newHandle(
           'tensor.fromList',
-          (out) => _bindings.tensorFromF32(data, dims, rank, out),
+          (out) =>
+              _bindings.tensorFromF32(data, values.length, dims, rank, out),
         );
       });
     } finally {

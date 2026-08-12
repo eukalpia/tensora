@@ -62,10 +62,14 @@ TS_API ts_status_t ts_noop(void);
  * Successful creation returns one owned handle reference in out_tensor.
  * Callers must eventually release it with ts_tensor_release().
  *
- * Rank zero denotes a scalar. For rank > 0, dims must be non-NULL and every
- * dimension must be positive. data must contain exactly numel float32 values.
+ * data_length is the number of float32 elements readable from data and must
+ * equal the validated shape element count exactly. Rank zero denotes a scalar
+ * and therefore requires data_length == 1. For rank > 0, dims must be non-NULL
+ * and every dimension must be positive. A nonzero data_length requires a
+ * non-NULL data pointer.
  */
 TS_API ts_status_t ts_tensor_from_f32(const float* data,
+                                      size_t data_length,
                                       const int64_t* dims,
                                       size_t rank,
                                       ts_tensor_t* out_tensor);
