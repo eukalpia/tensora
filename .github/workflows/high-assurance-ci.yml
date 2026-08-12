@@ -116,6 +116,7 @@ jobs:
         run: >-
           dart test
           integration_test/training_integration_test.dart
+          integration_test/training_edge_integration_test.dart
           integration_test/inference_integration_test.dart
           --coverage-path=coverage/enabled.info
           --reporter expanded
