@@ -132,7 +132,8 @@ void main() {
       );
     });
 
-    test('dispose is deterministic, double-dispose is safe, use-after fails', () {
+    test('dispose is deterministic, double-dispose is safe, use-after fails',
+        () {
       final tensor = Tensor.ones(Shape([2, 2]));
 
       tensor.dispose();
@@ -149,7 +150,8 @@ void main() {
       );
     });
 
-    test('invalid native handles are converted into structured Dart errors', () {
+    test('invalid native handles are converted into structured Dart errors',
+        () {
       expect(
         () => NativeRuntime.instance.numel(0x7ffffffffffffffe),
         throwsA(isA<NativeRuntimeException>()),

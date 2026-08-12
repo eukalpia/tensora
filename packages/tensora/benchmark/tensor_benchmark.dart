@@ -48,7 +48,8 @@ void main(List<String> arguments) {
   final runtime = NativeRuntime.instance;
 
   stdout.writeln('Tensora Dart/FFI benchmark');
-  stdout.writeln('os=${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+  stdout.writeln(
+      'os=${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
   stdout.writeln('processors=${Platform.numberOfProcessors}');
   stdout.writeln('dart=${Platform.version.split('\n').first}');
   stdout.writeln('native=${runtime.libraryPath}');

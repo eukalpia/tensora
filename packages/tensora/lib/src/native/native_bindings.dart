@@ -131,8 +131,7 @@ final class NativeBindings {
             library.lookupFunction<_TensorFullF32Native, _TensorFullF32Dart>(
           'ts_tensor_full_f32',
         ),
-        tensorRank =
-            library.lookupFunction<_TensorRankNative, _TensorRankDart>(
+        tensorRank = library.lookupFunction<_TensorRankNative, _TensorRankDart>(
           'ts_tensor_rank',
         ),
         tensorShape =
@@ -179,10 +178,12 @@ final class NativeBindings {
             library.lookupFunction<_TensorLifetimeNative, _TensorLifetimeDart>(
           'ts_tensor_release',
         ),
-        runtimeLiveTensorCount = library.lookupFunction<_RuntimeCounterNative,
-            _RuntimeCounterDart>('ts_runtime_live_tensor_count'),
-        runtimeLiveStorageBytes = library.lookupFunction<_RuntimeCounterNative,
-            _RuntimeCounterDart>('ts_runtime_live_storage_bytes');
+        runtimeLiveTensorCount =
+            library.lookupFunction<_RuntimeCounterNative, _RuntimeCounterDart>(
+                'ts_runtime_live_tensor_count'),
+        runtimeLiveStorageBytes =
+            library.lookupFunction<_RuntimeCounterNative, _RuntimeCounterDart>(
+                'ts_runtime_live_storage_bytes');
 
   final _AbiVersionDart abiVersion;
   final _LastErrorDart lastErrorMessage;
