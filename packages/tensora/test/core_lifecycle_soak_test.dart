@@ -4,6 +4,28 @@ import 'package:test/test.dart';
 
 void main() {
   test(
+    '1000 Dart FFI lifecycles return native counters to baseline',
+    () {
+      final runtime = NativeRuntime.instance;
+      final baselineTensors = runtime.liveTensorCount();
+      final baselineStorage = runtime.liveStorageBytes();
+
+      for (var cycle = 0; cycle < 1000; cycle++) {
+        final a = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
+        final b = Tensor.fromList([5, 6, 7, 8], shape: Shape([2, 2]));
+        final result = a.matmul(b);
+        result.dispose();
+        b.dispose();
+        a.dispose();
+      }
+
+      expect(runtime.liveTensorCount(), baselineTensors);
+      expect(runtime.liveStorageBytes(), baselineStorage);
+    },
+    tags: 'soak',
+  );
+
+  test(
     '2000 Dart FFI tensor lifecycles return native counters to baseline',
     () {
       final runtime = NativeRuntime.instance;
