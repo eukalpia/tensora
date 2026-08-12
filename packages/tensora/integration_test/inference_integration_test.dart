@@ -86,17 +86,20 @@ void main() {
     );
   });
 
-  test('native runtime rejects incompatible input shape without leaking output', () {
-    final session = OnnxSession(modelPath!);
-    final wrongShape = Tensor.ones(Shape([1, 4]));
-    addTearDown(session.dispose);
-    addTearDown(wrongShape.dispose);
+  test(
+    'native runtime rejects incompatible input shape without leaking output',
+    () {
+      final session = OnnxSession(modelPath!);
+      final wrongShape = Tensor.ones(Shape([1, 4]));
+      addTearDown(session.dispose);
+      addTearDown(wrongShape.dispose);
 
-    expect(
-      () => session.run({'X': wrongShape}),
-      throwsA(isA<TensoraException>()),
-    );
-  });
+      expect(
+        () => session.run({'X': wrongShape}),
+        throwsA(isA<TensoraException>()),
+      );
+    },
+  );
 
   test('reusable session remains stable across 1000 Dart inference calls', () {
     final baselineSessions = OnnxRuntime.liveSessionCount;
