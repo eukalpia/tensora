@@ -21,8 +21,11 @@ extern "C" {
 #define TS_ABI_VERSION 1u
 
 typedef uint64_t ts_tensor_t;
+typedef int32_t ts_status_t;
+typedef uint32_t ts_dtype_t;
+typedef uint32_t ts_device_t;
 
-typedef enum ts_status_t {
+enum {
   TS_OK = 0,
   TS_INVALID_ARGUMENT = 1,
   TS_INVALID_SHAPE = 2,
@@ -30,22 +33,23 @@ typedef enum ts_status_t {
   TS_UNSUPPORTED = 4,
   TS_INVALID_HANDLE = 5,
   TS_INTERNAL_ERROR = 6
-} ts_status_t;
+};
 
-typedef enum ts_dtype_t {
-  TS_DTYPE_FLOAT32 = 1
-} ts_dtype_t;
+enum {
+  TS_DTYPE_FLOAT32 = 1u
+};
 
-typedef enum ts_device_t {
-  TS_DEVICE_CPU = 1
-} ts_device_t;
+enum {
+  TS_DEVICE_CPU = 1u
+};
 
 /*
  * ABI and error diagnostics.
  *
  * ts_last_error_message() returns a pointer to thread-local storage owned by
- * Tensora. The pointer remains valid until the next Tensora ABI call on the
- * same thread. Callers must copy it if they need longer retention.
+ * Tensora. The pointer remains valid until the next Tensora operation on the
+ * same thread changes the diagnostic. Callers must copy it if they need longer
+ * retention.
  */
 TS_API uint32_t ts_abi_version(void);
 TS_API const char* ts_last_error_message(void);
@@ -58,9 +62,8 @@ TS_API ts_status_t ts_noop(void);
  * Successful creation returns one owned handle reference in out_tensor.
  * Callers must eventually release it with ts_tensor_release().
  *
- * Rank zero denotes a scalar and requires dims == NULL or ignores dims.
- * For rank > 0, dims must be non-NULL and every dimension must be positive.
- * data must contain exactly numel float32 values.
+ * Rank zero denotes a scalar. For rank > 0, dims must be non-NULL and every
+ * dimension must be positive. data must contain exactly numel float32 values.
  */
 TS_API ts_status_t ts_tensor_from_f32(const float* data,
                                       const int64_t* dims,

@@ -1,11 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(tensora_native VERSION 0.1.0 LANGUAGES CXX)
+project(tensora_native VERSION 0.1.0 LANGUAGES C CXX)
 
 option(TENSORA_BUILD_TESTS "Build Tensora native tests" ON)
 option(TENSORA_BUILD_BENCHMARKS "Build Tensora native benchmarks" ON)
 option(TENSORA_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -61,18 +64,41 @@ if(TENSORA_BUILD_TESTS)
   )
   target_link_libraries(tensora_native_tests PRIVATE tensora_native Threads::Threads)
 
+  add_executable(tensora_handle_registry_tests tests/handle_registry_test.cc)
+  target_include_directories(tensora_handle_registry_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  target_link_libraries(tensora_handle_registry_tests PRIVATE tensora_native)
+
+  add_executable(tensora_c_abi_tests tests/c_abi_test.c)
+  target_include_directories(tensora_c_abi_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  target_link_libraries(tensora_c_abi_tests PRIVATE tensora_native)
+
   if(MSVC)
     target_compile_options(tensora_native_tests PRIVATE /W4 /WX /permissive-)
+    target_compile_options(tensora_handle_registry_tests PRIVATE /W4 /WX /permissive-)
+    target_compile_options(tensora_c_abi_tests PRIVATE /W4 /WX)
   else()
     target_compile_options(tensora_native_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(tensora_handle_registry_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(tensora_c_abi_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
 
   if(TENSORA_ENABLE_SANITIZERS)
     target_compile_options(tensora_native_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
     target_link_options(tensora_native_tests PRIVATE -fsanitize=address,undefined)
+    target_compile_options(tensora_handle_registry_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
+    target_link_options(tensora_handle_registry_tests PRIVATE -fsanitize=address,undefined)
+    target_compile_options(tensora_c_abi_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
+    target_link_options(tensora_c_abi_tests PRIVATE -fsanitize=address,undefined)
   endif()
 
   add_test(NAME tensora_native_tests COMMAND tensora_native_tests)
+  add_test(NAME tensora_handle_registry_tests COMMAND tensora_handle_registry_tests)
+  add_test(NAME tensora_c_abi_tests COMMAND tensora_c_abi_tests)
 endif()
 
 if(TENSORA_BUILD_BENCHMARKS)
