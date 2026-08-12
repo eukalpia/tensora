@@ -40,5 +40,6 @@ void main() {
       expect(runtime.liveTensorCount(), baselineTensors);
       expect(runtime.liveStorageBytes(), baselineStorage);
     },
+    tags: 'soak',
   );
 }

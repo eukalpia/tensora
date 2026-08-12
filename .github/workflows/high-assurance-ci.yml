@@ -83,12 +83,22 @@ jobs:
         working-directory: packages/tensora
         run: dart pub get
 
+      - name: Collect isolated core soak coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/core-coverage/libtensora_native.so
+        run: >-
+          dart test test/core_lifecycle_soak_test.dart
+          --coverage-path=coverage/core-soak.info
+          --reporter expanded
+
       - name: Collect disabled-backend core coverage
         working-directory: packages/tensora
         env:
           TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/core-coverage/libtensora_native.so
         run: >-
           dart test test
+          --exclude-tags soak
           --coverage-path=coverage/core.info
           --reporter expanded
 
@@ -169,6 +179,7 @@ jobs:
 
           reports = [
               Path('coverage/core.info'),
+              Path('coverage/core-soak.info'),
               Path('coverage/training.info'),
               Path('coverage/training-edge.info'),
               Path('coverage/training-runtime.info'),
