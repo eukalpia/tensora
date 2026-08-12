@@ -127,6 +127,16 @@ jobs:
           --coverage-path=coverage/training-edge.info
           --reporter expanded
 
+      - name: Collect training runtime wrapper coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/native_training_runtime_edge_test.dart
+          --coverage-path=coverage/training-runtime.info
+          --reporter expanded
+
       - name: Collect inference coverage in isolated process
         working-directory: packages/tensora
         env:
@@ -136,6 +146,17 @@ jobs:
         run: >-
           dart test integration_test/inference_integration_test.dart
           --coverage-path=coverage/inference.info
+          --reporter expanded
+
+      - name: Collect inference runtime wrapper coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/native_inference_runtime_edge_test.dart
+          --coverage-path=coverage/inference-runtime.info
           --reporter expanded
 
       - name: Enforce 90 percent merged library line coverage
@@ -150,7 +171,9 @@ jobs:
               Path('coverage/core.info'),
               Path('coverage/training.info'),
               Path('coverage/training-edge.info'),
+              Path('coverage/training-runtime.info'),
               Path('coverage/inference.info'),
+              Path('coverage/inference-runtime.info'),
           ]
           for report in reports:
               if not report.exists():
