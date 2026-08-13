@@ -29,15 +29,9 @@ final class NativeTrainingRuntime {
     }
   }
 
-  int cudaDeviceCount() {
-    final value = calloc<Uint32>();
-    try {
-      _check(_bindings.cudaDeviceCount(value), 'training.cudaDeviceCount');
-      return value.value;
-    } finally {
-      calloc.free(value);
-    }
-  }
+  int deviceCount(Device device) => NativeRuntime.instance.deviceCount(device);
+
+  int cudaDeviceCount() => deviceCount(Device.cuda(0));
 
   void manualSeed(int seed) {
     if (seed < 0) {
@@ -127,7 +121,7 @@ final class NativeTrainingRuntime {
 
   void moduleToDevice(int module, Device device) {
     _check(
-      _bindings.moduleToDevice(module, device.isCpu ? 1 : 2, device.index),
+      _bindings.moduleToDevice(module, _deviceCode(device), device.index),
       'module.to',
     );
   }
@@ -236,6 +230,15 @@ final class NativeTrainingRuntime {
     'runtime.liveOptimizerCount',
     _bindings.liveOptimizerCount,
   );
+
+  static int _deviceCode(Device device) {
+    if (device.isCpu) return 1;
+    if (device.isCuda) return 2;
+    if (device.isMps) return 3;
+    if (device.isXpu) return 4;
+    if (device.isHip) return 5;
+    throw UnsupportedError('Unknown Tensora device $device.');
+  }
 
   int _moduleCount(
     int module,
