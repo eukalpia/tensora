@@ -20,9 +20,16 @@ final class TensoraRuntime {
   static bool get trainingAvailable =>
       NativeTrainingRuntime.instance.trainingAvailable();
 
-  /// Number of visible CUDA devices reported by the training backend.
-  static int get cudaDeviceCount =>
-      NativeTrainingRuntime.instance.cudaDeviceCount();
+  /// Number of visible devices for [device]'s accelerator kind.
+  ///
+  /// The index carried by [device] is ignored for counting. CPU always reports
+  /// one. Accelerator kinds return zero when the loaded native runtime does not
+  /// contain or cannot see that backend.
+  static int deviceCount(Device device) =>
+      NativeTrainingRuntime.instance.deviceCount(device);
+
+  /// Number of visible NVIDIA CUDA devices reported by the training backend.
+  static int get cudaDeviceCount => deviceCount(Device.cuda(0));
 
   /// Sets the native training random seed.
   static void manualSeed(int seed) =>
