@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   inference-cpu:
-    name: ONNX Runtime CPU inference
+    name: ONNX Runtime CPU inference / Linux
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -102,3 +102,95 @@ jobs:
       - name: Run native inference wrapper edge suite in isolated process
         working-directory: packages/tensora
         run: dart test integration_test/native_inference_runtime_edge_test.dart --reporter expanded
+
+  inference-coreml:
+    name: ONNX Runtime CoreML inference / macOS
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      ORT_VERSION: '1.26.0'
+      ORT_SHA256: '7a1280bbb1701ea514f71828765237e7896e0f2e1cd332f1f70dbd5c3e33aca3'
+      TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+      TENSORA_TEST_ONNX_PROVIDER: coreml
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify Apple Silicon host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "Darwin"
+          test "$(uname -m)" = "arm64"
+          system_profiler SPHardwareDataType SPDisplaysDataType
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned ONNX fixture dependency
+        run: python -m pip install onnx==1.21.0 numpy
+
+      - name: Generate deterministic ONNX fixture
+        shell: bash
+        run: |
+          mkdir -p build/fixtures
+          python native/tests/generate_onnx_fixture.py "$TENSORA_ONNX_TEST_MODEL"
+
+      - name: Download pinned ONNX Runtime Apple Silicon distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="build/onnxruntime-osx-arm64-${ORT_VERSION}.tgz"
+          mkdir -p build
+          curl --fail --location --retry 3 \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-arm64-${ORT_VERSION}.tgz" \
+            --output "$archive"
+          echo "${ORT_SHA256}  ${archive}" | shasum -a 256 -c
+          tar -xzf "$archive" -C build
+          ort_root="${GITHUB_WORKSPACE}/build/onnxruntime-osx-arm64-${ORT_VERSION}"
+          echo "ORT_ROOT=${ort_root}" >> "$GITHUB_ENV"
+          echo "ORT_LIBRARY_PATH=${ort_root}/lib" >> "$GITHUB_ENV"
+          echo "TENSORA_NATIVE_LIBRARY=${GITHUB_WORKSPACE}/build/coreml/libtensora_native.dylib" >> "$GITHUB_ENV"
+
+      - name: Configure CoreML inference runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/coreml
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_WITH_ONNXRUNTIME=ON
+          -DTENSORA_ONNXRUNTIME_ROOT="$ORT_ROOT"
+          -DTENSORA_WITH_ORT_COREML=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build CoreML inference runtime
+        run: cmake --build build/coreml --config Release --parallel 2
+
+      - name: Run native inference acceptance suite
+        env:
+          DYLD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: ctest --test-dir build/coreml --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Verify CoreML test quality
+        working-directory: packages/tensora
+        run: |
+          dart format --output=none --set-exit-if-changed integration_test/accelerator_inference_integration_test.dart
+          dart analyze --fatal-infos --fatal-warnings integration_test/accelerator_inference_integration_test.dart
+
+      - name: Run real CoreML provider acceptance
+        working-directory: packages/tensora
+        env:
+          DYLD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: dart test integration_test/accelerator_inference_integration_test.dart --reporter expanded
