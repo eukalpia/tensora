@@ -106,7 +106,7 @@ jobs:
         run: dart test integration_test/native_training_runtime_edge_test.dart --reporter expanded
 
   training-macos:
-    name: LibTorch CPU training / macOS
+    name: LibTorch + Apple MPS training / macOS
     runs-on: macos-latest
     timeout-minutes: 45
     env:
@@ -129,7 +129,7 @@ jobs:
       - name: Install pinned macOS PyTorch
         run: python -m pip install torch==2.13.0
 
-      - name: Record PyTorch environment and resolve native paths
+      - name: Require real Apple MPS execution and resolve native paths
         shell: bash
         run: |
           set -euo pipefail
@@ -137,6 +137,13 @@ jobs:
           import pathlib
           import platform
           import torch
+          if platform.machine() != 'arm64':
+              raise SystemExit('Hosted macOS qualification requires Apple Silicon')
+          if not torch.backends.mps.is_available():
+              raise SystemExit('PyTorch MPS is not available on this macOS runner')
+          probe = (torch.arange(4, dtype=torch.float32, device='mps') + 2).cpu().tolist()
+          if probe != [2.0, 3.0, 4.0, 5.0]:
+              raise SystemExit('MPS kernel probe returned unexpected values')
           print('platform=' + platform.platform())
           print('machine=' + platform.machine())
           print('torch_version=' + torch.__version__)
@@ -169,7 +176,7 @@ jobs:
         working-directory: packages/tensora
         run: dart pub get
 
-      - name: Run Dart training integration suites
+      - name: Run Dart CPU training integration suites
         working-directory: packages/tensora
         env:
           DYLD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
@@ -177,6 +184,13 @@ jobs:
           dart test integration_test/training_integration_test.dart --reporter expanded
           dart test integration_test/training_edge_integration_test.dart --reporter expanded
           dart test integration_test/native_training_runtime_edge_test.dart --reporter expanded
+
+      - name: Run real Apple MPS accelerator acceptance
+        working-directory: packages/tensora
+        env:
+          DYLD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+          TENSORA_TEST_DEVICE: mps
+        run: dart test integration_test/accelerator_training_integration_test.dart --reporter expanded
 
   training-windows:
     name: LibTorch CPU training / Windows
