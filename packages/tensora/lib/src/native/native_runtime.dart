@@ -21,7 +21,7 @@ final class NativeRuntime {
     }
   }
 
-  static const int expectedAbiVersion = 3;
+  static const int expectedAbiVersion = 4;
 
   static NativeRuntime? _instance;
 
