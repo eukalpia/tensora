@@ -12,6 +12,7 @@
 namespace tensora::training {
 
 Status IsAvailable(uint8_t* out_available);
+Status DeviceCount(Device device, uint32_t* out_count);
 Status CudaDeviceCount(uint32_t* out_count);
 Status ManualSeed(uint64_t seed);
 
