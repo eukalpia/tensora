@@ -1,0 +1,14 @@
+name: tensora_transformers
+description: Transformer and generation contracts for Tensora.
+version: 0.1.0-dev.1
+repository: https://github.com/eukalpia/tensora
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+dependencies:
+  tensora_nn: ^0.1.0-dev.1
+  tensora_text: ^0.1.0-dev.1
+
+dev_dependencies:
+  test: ^1.27.0
