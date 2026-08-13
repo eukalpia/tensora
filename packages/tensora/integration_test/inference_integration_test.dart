@@ -22,6 +22,15 @@ void main() {
     expect(OnnxRuntime.providers, contains('CPUExecutionProvider'));
   });
 
+  test('unknown native provider names are rejected explicitly', () {
+    expect(
+      () => OnnxExecutionProvider.fromRuntimeName(
+        'DefinitelyUnknownExecutionProvider',
+      ),
+      throwsA(isA<NativeRuntimeException>()),
+    );
+  });
+
   test('auto and explicit CPU sessions report the selected provider', () {
     final automatic = OnnxSession(modelPath!);
     final explicit = OnnxSession(
@@ -82,6 +91,20 @@ void main() {
 
     session.dispose();
     expect(OnnxRuntime.liveSessionCount, baseline);
+  });
+
+  test('explicit output selection returns the requested result', () {
+    final session = OnnxSession(modelPath!);
+    final input = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
+    addTearDown(session.dispose);
+    addTearDown(input.dispose);
+
+    final outputs = session.run({'X': input}, outputs: const ['Y']);
+    final output = outputs['Y']!;
+    addTearDown(output.dispose);
+
+    expect(outputs.keys, ['Y']);
+    expectValues(output.toList(), [3, 5, 7, 11]);
   });
 
   test('session validates named input and output contracts', () {

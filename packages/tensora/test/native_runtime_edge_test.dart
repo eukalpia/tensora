@@ -29,6 +29,27 @@ void main() {
     expect(runtime.cudaDeviceCount(), runtime.deviceCount(Device.cuda(0)));
   });
 
+  test('retain preserves a live handle and copy size mismatch is rejected', () {
+    final handle = runtime.full(Shape([1]), 3.25);
+    runtime.retain(handle);
+    try {
+      runtime.release(handle);
+      expect(runtime.numel(handle), 1);
+      expect(
+        () => runtime.copyToHost(handle, 2),
+        throwsA(isA<NativeRuntimeException>()),
+      );
+    } finally {
+      runtime.release(handle);
+    }
+  });
+
+  test('finalizer release path invalidates its owned handle reference', () {
+    final handle = runtime.full(Shape([1]), 1);
+    runtime.releaseFromFinalizer(handle);
+    expect(() => runtime.numel(handle), throwsA(invalidHandleError));
+  });
+
   test(
     'zero tensor handles are rejected across the native wrapper surface',
     () {

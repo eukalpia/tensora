@@ -16,6 +16,31 @@ void main() {
     expect(() => runtime.moduleLoad(0, '  '), throwsArgumentError);
   });
 
+  test('training wrapper maps every public accelerator device code', () {
+    expect(runtime.cudaDeviceCount(), greaterThanOrEqualTo(0));
+
+    final module = runtime.createLinear(1, 1, true);
+    try {
+      for (final device in <Device>[
+        Device.cuda(0),
+        Device.mps,
+        Device.xpu(0),
+        Device.hip(0),
+      ]) {
+        final count = runtime.deviceCount(device);
+        if (count == 0) {
+          expect(
+            () => runtime.moduleToDevice(module, device),
+            throwsA(isA<UnsupportedOperationException>()),
+            reason: '$device is unavailable on this validation host',
+          );
+        }
+      }
+    } finally {
+      runtime.moduleRelease(module);
+    }
+  });
+
   test('invalid module handles fail deterministically across operations', () {
     expect(() => runtime.moduleForward(0, 0), throwsA(invalidHandleError));
     expect(

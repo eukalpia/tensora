@@ -7,11 +7,22 @@ import 'package:test/test.dart';
 void main() {
   final runtime = NativeInferenceRuntime.instance;
   final invalidHandleError = isA<NativeRuntimeException>();
+  final modelPath = Platform.environment['TENSORA_ONNX_TEST_MODEL'];
 
   test('inference runtime validates request structure before native calls', () {
     expect(
       () => runtime.createSession(
         '',
+        enableProfiling: false,
+        profilingPrefix: null,
+      ),
+      throwsArgumentError,
+    );
+    expect(modelPath, isNotNull);
+    expect(
+      () => runtime.createSession(
+        modelPath!,
+        providerName: '   ',
         enableProfiling: false,
         profilingPrefix: null,
       ),
@@ -60,7 +71,6 @@ void main() {
   });
 
   test('finalizer release path returns the session counter to baseline', () {
-    final modelPath = Platform.environment['TENSORA_ONNX_TEST_MODEL'];
     expect(modelPath, isNotNull);
     final baseline = runtime.liveSessionCount();
     final session = runtime.createSession(
