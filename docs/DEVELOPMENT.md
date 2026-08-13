@@ -1,401 +1,308 @@
 # Tensora Development Guide
 
-This guide defines how engineering work should be performed in the Tensora repository.
+This guide defines the engineering workflow for Tensora's native/Dart runtime.
 
-Tensora is systems infrastructure spanning Dart, native code, device runtimes, model formats, and Flutter integration. A change is considered complete only when its behavior, ownership, failure modes, compatibility, tests, and relevant performance characteristics are understood.
+Tensora spans Dart APIs, a C ABI, native tensor storage, optional training and inference backends, device/provider selection, and platform-specific dependency loading. A change is complete only when behavior, ownership, failure modes, compatibility, and relevant platform evidence are understood.
 
-## 1. Work from an explicit scope
-
-Before changing code, define:
-
-- the problem being solved;
-- the affected package/runtime layer;
-- public behavior;
-- ownership/lifetime implications;
-- device/backend implications;
-- expected failure behavior;
-- tests required for acceptance;
-- whether an RFC is required.
-
-Avoid opportunistic redesign of unrelated subsystems.
-
-## 2. Prefer vertical slices
-
-Implement end-to-end slices that can be validated.
-
-Example:
-
-```text
-Dart Tensor API
-  ↓
-FFI binding
-  ↓
-C ABI entry point
-  ↓
-Native validation
-  ↓
-CPU implementation
-  ↓
-Correctness test
-  ↓
-Leak test
-  ↓
-Benchmark
-```
-
-A vertical slice proves the architecture. A directory full of declarations does not.
-
-## 3. Current Milestone 1 toolchain
+## 1. Current toolchain
 
 Minimum source requirements:
 
-- Dart 3.7+ for the `tensora` package;
+- Dart 3.7+;
 - CMake 3.20+;
 - C11 compiler;
 - C++20 compiler.
 
-GitHub Actions additionally runs the current stable Dart SDK and a dedicated Dart 3.7 compatibility job.
+The current native C ABI is version **4**.
 
-The native runtime is intentionally dependency-light in Milestone 1: it uses the C/C++ standard libraries and platform threading support rather than a large external numerical runtime.
+Hosted CI additionally exercises the current stable Dart SDK and platform toolchains on Linux, macOS, and Windows.
 
-## 4. Branch workflow
+## 2. Build modes
 
-Create a focused branch from up-to-date `main`.
+Tensora keeps optional large native dependencies behind explicit CMake options.
 
-Examples:
+Dependency-light core:
 
 ```text
-feature/cpu-tensor-storage
-feature/onnx-session
-fix/native-handle-release
-perf/camera-frame-path
-docs/model-format
+TENSORA_WITH_TORCH=OFF
+TENSORA_WITH_ONNXRUNTIME=OFF
 ```
 
-Keep the branch limited to one coherent objective. Do not develop broad incomplete features directly on `main`.
+Training-enabled runtime:
 
-## 5. Public contract first
-
-For a new subsystem, define the public or internal contract before filling in implementation details.
-
-Review:
-
-- type names;
-- method semantics;
-- async behavior;
-- disposal behavior;
-- invalid-state behavior;
-- backend independence;
-- extensibility;
-- compatibility cost.
-
-Do not stabilize an API merely because an implementation already exists.
-
-## 6. Test before expanding breadth
-
-The first implementation of a feature should include the tests needed to prove its fundamental behavior before adding variants.
-
-For numerical code, include reference values or a trusted implementation comparison.
-
-For native resource code, include repeated allocation/disposal stress.
-
-For parsers, include malformed input.
-
-For Flutter lifecycle behavior, include repeated mount/dispose and background/resume scenarios where test infrastructure allows.
-
-## 7. Build the native runtime
-
-### Debug
-
-```bash
-cmake -S native -B build/native-debug \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DTENSORA_BUILD_TESTS=ON \
-  -DTENSORA_BUILD_BENCHMARKS=ON
-cmake --build build/native-debug --config Debug --parallel
-ctest --test-dir build/native-debug --build-config Debug --output-on-failure
+```text
+TENSORA_WITH_TORCH=ON
 ```
 
-### Release
+Inference-enabled runtime:
+
+```text
+TENSORA_WITH_ONNXRUNTIME=ON
+```
+
+Provider-specific ONNX integrations use their dedicated build flags. Never infer provider support merely because the underlying ONNX Runtime distribution was built with that provider.
+
+## 3. Core native build
+
+Release example:
 
 ```bash
-cmake -S native -B build/native-release \
+cmake -S native -B build/native \
   -DCMAKE_BUILD_TYPE=Release \
   -DTENSORA_BUILD_TESTS=ON \
   -DTENSORA_BUILD_BENCHMARKS=ON
-cmake --build build/native-release --config Release --parallel
-ctest --test-dir build/native-release --build-config Release --output-on-failure
+cmake --build build/native --config Release --parallel
+ctest --test-dir build/native --build-config Release --output-on-failure
 ```
 
-The CMake targets compile with warnings treated as errors (`-Werror` on GCC/Clang and `/WX` on MSVC).
+Debug uses the same structure with `CMAKE_BUILD_TYPE=Debug` on single-config generators and `--config Debug` for the build/test steps.
 
-### ASan + UBSan
+Native targets compile with warnings treated as errors. Do not weaken the global warning policy to accommodate a defect in Tensora source.
 
-On a Clang/GCC environment where the sanitizers are supported:
+Third-party headers may require narrowly scoped compiler handling when an upstream warning cannot be fixed in Tensora. Such exceptions must stay local to the translation units that include the dependency.
+
+## 4. LibTorch training build
+
+Resolve the LibTorch CMake prefix from the selected PyTorch/LibTorch installation, then configure:
 
 ```bash
-CC=clang CXX=clang++ cmake -S native -B build/native-sanitizers \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DTENSORA_ENABLE_SANITIZERS=ON \
+cmake -S native -B build/training \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX" \
+  -DTENSORA_WITH_TORCH=ON \
   -DTENSORA_BUILD_TESTS=ON \
   -DTENSORA_BUILD_BENCHMARKS=OFF
-cmake --build build/native-sanitizers --parallel
-ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
-UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-ctest --test-dir build/native-sanitizers --output-on-failure
+cmake --build build/training --config Release --parallel
+ctest --test-dir build/training --build-config Release --output-on-failure
 ```
 
-Do not suppress genuine sanitizer defects.
+The training runtime exposes CPU and whichever accelerator capabilities are actually available in the linked LibTorch build and current host.
 
-## 8. Dart quality gate
+An unavailable device request must fail explicitly. Do not add automatic CPU fallback for an explicitly selected training device.
 
-From the core package:
+## 5. ONNX Runtime build
+
+Point CMake at a concrete ONNX Runtime distribution:
 
 ```bash
-cd packages/tensora
-dart pub get
-dart format --output=none --set-exit-if-changed lib test benchmark
-dart analyze --fatal-infos --fatal-warnings
+cmake -S native -B build/inference \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DTENSORA_WITH_ONNXRUNTIME=ON \
+  -DTENSORA_ONNXRUNTIME_ROOT="$ORT_ROOT" \
+  -DTENSORA_BUILD_TESTS=ON \
+  -DTENSORA_BUILD_BENCHMARKS=OFF
+cmake --build build/inference --config Release --parallel
+ctest --test-dir build/inference --build-config Release --output-on-failure
 ```
 
-The package enables strict casts, strict inference, and strict raw-type analysis.
+Provider-specific flags are additive to this configuration.
 
-CI also resolves and analyzes the package on the minimum supported Dart 3.7 SDK so the `pubspec` floor is an executable compatibility claim.
+An explicit ONNX provider request must never silently become CPU. Use the public `auto` policy only when deterministic provider fallback is desired.
 
-## 9. Dart ↔ native integration
+## 6. Windows sidecar dependency contract
 
-Build a native Release library, then point the Dart bridge at its absolute path.
+Windows optional backends must be distributed and tested using sidecar DLLs:
+
+```text
+runtime-directory/
+  tensora_native.dll
+  backend DLLs required by that build
+```
+
+When `TENSORA_NATIVE_LIBRARY` names an existing Windows DLL, the Dart runtime loads it with a restricted search policy that prioritizes the runtime directory for dependencies.
+
+For a LibTorch build, stage the required LibTorch DLLs beside `tensora_native.dll`.
+
+For an ONNX Runtime build, stage the exact ONNX Runtime/provider DLLs beside `tensora_native.dll`.
+
+Do not depend on an unrelated globally installed DLL or an ambient PATH entry. This is a correctness requirement as well as a dependency-hijacking hardening measure.
+
+## 7. Dart quality gate
+
+From `packages/tensora`:
+
+```bash
+dart pub get
+dart format --output=none --set-exit-if-changed lib test benchmark integration_test
+dart analyze --fatal-infos --fatal-warnings
+dart test --reporter expanded
+```
+
+The package uses strict casts, strict inference, and strict raw-type analysis.
+
+The minimum Dart 3.7 job is part of the compatibility contract, not merely a syntax smoke test.
+
+## 8. Dart ↔ native integration
+
+Point `TENSORA_NATIVE_LIBRARY` at an absolute built library path.
 
 Linux:
 
 ```bash
-export TENSORA_NATIVE_LIBRARY="$PWD/build/native-release/libtensora_native.so"
+export TENSORA_NATIVE_LIBRARY="$PWD/build/native/libtensora_native.so"
 ```
 
 macOS:
 
 ```bash
-export TENSORA_NATIVE_LIBRARY="$PWD/build/native-release/libtensora_native.dylib"
+export TENSORA_NATIVE_LIBRARY="$PWD/build/native/libtensora_native.dylib"
 ```
 
-Windows PowerShell with a multi-config generator:
+Windows PowerShell:
 
 ```powershell
-$env:TENSORA_NATIVE_LIBRARY = "$PWD\build\native-release\Release\tensora_native.dll"
+$env:TENSORA_NATIVE_LIBRARY = "$PWD\build\native\Release\tensora_native.dll"
 ```
 
-Then run:
+Then run the relevant Dart tests.
 
-```bash
-cd packages/tensora
-dart test --reporter expanded
+Native-backed public behavior must cross the real Dart → FFI → C ABI → native runtime path. Mocks are useful for isolated logic but are not runtime evidence.
+
+## 9. Device semantics
+
+Public device values are:
+
+- CPU;
+- CUDA with index;
+- MPS;
+- XPU with index;
+- HIP/ROCm with index.
+
+Rules for development:
+
+- factories remain CPU-default;
+- `device:` is an explicit request;
+- `preferredDevice` is a query, not a global default mutation;
+- device transfers return independently owned tensor handles;
+- binary ops reject device-kind or device-index mismatches;
+- failed transfers/factory staging must release temporary CPU storage;
+- no hidden cross-device copies to make an operation succeed.
+
+## 10. Current accelerator creation behavior
+
+Host values enter Tensora through a CPU staging tensor. When a factory receives an accelerator `device:`, the runtime transfers the native tensor and releases the staging handle deterministically.
+
+This is intentionally simple and correct. Do not describe it as zero-copy.
+
+Future direct device allocation/import paths require their own ownership, stream, synchronization, and benchmark contracts before replacing this behavior.
+
+## 11. ONNX input behavior
+
+The current portable ONNX bridge reads Tensora input values into host memory and creates ONNX Runtime input tensors from that host buffer.
+
+Therefore:
+
+- accelerated execution providers are real provider execution;
+- input binding is still host-materialized;
+- provider selection does not imply zero-copy input transfer.
+
+A future device-I/O binding path must be introduced as a separate tested optimization.
+
+## 12. Ownership rules
+
+Every successful native creation call must satisfy:
+
+```text
+success => exactly one owned reference escapes
+failure => zero owned references escape
 ```
 
-Do not replace native integration tests with mocks. Public native-backed behavior must cross the real Dart → FFI → C ABI → native runtime path.
+Every fallible Dart adoption path must release a native handle if metadata validation fails.
 
-## 10. Run the example
+Finalizers are backup cleanup only. Tests and examples should use deterministic `dispose()`.
 
-With `TENSORA_NATIVE_LIBRARY` still pointing at the built runtime:
+## 13. Handles and ABI
 
-```bash
-cd examples/tensor_basics
-dart pub get
-dart analyze --fatal-infos --fatal-warnings
-dart run bin/main.dart
-```
+Opaque handles are identifiers, not raw C++ object pointers.
 
-The example should print a `Shape([2, 2])` result and matrix multiplication values `[19.0, 22.0, 43.0, 50.0]`.
-
-## 11. Benchmarks
-
-Native benchmark smoke:
-
-```bash
-./build/native-release/tensora_native_benchmark --smoke
-```
-
-Windows multi-config build:
-
-```powershell
-.\build\native-release\Release\tensora_native_benchmark.exe --smoke
-```
-
-Dart/FFI benchmark:
-
-```bash
-cd packages/tensora
-dart run benchmark/tensor_benchmark.dart --smoke
-```
-
-A standard Dart run omits `--smoke`; `--large` includes the larger configured matrix case.
-
-Performance conclusions must come from optimized builds and must record hardware, OS, runtime/compiler configuration, shapes, warmup, iterations, and statistics. Do not report debug timings as performance evidence.
-
-## 12. FFI rules
-
-Every FFI entry point needs:
-
-- exact ownership semantics;
-- nullability rules;
-- pointer/length validation;
-- error return behavior;
-- ABI-safe types;
-- defined thread behavior;
-- tests from Dart through the native boundary.
-
-Avoid chatty scalar-level FFI APIs for tensor computation. Milestone 1 crosses the boundary at tensor-operation granularity.
-
-## 13. Native handles
-
-Opaque handles must be validated before use.
-
-The Milestone 1 registry rejects:
+The registry rejects:
 
 - zero/unknown handles;
-- already released handles;
+- stale handles;
 - wrong object types;
 - duplicate release.
 
-Handles are identifiers, not reinterpret-cast native pointers. Released identifiers are not recycled during process lifetime.
+Do not expose C++ layout through the public ABI. Additive or breaking ABI work requires compatibility review and an ABI version decision.
 
-## 14. Memory engineering
+## 14. Error handling
 
-For changes that allocate memory, document:
+Native exceptions must not cross the C ABI.
 
-- allocator/provider;
-- owner;
-- release point;
-- alias/view behavior;
-- peak memory considerations;
-- what happens on partial failure.
+Validate untrusted boundary values before backend work whenever possible:
 
-Prefer RAII in native internals.
+- handles;
+- device/provider codes and indices;
+- dimensions/ranks;
+- pointer lengths and capacities;
+- module dimensions;
+- optimizer hyperparameters;
+- model paths and names.
 
-Use explicit cleanup in Dart wrappers for expensive resources, with finalizers as a fallback only.
+Do not catch broad errors in Dart merely to convert backend failure into apparent success.
 
-Milestone 1 exposes native live tensor/storage counters for lifecycle validation; they are diagnostic infrastructure, not a replacement for sanitizer/leak tooling.
+## 15. Sanitizers, fuzzing and concurrency
 
-## 15. Concurrency and isolates
+Run the repository workflows appropriate to the changed subsystem.
 
-Before making a type shareable across threads or isolates, define:
+Memory/bounds changes require sanitizer evidence. C ABI parsing/validation changes require fuzz/regression evidence. Synchronization changes require concurrency/TSan evidence where supported.
 
-- whether it is immutable;
-- whether operations are reentrant;
-- synchronization strategy;
-- lifetime while requests are active;
-- cancellation interaction;
-- shutdown behavior.
+Do not generalize a green concurrency test beyond the state it actually exercises.
 
-Milestone 1 native tensors are immutable. Registry lookup/retain/release is synchronized, while numerical computation occurs outside the registry lock.
+## 16. Hardware qualification
 
-Dart `Tensor` wrappers are isolate-local and intentionally unsendable in Milestone 1. Cross-isolate tensor sharing requires a future explicit ownership/transfer design.
+Real accelerator support is qualified separately from ordinary hosted portability.
 
-## 16. Device transfers
+The manual `Accelerator Hardware Qualification` workflow contains explicit targets for vendor/platform combinations. Each target must execute on matching physical hardware and must verify that the requested Tensora device/provider is actually active.
 
-A change that moves tensor data between host and device must make that behavior explicit.
+A workflow definition, a queued job, or successful compilation without the hardware test is not support evidence.
 
-Milestone 1 has CPU storage only. `fromList` is an explicit host import and `toList()` an explicit host extraction. Normal tensor operations do not shuttle numerical payloads through Dart.
+Apple MPS and CoreML currently have real automated hosted hardware evidence. Other vendor paths remain qualification-pending until their physical workflows pass.
 
-Future profiler instrumentation should record:
+## 17. Branch and pull-request workflow
 
-- source device;
-- destination device;
-- byte count;
-- synchronization introduced;
-- transfer duration where measurable.
+Keep changes focused and preserve a clean stacked diff when milestones build on one another.
 
-## 17. Flutter development
+Before declaring a pull request ready:
 
-Flutter-specific code belongs in Flutter-facing packages and is outside Milestone 1.
+1. identify the exact branch head SHA;
+2. run every required hosted workflow on that SHA;
+3. check the actual conclusion of every required job;
+4. run relevant physical hardware qualification where the support claim requires it;
+5. document unqualified paths explicitly;
+6. check repository hygiene and generated artifacts.
 
-For any future inference path verify:
+Do not reuse green results from an older revision after moving the branch head.
 
-- heavy work is outside the UI isolate;
-- cancellation is safe;
-- disposal releases native resources;
-- queues are bounded;
-- lifecycle transitions do not leak;
-- large images/audio buffers are not copied through Dart without necessity.
+## 18. Performance work
 
-## 18. Model-format development
+Performance claims must use optimized builds and record:
 
-Model bundle parsing is security-sensitive and is outside Milestone 1.
+- hardware;
+- OS;
+- compiler/runtime;
+- dependency versions;
+- tensor/model sizes;
+- warmup;
+- iteration count;
+- reported statistics.
 
-Any future change to `.tmodel` must include:
+Benchmark smoke in CI proves the harness remains executable; it is not a performance guarantee.
 
-- schema update;
-- format-version implications;
-- malformed-input tests;
-- resource-limit tests;
-- path/archive safety tests;
-- compatibility documentation;
-- migration notes for breaking format changes.
+## 19. Scope discipline
 
-## 19. Dependency policy
+Prefer complete vertical slices over breadth.
 
-Before adding a dependency, document why Tensora should own the integration instead of implementing a smaller boundary itself.
+For a new backend/device/provider path, finish:
 
-Evaluate:
+```text
+public contract
+→ ABI mapping
+→ native implementation
+→ failure semantics
+→ deterministic ownership
+→ hosted portability
+→ physical qualification when required
+→ documentation
+```
 
-- license;
-- platform availability;
-- release cadence;
-- security maintenance;
-- ABI/API stability;
-- binary size;
-- transitive dependencies;
-- packaging implications.
-
-Native backend dependencies should be modular so unused large runtimes do not automatically ship to every application.
-
-## 20. Performance workflow
-
-Performance work follows this sequence:
-
-1. establish a reproducible benchmark;
-2. measure the current baseline;
-3. identify the bottleneck with profiling;
-4. change one relevant layer;
-5. compare before/after;
-6. verify correctness and memory behavior;
-7. record hardware/runtime details.
-
-Do not optimize from intuition alone when measurement is feasible.
-
-## 21. Documentation workflow
-
-When public behavior changes, update documentation in the same pull request.
-
-Relevant documentation may include:
-
-- README;
-- architecture;
-- compatibility matrix;
-- API docs;
-- examples;
-- benchmarks;
-- release notes.
-
-## 22. Review checklist
-
-Before requesting review, verify:
-
-- [ ] scope is focused;
-- [ ] public contract is documented;
-- [ ] no provider-specific type leaked into stable APIs;
-- [ ] ownership is explicit;
-- [ ] failure behavior is tested;
-- [ ] relevant correctness tests pass;
-- [ ] relevant stress/leak tests pass;
-- [ ] compatibility impact is documented;
-- [ ] benchmarks are present for performance claims;
-- [ ] no placeholder code is presented as supported behavior;
-- [ ] documentation is updated;
-- [ ] no credentials or accidental large artifacts are committed;
-- [ ] validation corresponds to the current pull-request head revision.
-
-## 23. Completion standard
-
-Do not use “done” to mean “compiles locally.”
-
-A Tensora change is complete when the supported behavior is demonstrably correct at the relevant boundaries and the repository contains enough evidence for another engineer to understand, reproduce, test, and maintain it.
+before claiming support or expanding to another variant.

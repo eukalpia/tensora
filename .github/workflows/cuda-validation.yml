@@ -157,7 +157,6 @@ jobs:
           $lib = python -c "import pathlib, torch; print(pathlib.Path(torch.__file__).parent / 'lib')"
           "TORCH_CMAKE_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "TORCH_LIBRARY_PATH=$lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          $lib | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Configure accelerator runtime
         shell: powershell
@@ -170,6 +169,16 @@ jobs:
 
       - name: Build accelerator runtime
         run: cmake --build build/accelerator --config Release --parallel 2
+
+      - name: Stage pinned CUDA LibTorch DLLs
+        shell: powershell
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'build\accelerator\Release'
+          Copy-Item (Join-Path $env:TORCH_LIBRARY_PATH '*.dll') $releaseDir -Force
+          foreach ($required in @('c10.dll', 'torch.dll', 'torch_cpu.dll')) {
+            $path = Join-Path $releaseDir $required
+            if (-not (Test-Path $path)) { throw "Required CUDA LibTorch sidecar DLL missing: $required" }
+          }
 
       - name: Run native training suite
         run: ctest --test-dir build/accelerator --build-config Release --output-on-failure
@@ -356,7 +365,6 @@ jobs:
           $lib = python -c "import pathlib, torch; print(pathlib.Path(torch.__file__).parent / 'lib')"
           "TORCH_CMAKE_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "TORCH_LIBRARY_PATH=$lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          $lib | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Configure XPU training runtime
         shell: powershell
@@ -369,6 +377,16 @@ jobs:
 
       - name: Build XPU training runtime
         run: cmake --build build/accelerator --config Release --parallel 2
+
+      - name: Stage pinned XPU LibTorch DLLs
+        shell: powershell
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'build\accelerator\Release'
+          Copy-Item (Join-Path $env:TORCH_LIBRARY_PATH '*.dll') $releaseDir -Force
+          foreach ($required in @('c10.dll', 'torch.dll', 'torch_cpu.dll')) {
+            $path = Join-Path $releaseDir $required
+            if (-not (Test-Path $path)) { throw "Required XPU LibTorch sidecar DLL missing: $required" }
+          }
 
       - name: Run native training suite
         run: ctest --test-dir build/accelerator --build-config Release --output-on-failure
@@ -507,7 +525,6 @@ jobs:
           if (-not (Test-Path "$env:ORT_DML_ROOT\include\onnxruntime_cxx_api.h")) { throw 'DirectML ONNX Runtime headers are missing' }
           if (-not (Test-Path "$env:ORT_DML_ROOT\lib\onnxruntime.lib")) { throw 'DirectML ONNX Runtime import library is missing' }
           if (-not (Test-Path "$env:ORT_DML_ROOT\lib\onnxruntime.dll")) { throw 'DirectML ONNX Runtime DLL is missing' }
-          "$env:ORT_DML_ROOT\lib" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Generate deterministic ONNX fixture
         shell: powershell
@@ -528,6 +545,13 @@ jobs:
 
       - name: Build DirectML inference runtime
         run: cmake --build build/directml --config Release --parallel 2
+
+      - name: Stage DirectML ONNX Runtime DLLs
+        shell: powershell
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'build\directml\Release'
+          Copy-Item "$env:ORT_DML_ROOT\lib\*.dll" $releaseDir -Force
+          if (-not (Test-Path (Join-Path $releaseDir 'onnxruntime.dll'))) { throw 'Staged DirectML runtime is missing onnxruntime.dll' }
 
       - name: Run native inference suite
         run: ctest --test-dir build/directml --build-config Release --output-on-failure

@@ -275,20 +275,8 @@ jobs:
 
       - name: Run Dart inference integration suite
         working-directory: packages/tensora
-        shell: powershell
-        run: |
-          $runtimeDir = Join-Path $env:GITHUB_WORKSPACE 'build\inference\Release'
-          $env:PATH = "$runtimeDir;$env:PATH"
-          $resolved = where.exe onnxruntime.dll
-          if (-not $resolved) { throw 'onnxruntime.dll is not resolvable for Dart inference' }
-          $resolved
-          if ($resolved[0] -ne (Join-Path $runtimeDir 'onnxruntime.dll')) { throw "Pinned ONNX Runtime is not first in PATH: $($resolved[0])" }
-          dart test integration_test/inference_integration_test.dart --reporter expanded
+        run: dart test integration_test/inference_integration_test.dart --reporter expanded
 
       - name: Run native inference wrapper edge suite
         working-directory: packages/tensora
-        shell: powershell
-        run: |
-          $runtimeDir = Join-Path $env:GITHUB_WORKSPACE 'build\inference\Release'
-          $env:PATH = "$runtimeDir;$env:PATH"
-          dart test integration_test/native_inference_runtime_edge_test.dart --reporter expanded
+        run: dart test integration_test/native_inference_runtime_edge_test.dart --reporter expanded

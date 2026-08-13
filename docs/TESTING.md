@@ -1,336 +1,322 @@
 # Tensora Testing Strategy
 
-Tensora testing must prove more than compilation. The project spans numerical semantics, native memory, FFI, backends, devices, asynchronous execution, model parsing, and Flutter lifecycle behavior. Each layer requires evidence appropriate to its failure modes.
+Tensora testing must prove numerical correctness, ABI safety, native ownership, platform portability, provider/device behavior, and failure semantics. Compilation alone is never sufficient evidence for a runtime or hardware claim.
 
-## 1. Test pyramid
+## 1. Validation layers
 
-Tensora should maintain these test classes as the corresponding subsystems become real:
+The repository uses these complementary layers:
 
 ```text
 Dart unit tests
 Native unit tests
 C ABI tests
-Dart ↔ native integration tests
-Backend parity tests
-Numerical reference tests
-Autograd gradient checks
-Serialization/model-format tests
-Flutter integration tests
-Real-device tests
-Stress and leak tests
-Failure-injection tests
-Security regression tests
+Dart ↔ native FFI tests
+Training integration tests
+ONNX integration tests
+Real accelerator tests
+Lifecycle/soak tests
+Concurrency tests
+Sanitizers
 Fuzzing
-Benchmarks/regression measurements
+Benchmarks
 ```
 
-No single class is sufficient by itself.
+A feature is complete only when the relevant layers for its failure modes are present.
 
-Milestone 1 implements the classes relevant to the CPU Tensor vertical slice: Dart tests, native tests, C ABI tests, real FFI integration, numerical references, malformed-input/security regressions, concurrency checks, lifecycle stress, sanitizers, and benchmark harnesses.
-
-## 2. Milestone 1 CI gates
-
-Two GitHub Actions workflows validate the current implementation.
+## 2. Hosted workflows
 
 ### Native CI
 
-The native workflow runs:
+Native CI validates the dependency-light core across Linux, macOS, and Windows in Debug and Release configurations. It includes registered CTest suites, warnings-as-errors, benchmark smoke, and sanitizer coverage where supported.
 
-- Debug and Release builds on `ubuntu-latest`;
-- Debug and Release builds on `macos-latest`;
-- Debug and Release builds on `windows-latest`;
-- all registered CTest suites in every build;
-- Release benchmark smoke on each desktop runner;
-- a dedicated Clang AddressSanitizer + UndefinedBehaviorSanitizer job on Ubuntu.
+Core native tests cover:
 
-The registered native tests include:
-
-- `tensora_native_tests` — tensor semantics, malformed inputs, lifecycle, concurrency, and 10,000-cycle stress;
-- `tensora_handle_registry_tests` — wrong-object-type and stale handle rejection;
-- `tensora_c_abi_tests` — compile/link/run through the public header as C11 and fixed-width ABI checks.
+- tensor creation and metadata;
+- reshape/transpose;
+- add/multiply/sum/matmul;
+- malformed shapes and arithmetic overflow;
+- handle type/stale/duplicate-release behavior;
+- public C ABI behavior from a C11 consumer;
+- generic device-code mapping;
+- repeated lifecycle stress;
+- documented immutable-tensor concurrency.
 
 ### Dart FFI CI
 
-The Dart workflow runs:
+Dart CI validates:
 
-- current stable Dart formatting and strict static analysis;
-- a dedicated Dart 3.7 minimum compatibility build/analyze/test/example job;
-- real Dart FFI tests on Linux, macOS, and Windows;
-- the `tensor_basics` example on all three desktop platforms;
-- Dart/FFI benchmark smoke on Linux.
+- canonical formatting;
+- strict analyzer settings;
+- minimum Dart 3.7 compatibility;
+- current stable Dart;
+- Linux/macOS/Windows FFI against a real compiled native runtime;
+- examples;
+- isolated lifecycle stress;
+- line-coverage threshold;
+- benchmark smoke.
 
-Every FFI test uses a real compiled Tensora native shared library. Mock-only native coverage is not accepted as proof of runtime behavior.
+Mock-only tests are not accepted as proof for native-backed public behavior.
 
-## 3. Numerical correctness
+### Training CI
 
-Every mathematical operation should be checked against a trusted reference implementation or analytically known values.
+Training CI builds the optional LibTorch runtime and runs the native + Dart training suites on:
 
-Milestone 1 currently covers:
+- Linux CPU;
+- macOS CPU plus real Apple MPS;
+- Windows CPU.
 
-- `add` known values;
-- `multiply` known values;
-- `sum` known values;
-- 2D transpose known values;
-- canonical 2D matrix multiplication:
+The training acceptance surface includes:
+
+- autograd and gradient retrieval;
+- activation references;
+- loss references;
+- `Linear` forward/training;
+- SGD/Adam/AdamW ownership and updates;
+- checkpoint save/load;
+- device discovery/transfer;
+- deterministic disposal and live-handle accounting.
+
+The Apple MPS job additionally requires real MPS availability and executes accelerator tensor operations, module transfer, forward/loss/backward, optimizer steps, loss reduction, and strict lifecycle checkpoints without CPU fallback.
+
+Windows training stages the pinned LibTorch DLL set beside `tensora_native.dll`. The Dart tests intentionally consume that sidecar layout rather than depending on an ambient PATH entry.
+
+### Inference CI
+
+Inference CI validates ONNX Runtime 1.26.0 against deterministic generated fixtures on:
+
+- Linux CPU;
+- Windows CPU;
+- Apple CoreML on hosted Apple Silicon.
+
+Acceptance covers:
+
+- model load and missing-model errors;
+- provider discovery/selection;
+- input/output metadata;
+- named float32 inference;
+- invalid name/count/shape behavior;
+- profiling lifecycle;
+- repeated inference;
+- concurrent read-only session execution;
+- deterministic session/tensor release.
+
+The CoreML job requires an Apple Silicon host and verifies the actual selected provider. The Windows job stages the pinned ONNX Runtime DLL beside `tensora_native.dll` and runs both native and Dart tests through that exact runtime layout.
+
+## 3. High-assurance workflows
+
+Dedicated workflows cover failure modes that should not be hidden inside ordinary integration jobs.
+
+### ASan + UBSan
+
+Native sanitizer builds check memory safety and undefined behavior. Genuine ownership, bounds, or UB failures are blockers.
+
+### ThreadSanitizer
+
+A dedicated TSan workflow exercises supported concurrency paths. TSan evidence applies only to code actually executed by that workflow and does not imply arbitrary mutable training-state thread safety.
+
+### C ABI fuzzing
+
+The C ABI fuzz workflow targets untrusted native boundary inputs and is intended to expose crashes, out-of-bounds access, exception leakage, and malformed-input handling defects.
+
+### Training soak
+
+The training soak workflow repeatedly creates/trains/checkpoints/releases training state and checks live resource counters for unbounded Tensora-owned growth.
+
+### High Assurance CI
+
+The high-assurance workflow groups additional stress and regression gates that are intentionally more expensive than the main per-platform smoke matrix.
+
+## 4. Real hardware qualification
+
+Hardware claims require actual device/provider execution.
+
+The automated hosted matrix currently supplies real hardware evidence for:
+
+- Apple MPS training;
+- Apple CoreML inference.
+
+Other vendor targets use manual physical-hardware qualification workflows. A queued job or an unexecuted workflow is **not** evidence of support.
+
+Hardware acceptance must:
+
+- detect the expected physical vendor/device;
+- require the backend/provider to be available;
+- execute real numerical work;
+- verify the selected Tensora device/provider identity;
+- reject CPU fallback;
+- validate correctness;
+- validate deterministic release/lifecycle counters where available.
+
+## 5. Numerical correctness
+
+Every mathematical operation needs an analytical reference or a trusted reference implementation.
+
+Representative core reference:
 
 ```text
 [1 2]   [5 6]   [19 22]
 [3 4] × [7 8] = [43 50]
 ```
 
-Dart property-style tests additionally check deterministic invariants including:
+Property/invariant tests cover cases such as:
 
 - transpose twice restores the original matrix;
 - adding zeros preserves values;
 - multiplying by ones preserves values;
 - reshape preserves element count and values.
 
-Floating-point comparisons use narrow `float32`-appropriate tolerances. A broad tolerance must be justified rather than used to hide errors.
+Training tests require finite losses and observable loss reduction on deterministic small problems. Tolerances must be justified for float32 rather than widened to hide defects.
 
-## 4. ABI tests
+## 6. Device tests
 
-The C ABI is a compatibility and security boundary.
+Device coverage checks:
 
-Milestone 1 validates:
+- CPU/CUDA/MPS/XPU/HIP ABI codes;
+- Dart device value semantics;
+- negative-index rejection;
+- generic device counts;
+- unavailable-device structured failure;
+- explicit transfer;
+- factory `device:` staging and failure cleanup;
+- no mixed-device binary operations;
+- device index equality, not only vendor kind.
+
+`TensoraRuntime.preferredDevice` is tested as a deterministic query. It is not allowed to change CPU-default factory semantics implicitly.
+
+## 7. ONNX provider tests
+
+Provider-selection tests distinguish:
+
+- `auto` policy;
+- explicit CPU;
+- explicit CUDA;
+- explicit DirectML;
+- explicit CoreML;
+- explicit OpenVINO;
+- explicit MIGraphX.
+
+An explicit unavailable provider must fail. Tests must not reinterpret a successful CPU session as proof that an accelerator request succeeded.
+
+The current portable binding copies input tensor values to host memory before constructing ONNX Runtime inputs, so provider tests must not claim zero-copy device binding.
+
+## 8. ABI tests
+
+The C ABI is a security and compatibility boundary. Current ABI version is **4**.
+
+Tests cover:
 
 - ABI version reporting;
-- fixed-width status and handle types from a C11 consumer;
-- C header compilation and linkage;
-- invalid/null handles;
-- wrong handle type;
+- fixed-width public types;
+- C11 compilation/linkage;
+- null pointers;
+- pointer/length/capacity mismatches;
+- malformed shapes;
+- unknown, stale, wrong-type and already-released handles;
 - duplicate release;
-- use after release;
-- pointer/length/capacity validation;
-- rank and shape validation;
-- unknown status-code naming;
-- exception containment through all exported guarded entry points;
-- concurrent calls for the documented immutable Tensor contract.
+- output zeroing on failure;
+- exception containment;
+- device-code validation;
+- training and inference handle type separation.
 
-A native exception must never escape the C ABI.
+A C++ exception must never cross the exported C ABI.
 
-## 5. FFI integration
+## 9. Ownership and leak testing
 
-For each public native-backed Dart feature, tests cross the real:
+Resource lifetime is a correctness property.
+
+Core stress repeatedly performs create → execute → release cycles and requires live tensor/storage counters to return to baseline.
+
+Training tests additionally track module and optimizer handles. Inference tests track session and output tensor handles.
+
+Counters cover Tensora-owned wrappers/storage accounting. Third-party allocator caches are not automatically classified as Tensora leaks.
+
+Finalizers are tested as fallback behavior, but deterministic `dispose()` remains the primary contract.
+
+## 10. Windows dependency-resolution regression
+
+Windows source builds with optional backends must be tested using the dependency layout intended for deployment:
 
 ```text
-Dart public API
-  ↓
-Dart FFI bindings
-  ↓
-C ABI
-  ↓
-native runtime
-  ↓
-CPU backend
+runtime-directory/
+  tensora_native.dll
+  backend dependency DLLs
 ```
 
-The suite covers:
+The Dart bridge receives an explicit native-library path. Regression tests must succeed even when the machine contains an unrelated backend DLL elsewhere in the system search path. This prevents accidental success against an incompatible globally installed runtime.
 
-- `fromList` native ownership;
-- `zeros`, `ones`, `full`;
-- metadata;
-- `reshape`;
-- 2D `transpose`;
-- `add`;
-- `multiply`;
-- `sum`;
-- 2D `matmul`;
-- explicit host extraction;
-- typed error mapping;
-- deterministic disposal;
-- double dispose;
-- use-after-dispose;
-- invalid native handle conversion;
-- isolate-local Tensor enforcement;
-- repeated invocation and lifecycle accounting.
+## 11. Concurrency
 
-## 6. Memory and lifetime testing
+Concurrency evidence is scoped.
 
-Resource lifetime is a first-class correctness property.
+Validated examples include:
 
-Native tests run at least 10,000 repeated cycles of:
+- immutable tensor operations from multiple native threads;
+- synchronized reusable ONNX sessions under concurrent read-only execution;
+- handle-registry access under contention.
 
-```text
-create inputs
- ↓
-execute matmul
- ↓
-release result
- ↓
-release inputs
-```
+Do not infer that arbitrary mutable modules/optimizers are safe for concurrent mutation unless a dedicated test establishes that contract.
 
-The test reads Tensora's live Tensor and live CPU-storage counters before and after the stress loop and requires both to return to the baseline.
+## 12. Fuzz and hostile-input coverage
 
-Dart FFI tests additionally run repeated public-API create/execute/dispose cycles and require the same native counters to return to baseline.
+Untrusted boundary tests include:
 
-These counters detect Tensora-owned lifecycle regressions; sanitizer/leak validation remains a separate required gate.
+- invalid ranks/dimensions;
+- arithmetic overflow;
+- null pointers;
+- undersized buffers;
+- arbitrary handles;
+- wrong handle types;
+- invalid device/provider values;
+- invalid model paths;
+- invalid ONNX names/counts/shapes;
+- invalid optimizer/module arguments.
 
-## 7. Sanitizers
+The goal is safe rejection before unsafe memory access or ambiguous backend behavior.
 
-Native CI uses:
+## 13. Benchmarks
 
-- AddressSanitizer;
-- UndefinedBehaviorSanitizer.
+Benchmarks are reproducible measurements, not marketing claims.
 
-The sanitizer build runs the same registered CTest suites, including lifecycle stress, C ABI, and handle type validation.
+Native and Dart/FFI smoke harnesses record enough environment information to interpret results. Performance evidence must include:
 
-Sanitizer failures are blockers. Do not add suppressions for genuine ownership, bounds, or undefined-behavior defects.
+- hardware;
+- OS;
+- compiler/runtime;
+- build mode;
+- tensor shapes;
+- warmup;
+- iteration count;
+- reported statistics.
 
-ThreadSanitizer is a future dedicated gate when its platform/toolchain cost and runtime compatibility are established; Milestone 1 does not claim TSan validation.
+CI smoke ensures benchmark paths remain runnable; it does not fail on noisy latency thresholds.
 
-## 8. Malformed and hostile input coverage
-
-Milestone 1 tests reject safely:
-
-- negative dimensions;
-- zero dimensions;
-- rank above 32;
-- overflowing element counts;
-- null dimension/data/output pointers where invalid;
-- too-small shape/output buffers;
-- invalid handle zero;
-- arbitrary unknown handles;
-- stale/released handles;
-- wrong native object type;
-- duplicate release;
-- incompatible elementwise shapes;
-- incompatible matmul dimensions;
-- non-2D transpose/matmul;
-- invalid reshape element count.
-
-The objective is to reject invalid ABI input before unsafe allocation or memory access wherever the ABI has enough information to validate it.
-
-## 9. Concurrency
-
-Milestone 1 tensors are immutable after creation.
-
-Native tests execute repeated matrix multiplication from multiple threads against the same input tensors. Handle registry lookup/refcount operations are synchronized while computation occurs outside the registry mutex.
-
-Dart Tensor wrappers are not cross-isolate shareable in Milestone 1. A Dart test verifies that sending a Tensor through a port to another isolate is rejected.
-
-Future mutable state, streams, device queues, or training state require their own concurrency tests before support is claimed.
-
-## 10. Test determinism
-
-Tests should minimize unnecessary nondeterminism.
-
-Use fixed deterministic inputs where appropriate. Avoid timing thresholds that create flaky CI. Benchmarks report measurements but smoke jobs do not fail on a noisy latency threshold.
-
-## 11. Benchmarks
-
-Milestone 1 includes two reproducible harnesses.
-
-Native:
+## 14. Exact local core commands
 
 ```bash
-./build/native-release/tensora_native_benchmark --smoke
-```
-
-Dart/FFI:
-
-```bash
-cd packages/tensora
-dart run benchmark/tensor_benchmark.dart --smoke
-```
-
-The Dart harness measures:
-
-- minimal FFI no-op overhead;
-- tensor creation;
-- elementwise add;
-- matrix multiplication;
-- native-to-Dart extraction;
-- median and p95 after warmup.
-
-A benchmark report intended as performance evidence must record hardware, operating system, compiler/runtime, build mode, shapes, warmup, iterations, and measured statistics. Smoke runs prove the benchmark path executes; they are not performance marketing claims.
-
-## 12. Exact local commands
-
-Native Debug:
-
-```bash
-cmake -S native -B build/native-debug \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DTENSORA_BUILD_TESTS=ON \
-  -DTENSORA_BUILD_BENCHMARKS=ON
-cmake --build build/native-debug --config Debug --parallel
-ctest --test-dir build/native-debug --build-config Debug --output-on-failure
-```
-
-Native Release:
-
-```bash
-cmake -S native -B build/native-release \
+cmake -S native -B build/native \
   -DCMAKE_BUILD_TYPE=Release \
   -DTENSORA_BUILD_TESTS=ON \
   -DTENSORA_BUILD_BENCHMARKS=ON
-cmake --build build/native-release --config Release --parallel
-ctest --test-dir build/native-release --build-config Release --output-on-failure
-```
+cmake --build build/native --config Release --parallel
+ctest --test-dir build/native --build-config Release --output-on-failure
 
-Dart quality:
-
-```bash
 cd packages/tensora
 dart pub get
-dart format --output=none --set-exit-if-changed lib test benchmark
+dart format --output=none --set-exit-if-changed lib test benchmark integration_test
 dart analyze --fatal-infos --fatal-warnings
-```
-
-Dart FFI tests after setting `TENSORA_NATIVE_LIBRARY` to the Release shared library:
-
-```bash
-cd packages/tensora
 dart test --reporter expanded
 ```
 
-Example:
+Optional-backend local builds additionally require their native dependencies and the appropriate CMake options described in the development guide.
 
-```bash
-cd examples/tensor_basics
-dart pub get
-dart analyze --fatal-infos --fatal-warnings
-dart run bin/main.dart
-```
+## 15. Completion rule
 
-## 13. Future backend parity
+Never report a feature complete from an older green SHA.
 
-A feature claiming multiple backends must have parity tests across those backends.
+For a release candidate or pull request readiness claim:
 
-Parity means compatible public semantics, not necessarily bit-identical floating-point results.
-
-Test:
-
-- outputs;
-- dtype support;
-- shape behavior;
-- errors for unsupported combinations;
-- transfer semantics;
-- device selection.
-
-Milestone 1 has only CPU, so there is no multi-backend parity claim yet.
-
-## 14. Future model, Flutter, and training tests
-
-Autograd gradient checks, `.tmodel` hostile-input/fuzz tests, Flutter lifecycle/device tests, camera backpressure stress, and local-language-model session tests begin only when those subsystems contain real implementation.
-
-Do not create passing placeholder tests for unimplemented roadmap capabilities.
-
-## 15. Release validation
-
-Before release, validate the **exact candidate revision**:
-
-- formatting/static analysis;
-- unit/integration suites;
-- native Debug and Release tests;
-- C ABI consumer test;
-- supported desktop FFI tests;
-- minimum Dart compatibility;
-- sanitizers;
-- stress/leak behavior;
-- examples;
-- compatibility docs;
-- benchmark harness.
-
-A release should never rely on the assumption that earlier commits were green if the candidate changed afterward.
+1. identify the exact head SHA;
+2. run every required workflow against that SHA;
+3. verify each required job conclusion;
+4. report hardware qualification separately from hosted portability;
+5. keep unsupported/unqualified paths explicitly labeled.
