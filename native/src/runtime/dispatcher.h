@@ -8,6 +8,10 @@ namespace tensora {
 class Dispatcher {
  public:
   static Status For(Device device, const Backend** out);
+  static Status ForTensor(const Tensor& tensor, const Backend** out);
+  static Status ForTensors(const Tensor& left,
+                           const Tensor& right,
+                           const Backend** out);
 };
 
 }  // namespace tensora

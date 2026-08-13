@@ -49,6 +49,25 @@ Status CpuStorage::FromData(const float* data,
   }
 }
 
+Status CpuStorage::CopyToHostF32(float* out_values,
+                                 size_t capacity,
+                                 size_t* out_written) const {
+  if (out_written == nullptr) {
+    return InvalidArgument("cpu storage: output count pointer is null");
+  }
+  *out_written = 0;
+  if (capacity < values_.size()) {
+    return InvalidArgument("cpu storage: output capacity is too small");
+  }
+  if (!values_.empty() && out_values == nullptr) {
+    return InvalidArgument("cpu storage: output values pointer is null");
+  }
+
+  std::copy(values_.begin(), values_.end(), out_values);
+  *out_written = values_.size();
+  return Status::Ok();
+}
+
 uint64_t CpuStorage::LiveBytes() {
   return live_bytes_.load(std::memory_order_relaxed);
 }

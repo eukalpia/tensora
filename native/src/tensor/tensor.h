@@ -1,9 +1,10 @@
 #ifndef TENSORA_TENSOR_TENSOR_H_
 #define TENSORA_TENSOR_TENSOR_H_
 
+#include <cstdint>
 #include <memory>
 
-#include "memory/cpu_storage.h"
+#include "memory/tensor_storage.h"
 #include "tensor/shape.h"
 
 namespace tensora {
@@ -14,26 +15,30 @@ enum class DType : uint32_t {
 
 enum class Device : uint32_t {
   kCpu = TS_DEVICE_CPU,
+  kCuda = TS_DEVICE_CUDA,
 };
 
 class Tensor {
  public:
   Tensor(ShapeInfo shape,
-         std::shared_ptr<CpuStorage> storage,
+         std::shared_ptr<TensorStorage> storage,
          DType dtype = DType::kFloat32,
-         Device device = Device::kCpu);
+         Device device = Device::kCpu,
+         int32_t device_index = 0);
 
   const ShapeInfo& shape() const { return shape_; }
-  const std::shared_ptr<CpuStorage>& storage() const { return storage_; }
+  const std::shared_ptr<TensorStorage>& storage() const { return storage_; }
   DType dtype() const { return dtype_; }
   Device device() const { return device_; }
+  int32_t device_index() const { return device_index_; }
   uint64_t numel() const { return shape_.numel; }
 
  private:
   ShapeInfo shape_;
-  std::shared_ptr<CpuStorage> storage_;
+  std::shared_ptr<TensorStorage> storage_;
   DType dtype_;
   Device device_;
+  int32_t device_index_;
 };
 
 }  // namespace tensora

@@ -2,7 +2,9 @@ import '../device/device.dart';
 import '../dtype/dtype.dart';
 import '../errors/tensora_exception.dart';
 import '../native/native_runtime.dart';
+import '../native/native_training_runtime.dart';
 import '../shape/shape.dart';
+import 'native_adoption.dart';
 
 final Finalizer<int> _tensorFinalizer = Finalizer<int>((handle) {
   NativeRuntime.instance.releaseFromFinalizer(handle);
@@ -10,9 +12,9 @@ final Finalizer<int> _tensorFinalizer = Finalizer<int>((handle) {
 
 /// An immutable native-backed tensor.
 ///
-/// Tensor wrappers are isolate-local in Milestone 1. Create or reconstruct a
-/// Tensor inside the isolate that will own and use it rather than sending the
-/// native handle wrapper through an isolate port.
+/// Tensor wrappers are isolate-local. Create or reconstruct a Tensor inside the
+/// isolate that will own and use it rather than sending the native handle
+/// wrapper through an isolate port.
 @pragma('vm:isolate-unsendable')
 final class Tensor {
   Tensor._(
@@ -31,7 +33,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateSupported(dtype: dtype, device: device, operation: 'fromList');
+    _validateCreation(dtype: dtype, device: device, operation: 'fromList');
     if (values.length != shape.numel) {
       throw InvalidShapeException(
         'Input contains ${values.length} values, but $shape requires '
@@ -65,7 +67,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateSupported(dtype: dtype, device: device, operation: 'full');
+    _validateCreation(dtype: dtype, device: device, operation: 'full');
     final handle = NativeRuntime.instance.full(shape, value.toDouble());
     return _adopt(handle);
   }
@@ -88,6 +90,26 @@ final class Tensor {
   /// Whether deterministic native release has completed.
   bool get isDisposed => _disposed;
 
+  /// Whether this Tensor currently participates as an autograd value.
+  bool get requiresGrad {
+    _ensureLive('requiresGrad');
+    return NativeTrainingRuntime.instance.requiresGrad(_handle);
+  }
+
+  /// Returns an independent tensor on [target].
+  Tensor to(Device target) {
+    _ensureLive('to');
+    return _adopt(NativeRuntime.instance.toDevice(_handle, target));
+  }
+
+  /// Returns a detached leaf tensor with the requested autograd state.
+  Tensor withRequiresGrad([bool value = true]) {
+    _ensureLive('withRequiresGrad');
+    return _adopt(
+      NativeTrainingRuntime.instance.withRequiresGrad(_handle, value),
+    );
+  }
+
   /// Returns an independent contiguous tensor with [newShape].
   Tensor reshape(Shape newShape) {
     _ensureLive('reshape');
@@ -101,14 +123,14 @@ final class Tensor {
     return _adopt(NativeRuntime.instance.transpose2D(_handle));
   }
 
-  /// Elementwise addition. Milestone 1 requires exactly equal shapes.
+  /// Elementwise addition. The current core contract requires equal shapes.
   Tensor add(Tensor other) {
     _ensureLive('add');
     other._ensureLive('add');
     return _adopt(NativeRuntime.instance.add(_handle, other._handle));
   }
 
-  /// Elementwise multiplication. Milestone 1 requires exactly equal shapes.
+  /// Elementwise multiplication. The current core contract requires equal shapes.
   Tensor multiply(Tensor other) {
     _ensureLive('multiply');
     other._ensureLive('multiply');
@@ -128,6 +150,36 @@ final class Tensor {
     return _adopt(NativeRuntime.instance.matmul(_handle, other._handle));
   }
 
+  /// Applies ReLU through the native training backend.
+  Tensor relu() {
+    _ensureLive('relu');
+    return _adopt(NativeTrainingRuntime.instance.relu(_handle));
+  }
+
+  /// Applies sigmoid through the native training backend.
+  Tensor sigmoid() {
+    _ensureLive('sigmoid');
+    return _adopt(NativeTrainingRuntime.instance.sigmoid(_handle));
+  }
+
+  /// Applies tanh through the native training backend.
+  Tensor tanh() {
+    _ensureLive('tanh');
+    return _adopt(NativeTrainingRuntime.instance.tanh(_handle));
+  }
+
+  /// Runs reverse-mode autograd from this scalar loss Tensor.
+  void backward() {
+    _ensureLive('backward');
+    NativeTrainingRuntime.instance.backward(_handle);
+  }
+
+  /// Returns a snapshot of this Tensor's accumulated gradient.
+  Tensor grad() {
+    _ensureLive('grad');
+    return _adopt(NativeTrainingRuntime.instance.grad(_handle));
+  }
+
   /// Explicitly copies all native float32 values into Dart memory.
   List<double> toList() {
     _ensureLive('toList');
@@ -135,9 +187,6 @@ final class Tensor {
   }
 
   /// Deterministically releases this Tensor's native reference.
-  ///
-  /// Calling [dispose] more than once is safe. Once disposal succeeds, every
-  /// Tensor operation fails in Dart without touching the released handle.
   void dispose() {
     if (_disposed) return;
 
@@ -145,6 +194,23 @@ final class Tensor {
     _tensorFinalizer.detach(this);
     _handle = 0;
     _disposed = true;
+  }
+
+  /// @nodoc
+  static Tensor adoptNativeHandleForRuntime(int handle, Object capability) {
+    if (!identical(capability, nativeTensorAdoptionToken)) {
+      throw StateError('Native tensor adoption capability is invalid.');
+    }
+    return _adopt(handle);
+  }
+
+  /// @nodoc
+  int nativeHandleForRuntime(Object capability) {
+    if (!identical(capability, nativeTensorAdoptionToken)) {
+      throw StateError('Native tensor access capability is invalid.');
+    }
+    _ensureLive('nativeHandle');
+    return _handle;
   }
 
   static Tensor _adopt(int handle) {
@@ -168,20 +234,20 @@ final class Tensor {
     }
   }
 
-  static void _validateSupported({
+  static void _validateCreation({
     required DType dtype,
     required Device device,
     required String operation,
   }) {
     if (dtype != DType.float32) {
       throw UnsupportedOperationException(
-        'Milestone 1 supports only DType.float32.',
+        'Tensor creation currently supports only DType.float32.',
         operation: 'tensor.$operation',
       );
     }
-    if (!identical(device, Device.cpu)) {
+    if (device != Device.cpu) {
       throw UnsupportedOperationException(
-        'Milestone 1 supports only Device.cpu.',
+        'Create host tensors on Device.cpu and transfer them explicitly.',
         operation: 'tensor.$operation',
       );
     }

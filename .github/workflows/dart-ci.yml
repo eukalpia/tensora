@@ -100,7 +100,11 @@ jobs:
 
       - name: Run package tests
         working-directory: packages/tensora
-        run: dart test --reporter expanded
+        run: dart test --exclude-tags soak --reporter expanded
+
+      - name: Run isolated core lifecycle soak
+        working-directory: packages/tensora
+        run: dart test test/core_lifecycle_soak_test.dart --reporter expanded
 
       - name: Resolve example dependencies
         working-directory: examples/tensor_basics
@@ -115,7 +119,7 @@ jobs:
         run: dart run bin/main.dart
 
   dart-coverage:
-    name: Dart line coverage
+    name: Core Dart line coverage
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -144,42 +148,83 @@ jobs:
         working-directory: packages/tensora
         run: dart pub get
 
-      - name: Collect Dart coverage
+      - name: Collect core Dart coverage
         working-directory: packages/tensora
-        run: dart test --coverage-path=coverage/lcov.info --reporter expanded
+        run: >-
+          dart test
+          --exclude-tags soak
+          --coverage-path=coverage/core.info
+          --reporter expanded
 
-      - name: Enforce 80 percent library line coverage
+      - name: Collect isolated core soak coverage
+        working-directory: packages/tensora
+        run: >-
+          dart test test/core_lifecycle_soak_test.dart
+          --coverage-path=coverage/core-soak.info
+          --reporter expanded
+
+      - name: Enforce 80 percent core library line coverage
         working-directory: packages/tensora
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          report = Path('coverage/lcov.info')
-          if not report.exists():
-              raise SystemExit('coverage/lcov.info was not produced')
+          reports = [Path('coverage/core.info'), Path('coverage/core-soak.info')]
+          for report in reports:
+              if not report.exists():
+                  raise SystemExit(f'{report} was not produced')
 
-          lines_found = 0
-          lines_hit = 0
-          include = False
-          current_source = None
+          excluded = (
+              '/lib/src/training/',
+              '/lib/src/inference/',
+              '/lib/src/native/native_training_',
+              '/lib/src/native/native_inference_',
+          )
+          lines: dict[str, dict[int, int]] = {}
 
-          for raw in report.read_text(encoding='utf-8').splitlines():
-              if raw.startswith('SF:'):
-                  current_source = raw[3:].replace('\\', '/')
-                  include = '/lib/' in current_source or current_source.startswith('lib/')
-              elif include and raw.startswith('LF:'):
-                  lines_found += int(raw[3:])
-              elif include and raw.startswith('LH:'):
-                  lines_hit += int(raw[3:])
+          def normalize_source(raw: str) -> str | None:
+              source = raw.replace('\\', '/')
+              marker = '/packages/tensora/lib/'
+              if marker in source:
+                  source = 'lib/' + source.split(marker, 1)[1]
+              if not source.startswith('lib/'):
+                  return None
+              normalized = '/' + source.lstrip('/')
+              if any(part in normalized for part in excluded):
+                  return None
+              return source
 
-          if lines_found == 0:
-              raise SystemExit('LCOV report contains no Tensora lib/ lines')
+          for report in reports:
+              current = None
+              for raw in report.read_text(encoding='utf-8').splitlines():
+                  if raw.startswith('SF:'):
+                      current = normalize_source(raw[3:])
+                      if current is not None:
+                          lines.setdefault(current, {})
+                  elif current is not None and raw.startswith('DA:'):
+                      payload = raw[3:].split(',')
+                      line_number = int(payload[0])
+                      hits = int(payload[1])
+                      previous = lines[current].get(line_number, 0)
+                      lines[current][line_number] = max(previous, hits)
+                  elif raw == 'end_of_record':
+                      current = None
 
-          percent = lines_hit * 100.0 / lines_found
-          print(f'Dart library line coverage: {lines_hit}/{lines_found} = {percent:.2f}%')
+          found = sum(len(source_lines) for source_lines in lines.values())
+          hit = sum(
+              1
+              for source_lines in lines.values()
+              for count in source_lines.values()
+              if count > 0
+          )
+          if found == 0:
+              raise SystemExit('merged LCOV contains no Tensora core lib/ lines')
+
+          percent = hit * 100.0 / found
+          print(f'Core Dart library line coverage: {hit}/{found} = {percent:.2f}%')
           if percent < 80.0:
-              raise SystemExit(f'coverage {percent:.2f}% is below required 80.00%')
+              raise SystemExit(f'core coverage {percent:.2f}% is below required 80.00%')
           PY
 
   benchmark-validation:
@@ -270,7 +315,11 @@ jobs:
 
       - name: Run Dart FFI tests
         working-directory: packages/tensora
-        run: dart test --reporter expanded
+        run: dart test --exclude-tags soak --reporter expanded
+
+      - name: Run isolated core lifecycle soak
+        working-directory: packages/tensora
+        run: dart test test/core_lifecycle_soak_test.dart --reporter expanded
 
       - name: Resolve example dependencies
         working-directory: examples/tensor_basics

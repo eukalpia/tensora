@@ -2,6 +2,7 @@
 #define TENSORA_BACKENDS_CPU_CPU_BACKEND_H_
 
 #include "backends/backend.h"
+#include "memory/cpu_storage.h"
 
 namespace tensora {
 

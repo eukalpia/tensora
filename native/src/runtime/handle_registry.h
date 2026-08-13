@@ -13,6 +13,9 @@ namespace tensora {
 enum class HandleType : uint8_t {
   kTensor = 1,
   kRuntimeReserved = 2,
+  kModule = 3,
+  kOptimizer = 4,
+  kInferenceSession = 5,
 };
 
 class HandleRegistry {

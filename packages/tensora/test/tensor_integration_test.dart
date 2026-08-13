@@ -41,6 +41,41 @@ void main() {
       expectValues(full.toList(), [2.5, 2.5, 2.5, 2.5, 2.5, 2.5]);
     });
 
+    test('CPU transfer returns an independent tensor with stable metadata', () {
+      final input = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
+      final copied = input.to(Device.cpu);
+      addTearDown(input.dispose);
+      addTearDown(copied.dispose);
+
+      expect(copied.device, Device.cpu);
+      expect(copied.shape, input.shape);
+      expectValues(copied.toList(), [1, 2, 3, 4]);
+
+      input.dispose();
+      expectValues(copied.toList(), [1, 2, 3, 4]);
+    });
+
+    test('core runtime reports no CUDA devices and rejects CUDA transfer', () {
+      expect(NativeRuntime.instance.cudaDeviceCount(), 0);
+
+      final input = Tensor.ones(Shape([2, 2]));
+      addTearDown(input.dispose);
+      expect(
+        () => input.to(Device.cuda(0)),
+        throwsA(isA<UnsupportedOperationException>()),
+      );
+    });
+
+    test(
+      'creation requires explicit CPU host import before device transfer',
+      () {
+        expect(
+          () => Tensor.ones(Shape([1]), device: Device.cuda(0)),
+          throwsA(isA<UnsupportedOperationException>()),
+        );
+      },
+    );
+
     test('reshape preserves values and element count', () {
       final input = Tensor.fromList([1, 2, 3, 4, 5, 6], shape: Shape([2, 3]));
       final reshaped = input.reshape(Shape([3, 2]));
@@ -134,6 +169,10 @@ void main() {
         expect(tensor.isDisposed, isTrue);
         expect(tensor.toList, throwsA(isA<DisposedTensorException>()));
         expect(tensor.sum, throwsA(isA<DisposedTensorException>()));
+        expect(
+          () => tensor.to(Device.cpu),
+          throwsA(isA<DisposedTensorException>()),
+        );
       },
     );
 
@@ -193,23 +232,5 @@ void main() {
         input.dispose();
       }
     });
-  });
-
-  test('repeated Dart FFI lifecycle returns native counters to baseline', () {
-    final runtime = NativeRuntime.instance;
-    final startCount = runtime.liveTensorCount();
-    final startBytes = runtime.liveStorageBytes();
-
-    for (var index = 0; index < 1000; index++) {
-      final a = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
-      final b = Tensor.fromList([5, 6, 7, 8], shape: Shape([2, 2]));
-      final result = a.matmul(b);
-      result.dispose();
-      b.dispose();
-      a.dispose();
-    }
-
-    expect(runtime.liveTensorCount(), startCount);
-    expect(runtime.liveStorageBytes(), startBytes);
   });
 }

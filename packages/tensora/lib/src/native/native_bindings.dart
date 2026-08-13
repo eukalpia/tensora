@@ -32,6 +32,9 @@ typedef _TensorShapeDart =
 typedef _TensorUint32MetadataNative = Int32 Function(Uint64, Pointer<Uint32>);
 typedef _TensorUint32MetadataDart = int Function(int, Pointer<Uint32>);
 
+typedef _TensorInt32MetadataNative = Int32 Function(Uint64, Pointer<Int32>);
+typedef _TensorInt32MetadataDart = int Function(int, Pointer<Int32>);
+
 typedef _TensorUint64MetadataNative = Int32 Function(Uint64, Pointer<Uint64>);
 typedef _TensorUint64MetadataDart = int Function(int, Pointer<Uint64>);
 
@@ -39,6 +42,10 @@ typedef _TensorReshapeNative =
     Int32 Function(Uint64, Pointer<Int64>, Size, Pointer<Uint64>);
 typedef _TensorReshapeDart =
     int Function(int, Pointer<Int64>, int, Pointer<Uint64>);
+
+typedef _TensorToDeviceNative =
+    Int32 Function(Uint64, Uint32, Int32, Pointer<Uint64>);
+typedef _TensorToDeviceDart = int Function(int, int, int, Pointer<Uint64>);
 
 typedef _TensorUnaryNative = Int32 Function(Uint64, Pointer<Uint64>);
 typedef _TensorUnaryDart = int Function(int, Pointer<Uint64>);
@@ -57,6 +64,9 @@ typedef _TensorLifetimeDart = int Function(int);
 typedef _RuntimeCounterNative = Int32 Function(Pointer<Uint64>);
 typedef _RuntimeCounterDart = int Function(Pointer<Uint64>);
 
+typedef _RuntimeUint32Native = Int32 Function(Pointer<Uint32>);
+typedef _RuntimeUint32Dart = int Function(Pointer<Uint32>);
+
 final class NativeBindings {
   NativeBindings(DynamicLibrary library)
     : abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -67,6 +77,10 @@ final class NativeBindings {
             'ts_last_error_message',
           ),
       noop = library.lookupFunction<_NoopNative, _NoopDart>('ts_noop'),
+      runtimeCudaDeviceCount = library
+          .lookupFunction<_RuntimeUint32Native, _RuntimeUint32Dart>(
+            'ts_runtime_cuda_device_count',
+          ),
       tensorFromF32 = library
           .lookupFunction<_TensorFromF32Native, _TensorFromF32Dart>(
             'ts_tensor_from_f32',
@@ -90,10 +104,18 @@ final class NativeBindings {
         _TensorUint32MetadataNative,
         _TensorUint32MetadataDart
       >('ts_tensor_device'),
+      tensorDeviceIndex = library
+          .lookupFunction<_TensorInt32MetadataNative, _TensorInt32MetadataDart>(
+            'ts_tensor_device_index',
+          ),
       tensorNumel = library.lookupFunction<
         _TensorUint64MetadataNative,
         _TensorUint64MetadataDart
       >('ts_tensor_numel'),
+      tensorToDevice = library
+          .lookupFunction<_TensorToDeviceNative, _TensorToDeviceDart>(
+            'ts_tensor_to_device',
+          ),
       tensorReshape = library
           .lookupFunction<_TensorReshapeNative, _TensorReshapeDart>(
             'ts_tensor_reshape',
@@ -141,13 +163,16 @@ final class NativeBindings {
   final _AbiVersionDart abiVersion;
   final _LastErrorDart lastErrorMessage;
   final _NoopDart noop;
+  final _RuntimeUint32Dart runtimeCudaDeviceCount;
   final _TensorFromF32Dart tensorFromF32;
   final _TensorFullF32Dart tensorFullF32;
   final _TensorRankDart tensorRank;
   final _TensorShapeDart tensorShape;
   final _TensorUint32MetadataDart tensorDType;
   final _TensorUint32MetadataDart tensorDevice;
+  final _TensorInt32MetadataDart tensorDeviceIndex;
   final _TensorUint64MetadataDart tensorNumel;
+  final _TensorToDeviceDart tensorToDevice;
   final _TensorReshapeDart tensorReshape;
   final _TensorUnaryDart tensorTranspose2D;
   final _TensorBinaryDart tensorAdd;

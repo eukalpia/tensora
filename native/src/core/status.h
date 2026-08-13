@@ -30,6 +30,7 @@ Status OutOfMemory(std::string message);
 Status Unsupported(std::string message);
 Status InvalidHandle(std::string message);
 Status InternalError(std::string message);
+Status ModelError(std::string message);
 
 void ClearLastError();
 void SetLastError(const Status& status);

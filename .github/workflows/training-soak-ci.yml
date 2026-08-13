@@ -1,0 +1,80 @@
+name: Training Soak CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-soak-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  training-soak:
+    name: 1000-cycle training soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/training-soak/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned CPU PyTorch
+        run: >-
+          python -m pip install
+          torch==2.13.0+cpu
+          --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Resolve LibTorch CMake prefix
+        shell: bash
+        run: |
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+
+      - name: Configure training-enabled runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/training-soak
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build training-enabled runtime
+        run: cmake --build build/training-soak --config Release --parallel 2
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Verify soak test formatting
+        working-directory: packages/tensora
+        run: dart format --output=none --set-exit-if-changed integration_test/training_soak_test.dart
+
+      - name: Analyze soak test
+        working-directory: packages/tensora
+        run: dart analyze --fatal-infos --fatal-warnings integration_test/training_soak_test.dart
+
+      - name: Run 1000-cycle training soak
+        working-directory: packages/tensora
+        run: dart test integration_test/training_soak_test.dart --reporter expanded
