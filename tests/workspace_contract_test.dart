@@ -12,11 +12,11 @@ void main() {
       TokenSequence(const <int>[1, 2]),
       TokenSequence(const <int>[3]),
     ]);
-    final prompt = DataLoader<TokenSequence>(data, batchSize: 2)
-        .batches()
-        .first
-        .values
-        .first;
+    final prompt =
+        DataLoader<TokenSequence>(
+          data,
+          batchSize: 2,
+        ).batches().first.values.first;
     final request = GenerationRequest(
       prompt: prompt,
       config: GenerationConfig(maxNewTokens: 8, temperature: 0),
