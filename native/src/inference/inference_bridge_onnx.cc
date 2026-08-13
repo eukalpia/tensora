@@ -1,5 +1,6 @@
 #include "inference/inference_bridge.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -14,17 +15,141 @@
 #include "runtime/handle_registry.h"
 #include "tensor/shape.h"
 
+#if defined(TENSORA_WITH_ORT_DML)
+extern "C" OrtStatus* ORT_API_CALL OrtSessionOptionsAppendExecutionProvider_DML(
+    OrtSessionOptions* options, int device_id);
+#endif
+
+#if defined(TENSORA_WITH_ORT_COREML)
+extern "C" OrtStatus* ORT_API_CALL OrtSessionOptionsAppendExecutionProvider_CoreML(
+    OrtSessionOptions* options, uint32_t coreml_flags);
+#endif
+
 namespace tensora::inference {
 namespace {
+
+constexpr const char* kAutoProvider = "auto";
+constexpr const char* kCpuProvider = "CPUExecutionProvider";
+constexpr const char* kCudaProvider = "CUDAExecutionProvider";
+constexpr const char* kDmlProvider = "DmlExecutionProvider";
+constexpr const char* kCoreMlProvider = "CoreMLExecutionProvider";
+constexpr const char* kOpenVinoProvider = "OpenVINOExecutionProvider";
+constexpr const char* kMiGraphXProvider = "MIGraphXExecutionProvider";
+
+bool IsKnownProvider(const std::string& provider) {
+  return provider == kAutoProvider || provider == kCpuProvider ||
+         provider == kCudaProvider || provider == kDmlProvider ||
+         provider == kCoreMlProvider || provider == kOpenVinoProvider ||
+         provider == kMiGraphXProvider;
+}
+
+bool IsProviderAvailable(const std::vector<std::string>& available,
+                         const char* provider) {
+  return std::find(available.begin(), available.end(), provider) !=
+         available.end();
+}
+
+bool CanConfigureProvider(const std::string& provider) {
+  if (provider == kCpuProvider || provider == kCudaProvider ||
+      provider == kOpenVinoProvider || provider == kMiGraphXProvider) {
+    return true;
+  }
+#if defined(TENSORA_WITH_ORT_DML)
+  if (provider == kDmlProvider) return true;
+#endif
+#if defined(TENSORA_WITH_ORT_COREML)
+  if (provider == kCoreMlProvider) return true;
+#endif
+  return false;
+}
+
+std::string ResolveAutoProvider(const std::vector<std::string>& available) {
+#if defined(_WIN32)
+  const char* candidates[] = {kCudaProvider, kOpenVinoProvider, kDmlProvider,
+                              kMiGraphXProvider, kCpuProvider};
+#elif defined(__APPLE__)
+  const char* candidates[] = {kCoreMlProvider, kCpuProvider};
+#else
+  const char* candidates[] = {kCudaProvider, kMiGraphXProvider,
+                              kOpenVinoProvider, kCpuProvider};
+#endif
+  for (const char* candidate : candidates) {
+    if (IsProviderAvailable(available, candidate) &&
+        CanConfigureProvider(candidate)) {
+      return candidate;
+    }
+  }
+  throw Ort::Exception("No supported ONNX execution provider is available",
+                       ORT_NOT_IMPLEMENTED);
+}
+
+std::string ResolveProvider(const std::string& requested_provider) {
+  if (!IsKnownProvider(requested_provider)) {
+    throw Ort::Exception("Unknown ONNX execution provider", ORT_INVALID_ARGUMENT);
+  }
+  const auto available = Ort::GetAvailableProviders();
+  if (requested_provider == kAutoProvider) {
+    return ResolveAutoProvider(available);
+  }
+  if (!IsProviderAvailable(available, requested_provider.c_str())) {
+    throw Ort::Exception("Requested ONNX execution provider is not available",
+                         ORT_NOT_IMPLEMENTED);
+  }
+  if (!CanConfigureProvider(requested_provider)) {
+    throw Ort::Exception(
+        "Requested ONNX execution provider is not enabled in this Tensora build",
+        ORT_NOT_IMPLEMENTED);
+  }
+  return requested_provider;
+}
+
+void AppendProvider(Ort::SessionOptions* options, const std::string& provider) {
+  if (options == nullptr) {
+    throw Ort::Exception("Session options pointer is null", ORT_INVALID_ARGUMENT);
+  }
+  if (provider == kCpuProvider) return;
+  if (provider == kCudaProvider) {
+    OrtCUDAProviderOptions provider_options{};
+    options->AppendExecutionProvider_CUDA(provider_options);
+    return;
+  }
+  if (provider == kOpenVinoProvider) {
+    options->AppendExecutionProvider_OpenVINO_V2({});
+    return;
+  }
+  if (provider == kMiGraphXProvider) {
+    OrtMIGraphXProviderOptions provider_options{};
+    options->AppendExecutionProvider_MIGraphX(provider_options);
+    return;
+  }
+#if defined(TENSORA_WITH_ORT_DML)
+  if (provider == kDmlProvider) {
+    Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(*options, 0));
+    return;
+  }
+#endif
+#if defined(TENSORA_WITH_ORT_COREML)
+  if (provider == kCoreMlProvider) {
+    Ort::ThrowOnError(
+        OrtSessionOptionsAppendExecutionProvider_CoreML(*options, 0u));
+    return;
+  }
+#endif
+  throw Ort::Exception("ONNX execution provider cannot be configured",
+                       ORT_NOT_IMPLEMENTED);
+}
 
 class SessionState {
  public:
   SessionState(const std::string& model_path,
+               const std::string& requested_provider,
                bool enable_profiling,
                const std::string& profiling_prefix)
-      : session(Environment(),
+      : selected_provider(ResolveProvider(requested_provider)),
+        session(Environment(),
                 std::filesystem::path(model_path).c_str(),
-                MakeOptions(enable_profiling, profiling_prefix)),
+                MakeOptions(selected_provider, enable_profiling,
+                            profiling_prefix)),
         profiling_enabled(enable_profiling) {
     Ort::AllocatorWithDefaultOptions allocator;
     const size_t input_count = session.GetInputCount();
@@ -66,10 +191,12 @@ class SessionState {
     return environment;
   }
 
-  static Ort::SessionOptions MakeOptions(bool enable_profiling,
+  static Ort::SessionOptions MakeOptions(const std::string& provider,
+                                         bool enable_profiling,
                                          const std::string& prefix) {
     Ort::SessionOptions options;
     options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    AppendProvider(&options, provider);
     if (enable_profiling) {
       const std::filesystem::path native_prefix(
           prefix.empty() ? "tensora-profile" : prefix);
@@ -78,6 +205,7 @@ class SessionState {
     return options;
   }
 
+  std::string selected_provider;
   Ort::Session session;
   std::vector<std::string> input_names;
   std::vector<std::string> output_names;
@@ -210,6 +338,7 @@ Status ProviderName(size_t index, std::string* out_name) {
 }
 
 Status SessionCreate(const std::string& model_path,
+                     const std::string& requested_provider,
                      bool enable_profiling,
                      const std::string& profiling_prefix,
                      uint64_t* out_session) {
@@ -222,7 +351,7 @@ Status SessionCreate(const std::string& model_path,
   }
   try {
     auto state = std::make_shared<SessionState>(
-        model_path, enable_profiling, profiling_prefix);
+        model_path, requested_provider, enable_profiling, profiling_prefix);
     return HandleRegistry::Instance().Insert(
         HandleType::kInferenceSession, std::move(state), out_session);
   } catch (const Ort::Exception& error) {
@@ -230,6 +359,18 @@ Status SessionCreate(const std::string& model_path,
   } catch (const std::bad_alloc&) {
     return OutOfMemory("onnx_session_create: allocation failed");
   }
+}
+
+Status SessionProvider(uint64_t session, std::string* out_provider) {
+  if (out_provider == nullptr) {
+    return InvalidArgument("onnx_session_provider: output string pointer is null");
+  }
+  out_provider->clear();
+  std::shared_ptr<SessionState> state;
+  Status status = LookupSession(session, &state);
+  if (!status.ok()) return status;
+  *out_provider = state->selected_provider;
+  return Status::Ok();
 }
 
 Status SessionInputCount(uint64_t session, size_t* out_count) {
