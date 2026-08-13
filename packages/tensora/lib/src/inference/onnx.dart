@@ -237,24 +237,18 @@ final class OnnxSession {
   }
 
   void _validateInputs(Map<String, Tensor> inputs) {
-    if (inputs.length != inputNames.length) {
-      throw InvalidArgumentException(
-        'Expected ${inputNames.length} ONNX inputs, got ${inputs.length}.',
-        operation: 'onnx.session.run',
-      );
+    for (final supplied in inputs.keys) {
+      if (!inputNames.contains(supplied)) {
+        throw InvalidArgumentException(
+          'Unknown ONNX input "$supplied".',
+          operation: 'onnx.session.run',
+        );
+      }
     }
     for (final expected in inputNames) {
       if (!inputs.containsKey(expected)) {
         throw InvalidArgumentException(
           'Missing ONNX input "$expected".',
-          operation: 'onnx.session.run',
-        );
-      }
-    }
-    for (final supplied in inputs.keys) {
-      if (!inputNames.contains(supplied)) {
-        throw InvalidArgumentException(
-          'Unknown ONNX input "$supplied".',
           operation: 'onnx.session.run',
         );
       }
