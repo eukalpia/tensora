@@ -42,10 +42,7 @@ void main() {
       OnnxExecutionProvider.cuda.runtimeName,
     )) {
       expect(
-        () => OnnxSession(
-          modelPath!,
-          provider: OnnxExecutionProvider.cuda,
-        ),
+        () => OnnxSession(modelPath!, provider: OnnxExecutionProvider.cuda),
         throwsA(isA<UnsupportedOperationException>()),
       );
     }
