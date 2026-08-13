@@ -4,6 +4,46 @@ import '../native/native_runtime.dart';
 import '../tensor/native_adoption.dart';
 import '../tensor/tensor.dart';
 
+/// A supported ONNX Runtime execution-provider preference.
+enum OnnxExecutionProvider {
+  /// Selects the best supported provider for the current platform and linked
+  /// ONNX Runtime distribution.
+  auto('auto'),
+
+  /// Portable CPU execution.
+  cpu('CPUExecutionProvider'),
+
+  /// NVIDIA CUDA execution.
+  cuda('CUDAExecutionProvider'),
+
+  /// DirectML execution on a DirectX 12 adapter on Windows.
+  directML('DmlExecutionProvider'),
+
+  /// Apple Core ML execution on macOS.
+  coreML('CoreMLExecutionProvider'),
+
+  /// Intel OpenVINO execution.
+  openVino('OpenVINOExecutionProvider'),
+
+  /// AMD MIGraphX execution.
+  miGraphX('MIGraphXExecutionProvider');
+
+  const OnnxExecutionProvider(this.runtimeName);
+
+  /// ONNX Runtime execution-provider name, or `auto` for automatic selection.
+  final String runtimeName;
+
+  static OnnxExecutionProvider fromRuntimeName(String name) {
+    for (final provider in values) {
+      if (provider.runtimeName == name) return provider;
+    }
+    throw NativeRuntimeException(
+      'Native runtime returned unknown ONNX provider "$name".',
+      operation: 'onnx.session.provider',
+    );
+  }
+}
+
 final Finalizer<int> _onnxSessionFinalizer = Finalizer<int>((handle) {
   NativeInferenceRuntime.instance.releaseFromFinalizer(handle);
 });
@@ -31,24 +71,42 @@ final class OnnxSession {
     this._handle, {
     required this.inputNames,
     required this.outputNames,
+    required this.requestedProvider,
+    required this.selectedProvider,
     required this.profilingEnabled,
   }) {
     _onnxSessionFinalizer.attach(this, _handle, detach: this);
   }
 
   /// Loads an ONNX model from [modelPath].
+  ///
+  /// An explicit [provider] never silently falls back to CPU. Use
+  /// [OnnxExecutionProvider.auto] when controlled platform-aware fallback is
+  /// desired.
   factory OnnxSession(
     String modelPath, {
+    OnnxExecutionProvider provider = OnnxExecutionProvider.auto,
     bool enableProfiling = false,
     String? profilingPrefix,
   }) {
     final runtime = NativeInferenceRuntime.instance;
     final handle = runtime.createSession(
       modelPath,
+      providerName: provider.runtimeName,
       enableProfiling: enableProfiling,
       profilingPrefix: profilingPrefix,
     );
     try {
+      final selected = OnnxExecutionProvider.fromRuntimeName(
+        runtime.sessionProvider(handle),
+      );
+      if (provider != OnnxExecutionProvider.auto && selected != provider) {
+        throw NativeRuntimeException(
+          'Requested ONNX provider ${provider.runtimeName}, but native runtime '
+          'selected ${selected.runtimeName}.',
+          operation: 'onnx.session.create',
+        );
+      }
       final inputs = runtime.inputNames(handle);
       final outputs = runtime.outputNames(handle);
       if (inputs.isEmpty) {
@@ -67,6 +125,8 @@ final class OnnxSession {
         handle,
         inputNames: List<String>.unmodifiable(inputs),
         outputNames: List<String>.unmodifiable(outputs),
+        requestedProvider: provider,
+        selectedProvider: selected,
         profilingEnabled: enableProfiling,
       );
     } catch (_) {
@@ -85,6 +145,12 @@ final class OnnxSession {
   /// Model output names in native model order.
   final List<String> outputNames;
 
+  /// Provider preference supplied when the session was created.
+  final OnnxExecutionProvider requestedProvider;
+
+  /// Provider actually attached to this native session.
+  final OnnxExecutionProvider selectedProvider;
+
   /// Whether this session was created with native profiling enabled.
   final bool profilingEnabled;
 
@@ -93,9 +159,8 @@ final class OnnxSession {
 
   /// Executes inference using named Tensora tensors.
   ///
-  /// The initial portable-inference contract accepts dense float32 tensors.
-  /// Outputs default to every model output and are returned in model/requested
-  /// order through the insertion-ordered Dart map.
+  /// The portable inference contract accepts dense float32 tensors. Outputs
+  /// default to every model output and are returned in model/requested order.
   Map<String, Tensor> run(Map<String, Tensor> inputs, {List<String>? outputs}) {
     _ensureLive('run');
     _validateInputs(inputs);
