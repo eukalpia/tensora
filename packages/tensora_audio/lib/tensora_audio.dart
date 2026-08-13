@@ -24,6 +24,7 @@ final class AudioTensorSpec {
   Shape get shape => Shape(<int>[channels, frames]);
 
   Duration get duration => Duration(
-    microseconds: (frames * Duration.microsecondsPerSecond / sampleRate).round(),
+    microseconds:
+        (frames * Duration.microsecondsPerSecond / sampleRate).round(),
   );
 }
