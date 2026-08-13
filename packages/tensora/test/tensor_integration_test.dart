@@ -41,10 +41,13 @@ void main() {
       expectValues(full.toList(), [2.5, 2.5, 2.5, 2.5, 2.5, 2.5]);
     });
 
-    test('runtime exposes available devices and a deterministic preference', () {
-      expect(TensoraRuntime.availableDevices, [Device.cpu]);
-      expect(TensoraRuntime.preferredDevice, Device.cpu);
-    });
+    test(
+      'runtime exposes available devices and a deterministic preference',
+      () {
+        expect(TensoraRuntime.availableDevices, [Device.cpu]);
+        expect(TensoraRuntime.preferredDevice, Device.cpu);
+      },
+    );
 
     test('CPU transfer returns an independent tensor with stable metadata', () {
       final input = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
