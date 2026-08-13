@@ -83,6 +83,25 @@ jobs:
         working-directory: packages/tensora
         run: dart pub get
 
+      - name: Collect default native discovery coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/core-coverage
+        run: >-
+          env -u TENSORA_NATIVE_LIBRARY
+          dart test test/native_runtime_default_load_test.dart
+          --coverage-path=coverage/runtime-default-load.info
+          --reporter expanded
+
+      - name: Collect missing native override coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ runner.temp }}/definitely-missing/libtensora_native.so
+        run: >-
+          dart test test/native_runtime_missing_load_test.dart
+          --coverage-path=coverage/runtime-missing-load.info
+          --reporter expanded
+
       - name: Collect isolated core soak coverage
         working-directory: packages/tensora
         env:
@@ -180,6 +199,8 @@ jobs:
           reports = [
               Path('coverage/core.info'),
               Path('coverage/core-soak.info'),
+              Path('coverage/runtime-default-load.info'),
+              Path('coverage/runtime-missing-load.info'),
               Path('coverage/training.info'),
               Path('coverage/training-edge.info'),
               Path('coverage/training-runtime.info'),
