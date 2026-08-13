@@ -11,10 +11,11 @@ OnnxExecutionProvider _targetProvider() {
     'coreml' => OnnxExecutionProvider.coreML,
     'openvino' => OnnxExecutionProvider.openVino,
     'migraphx' => OnnxExecutionProvider.miGraphX,
-    _ => throw StateError(
-      'TENSORA_TEST_ONNX_PROVIDER must be one of: '
-      'cuda, directml, coreml, openvino, migraphx.',
-    ),
+    _ =>
+      throw StateError(
+        'TENSORA_TEST_ONNX_PROVIDER must be one of: '
+        'cuda, directml, coreml, openvino, migraphx.',
+      ),
   };
 }
 
