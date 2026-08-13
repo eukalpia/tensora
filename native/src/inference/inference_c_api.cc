@@ -128,23 +128,55 @@ ts_status_t ts_onnx_provider_name(size_t index,
 }
 
 ts_status_t ts_onnx_session_create(const char* model_path,
-                                   uint8_t enable_profiling,
-                                   const char* profiling_prefix,
-                                   ts_onnx_session_t* out_session) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_create", [&] {
-    if (out_session == nullptr) {
-      return tensora::InvalidArgument(
-          "onnx_session_create: output handle pointer is null");
-    }
-    *out_session = 0;
-    if (model_path == nullptr) {
-      return tensora::InvalidArgument(
-          "onnx_session_create: model path pointer is null");
-    }
-    const std::string prefix =
-        profiling_prefix == nullptr ? std::string() : std::string(profiling_prefix);
-    return tensora::inference::SessionCreate(
-        std::string(model_path), enable_profiling != 0, prefix, out_session);
+                                    uint8_t enable_profiling,
+                                    const char* profiling_prefix,
+                                    ts_onnx_session_t* out_session) {
+  return ts_onnx_session_create_with_provider(
+      model_path, "auto", enable_profiling, profiling_prefix, out_session);
+}
+
+ts_status_t ts_onnx_session_create_with_provider(
+    const char* model_path,
+    const char* requested_provider,
+    uint8_t enable_profiling,
+    const char* profiling_prefix,
+    ts_onnx_session_t* out_session) {
+  return tensora::GuardedInferenceAbiCall(
+      "onnx_session_create_with_provider", [&] {
+        if (out_session == nullptr) {
+          return tensora::InvalidArgument(
+              "onnx_session_create_with_provider: output handle pointer is null");
+        }
+        *out_session = 0;
+        if (model_path == nullptr) {
+          return tensora::InvalidArgument(
+              "onnx_session_create_with_provider: model path pointer is null");
+        }
+        if (requested_provider == nullptr) {
+          return tensora::InvalidArgument(
+              "onnx_session_create_with_provider: provider pointer is null");
+        }
+        const std::string prefix = profiling_prefix == nullptr
+                                       ? std::string()
+                                       : std::string(profiling_prefix);
+        return tensora::inference::SessionCreate(
+            std::string(model_path), std::string(requested_provider),
+            enable_profiling != 0, prefix, out_session);
+      });
+}
+
+ts_status_t ts_onnx_session_provider(ts_onnx_session_t session,
+                                     char* out_provider,
+                                     size_t capacity,
+                                     size_t* out_required) {
+  return tensora::GuardedInferenceAbiCall("onnx_session_provider", [&] {
+    std::string provider;
+    tensora::Status status =
+        tensora::inference::SessionProvider(session, &provider);
+    if (!status.ok()) return status;
+    return tensora::CopyUtf8String(
+        provider, out_provider, capacity, out_required,
+        "onnx_session_provider");
   });
 }
 
