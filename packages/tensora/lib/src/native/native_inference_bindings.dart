@@ -21,12 +21,33 @@ typedef _SessionCreateNative =
 typedef _SessionCreateDart =
     int Function(Pointer<Utf8>, int, Pointer<Utf8>, Pointer<Uint64>);
 
+typedef _SessionCreateWithProviderNative =
+    Int32 Function(
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Uint8,
+      Pointer<Utf8>,
+      Pointer<Uint64>,
+    );
+typedef _SessionCreateWithProviderDart =
+    int Function(
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      int,
+      Pointer<Utf8>,
+      Pointer<Uint64>,
+    );
+
 typedef _SessionCountNative = Int32 Function(Uint64, Pointer<Size>);
 typedef _SessionCountDart = int Function(int, Pointer<Size>);
 typedef _SessionNameNative =
     Int32 Function(Uint64, Size, Pointer<Utf8>, Size, Pointer<Size>);
 typedef _SessionNameDart =
     int Function(int, int, Pointer<Utf8>, int, Pointer<Size>);
+typedef _SessionStringNative =
+    Int32 Function(Uint64, Pointer<Utf8>, Size, Pointer<Size>);
+typedef _SessionStringDart =
+    int Function(int, Pointer<Utf8>, int, Pointer<Size>);
 
 typedef _SessionRunNative =
     Int32 Function(
@@ -53,10 +74,6 @@ typedef _SessionRunDart =
       Pointer<Size>,
     );
 
-typedef _SessionEndProfilingNative =
-    Int32 Function(Uint64, Pointer<Utf8>, Size, Pointer<Size>);
-typedef _SessionEndProfilingDart =
-    int Function(int, Pointer<Utf8>, int, Pointer<Size>);
 typedef _SessionReleaseNative = Int32 Function(Uint64);
 typedef _SessionReleaseDart = int Function(int);
 
@@ -81,6 +98,14 @@ final class NativeInferenceBindings {
           .lookupFunction<_SessionCreateNative, _SessionCreateDart>(
             'ts_onnx_session_create',
           ),
+      sessionCreateWithProvider = library.lookupFunction<
+        _SessionCreateWithProviderNative,
+        _SessionCreateWithProviderDart
+      >('ts_onnx_session_create_with_provider'),
+      sessionProvider = library
+          .lookupFunction<_SessionStringNative, _SessionStringDart>(
+            'ts_onnx_session_provider',
+          ),
       sessionInputCount = library
           .lookupFunction<_SessionCountNative, _SessionCountDart>(
             'ts_onnx_session_input_count',
@@ -101,7 +126,7 @@ final class NativeInferenceBindings {
         'ts_onnx_session_run',
       ),
       sessionEndProfiling = library
-          .lookupFunction<_SessionEndProfilingNative, _SessionEndProfilingDart>(
+          .lookupFunction<_SessionStringNative, _SessionStringDart>(
             'ts_onnx_session_end_profiling',
           ),
       sessionRelease = library
@@ -118,12 +143,14 @@ final class NativeInferenceBindings {
   final _SizeOutputDart providerCount;
   final _ProviderNameDart providerName;
   final _SessionCreateDart sessionCreate;
+  final _SessionCreateWithProviderDart sessionCreateWithProvider;
+  final _SessionStringDart sessionProvider;
   final _SessionCountDart sessionInputCount;
   final _SessionCountDart sessionOutputCount;
   final _SessionNameDart sessionInputName;
   final _SessionNameDart sessionOutputName;
   final _SessionRunDart sessionRun;
-  final _SessionEndProfilingDart sessionEndProfiling;
+  final _SessionStringDart sessionEndProfiling;
   final _SessionReleaseDart sessionRelease;
   final _Uint64OutputDart liveSessionCount;
 }
