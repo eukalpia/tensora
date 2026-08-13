@@ -9,7 +9,8 @@
 
 TS_STATIC_ASSERT(ts_status_is_exactly_32_bits, sizeof(ts_status_t) == 4);
 TS_STATIC_ASSERT(ts_tensor_handle_is_exactly_64_bits, sizeof(ts_tensor_t) == 8);
-TS_STATIC_ASSERT(ts_module_handle_is_exactly_64_bits, sizeof(ts_module_t) == 8);
+TS_STATIC_ASSERT(ts_module_handle_is_exactly_64_bits,
+                 sizeof(ts_module_t) == 8);
 TS_STATIC_ASSERT(ts_optimizer_handle_is_exactly_64_bits,
                  sizeof(ts_optimizer_t) == 8);
 TS_STATIC_ASSERT(ts_onnx_session_handle_is_exactly_64_bits,
@@ -140,6 +141,34 @@ int main(void) {
 
   if (strcmp(ts_status_name(TS_MODEL_ERROR), "MODEL_ERROR") != 0) return 51;
   if (strcmp(ts_status_name(999), "UNKNOWN_STATUS") != 0) return 52;
+
+  if (TS_DEVICE_CPU == TS_DEVICE_MPS || TS_DEVICE_CPU == TS_DEVICE_XPU ||
+      TS_DEVICE_CPU == TS_DEVICE_HIP || TS_DEVICE_CUDA == TS_DEVICE_MPS ||
+      TS_DEVICE_CUDA == TS_DEVICE_XPU || TS_DEVICE_CUDA == TS_DEVICE_HIP ||
+      TS_DEVICE_MPS == TS_DEVICE_XPU || TS_DEVICE_MPS == TS_DEVICE_HIP ||
+      TS_DEVICE_XPU == TS_DEVICE_HIP)
+    return 53;
+
+  {
+    uint32_t count = 99;
+    if (ts_runtime_device_count(TS_DEVICE_CPU, &count) != TS_OK || count != 1)
+      return 54;
+    if (ts_runtime_device_count(999u, &count) != TS_UNSUPPORTED) return 55;
+    if (ts_runtime_device_count(TS_DEVICE_CPU, NULL) != TS_INVALID_ARGUMENT)
+      return 56;
+#if !defined(TENSORA_WITH_TORCH)
+    if (ts_runtime_device_count(TS_DEVICE_CUDA, &count) != TS_OK || count != 0)
+      return 57;
+    if (ts_runtime_device_count(TS_DEVICE_MPS, &count) != TS_OK || count != 0)
+      return 58;
+    if (ts_runtime_device_count(TS_DEVICE_XPU, &count) != TS_OK || count != 0)
+      return 59;
+    if (ts_runtime_device_count(TS_DEVICE_HIP, &count) != TS_OK || count != 0)
+      return 60;
+#endif
+    if (ts_runtime_device_count(TS_DEVICE_CUDA, &count) != TS_OK) return 61;
+    if (count != cuda_count) return 62;
+  }
 
   return 0;
 }
