@@ -1,40 +1,47 @@
-name: CUDA Hardware Validation
+name: Accelerator Hardware Qualification
 
 on:
-  push:
-    branches:
-      - 'feature/m2-m3-training-inference'
-    paths:
-      - 'native/**'
-      - 'packages/tensora/**'
-      - '.github/workflows/cuda-validation.yml'
-  pull_request:
-    paths:
-      - 'native/**'
-      - 'packages/tensora/**'
-      - '.github/workflows/cuda-validation.yml'
   workflow_dispatch:
+    inputs:
+      target:
+        description: Physical accelerator target to qualify
+        required: true
+        type: choice
+        options:
+          - nvidia-linux-cuda
+          - nvidia-windows-cuda
+          - apple-macos-mps-coreml
+          - intel-windows-xpu
+          - amd-linux-rocm
+          - amd-windows-directml
+      ort_dml_root:
+        description: Windows DirectML ONNX Runtime root containing include/ and lib/
+        required: false
+        type: string
+        default: 'C:\onnxruntime-directml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: cuda-hardware-${{ github.ref }}
+  group: accelerator-hardware-${{ inputs.target }}
   cancel-in-progress: true
 
 jobs:
-  cuda-training:
-    name: Real NVIDIA CUDA training
+  nvidia-linux-cuda:
+    if: ${{ inputs.target == 'nvidia-linux-cuda' }}
+    name: NVIDIA CUDA / Linux
     runs-on: [self-hosted, linux, x64, gpu, nvidia]
     timeout-minutes: 90
     env:
-      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/cuda/libtensora_native.so
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/accelerator/libtensora_native.so
+      TENSORA_TEST_DEVICE: cuda
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Verify NVIDIA hardware and driver
+      - name: Verify NVIDIA hardware
         shell: bash
         run: |
           set -euo pipefail
@@ -53,59 +60,488 @@ jobs:
       - name: Install pinned CUDA PyTorch
         run: >-
           python -m pip install
-          torch==2.13.0+cu130
+          torch==2.13.0
           --index-url https://download.pytorch.org/whl/cu130
 
-      - name: Require CUDA-visible PyTorch and resolve native paths
+      - name: Require NVIDIA CUDA runtime
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
+          import pathlib
           import torch
-          if not torch.cuda.is_available():
-              raise SystemExit('PyTorch cannot see a CUDA device; CPU fallback is forbidden')
-          if torch.cuda.device_count() < 1:
-              raise SystemExit('No CUDA devices reported')
-          print('torch_version=' + torch.__version__)
-          print('cuda_version=' + str(torch.version.cuda))
-          print('device_count=' + str(torch.cuda.device_count()))
-          print('device_0=' + torch.cuda.get_device_name(0))
+          if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
+              raise SystemExit('PyTorch cannot see an NVIDIA CUDA device')
+          if torch.version.cuda is None or torch.version.hip is not None:
+              raise SystemExit('Loaded PyTorch build is not NVIDIA CUDA')
+          print('torch=' + torch.__version__)
+          print('cuda=' + str(torch.version.cuda))
+          print('gpu=' + torch.cuda.get_device_name(0))
+          print('count=' + str(torch.cuda.device_count()))
+          print('cmake=' + torch.utils.cmake_prefix_path)
+          print('lib=' + str(pathlib.Path(torch.__file__).parent / 'lib'))
           PY
           echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
           echo "TORCH_LIBRARY_PATH=$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')" >> "$GITHUB_ENV"
 
-      - name: Configure CUDA-capable training runtime
+      - name: Configure accelerator runtime
         shell: bash
         run: >-
-          cmake -S native -B build/cuda
+          cmake -S native -B build/accelerator
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
           -DTENSORA_WITH_TORCH=ON
           -DTENSORA_BUILD_TESTS=ON
           -DTENSORA_BUILD_BENCHMARKS=OFF
 
-      - name: Build CUDA-capable runtime
-        run: cmake --build build/cuda --config Release --parallel 2
+      - name: Build accelerator runtime
+        run: cmake --build build/accelerator --config Release --parallel 2
 
-      - name: Run native training acceptance on CUDA-capable build
+      - name: Run native training suite
         env:
           LD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
-        run: ctest --test-dir build/cuda --build-config Release --output-on-failure
+        run: ctest --test-dir build/accelerator --build-config Release --output-on-failure
 
       - name: Resolve Dart dependencies
         working-directory: packages/tensora
         run: dart pub get
 
-      - name: Verify CUDA test formatting
+      - name: Verify hardware test quality
         working-directory: packages/tensora
-        run: dart format --output=none --set-exit-if-changed integration_test/cuda_training_integration_test.dart
+        run: |
+          dart format --output=none --set-exit-if-changed integration_test/accelerator_training_integration_test.dart
+          dart analyze --fatal-infos --fatal-warnings integration_test/accelerator_training_integration_test.dart
 
-      - name: Analyze CUDA integration test
-        working-directory: packages/tensora
-        run: dart analyze --fatal-infos --fatal-warnings integration_test/cuda_training_integration_test.dart
-
-      - name: Run real CUDA training acceptance
+      - name: Run real NVIDIA CUDA acceptance
         working-directory: packages/tensora
         env:
           LD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
-        run: dart test integration_test/cuda_training_integration_test.dart --reporter expanded
+        run: dart test integration_test/accelerator_training_integration_test.dart --reporter expanded
+
+  nvidia-windows-cuda:
+    if: ${{ inputs.target == 'nvidia-windows-cuda' }}
+    name: NVIDIA CUDA / Windows
+    runs-on: [self-hosted, windows, x64, gpu, nvidia]
+    timeout-minutes: 90
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}\build\accelerator\Release\tensora_native.dll
+      TENSORA_TEST_DEVICE: cuda
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify NVIDIA hardware
+        shell: powershell
+        run: nvidia-smi
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned CUDA PyTorch
+        shell: powershell
+        run: python -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu130
+
+      - name: Require NVIDIA CUDA runtime
+        shell: powershell
+        run: |
+          python -c "import torch; assert torch.cuda.is_available() and torch.cuda.device_count() > 0; assert torch.version.cuda is not None and torch.version.hip is None; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0))"
+          $prefix = python -c "import torch; print(torch.utils.cmake_prefix_path)"
+          $lib = python -c "import pathlib, torch; print(pathlib.Path(torch.__file__).parent / 'lib')"
+          "TORCH_CMAKE_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TORCH_LIBRARY_PATH=$lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $lib | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Configure accelerator runtime
+        shell: powershell
+        run: >-
+          cmake -S native -B build/accelerator
+          -DCMAKE_PREFIX_PATH="$env:TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build accelerator runtime
+        run: cmake --build build/accelerator --config Release --parallel 2
+
+      - name: Run native training suite
+        run: ctest --test-dir build/accelerator --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Verify hardware test quality
+        working-directory: packages/tensora
+        run: |
+          dart format --output=none --set-exit-if-changed integration_test/accelerator_training_integration_test.dart
+          dart analyze --fatal-infos --fatal-warnings integration_test/accelerator_training_integration_test.dart
+
+      - name: Run real NVIDIA CUDA acceptance
+        working-directory: packages/tensora
+        run: dart test integration_test/accelerator_training_integration_test.dart --reporter expanded
+
+  apple-macos-mps-coreml:
+    if: ${{ inputs.target == 'apple-macos-mps-coreml' }}
+    name: Apple MPS + CoreML / macOS
+    runs-on: [self-hosted, macos, arm64, gpu, apple]
+    timeout-minutes: 90
+    env:
+      ORT_VERSION: '1.26.0'
+      ORT_SHA256: '7a1280bbb1701ea514f71828765237e7896e0f2e1cd332f1f70dbd5c3e33aca3'
+      TENSORA_TEST_DEVICE: mps
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify Apple Silicon
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "Darwin"
+          test "$(uname -m)" = "arm64"
+          system_profiler SPHardwareDataType SPDisplaysDataType
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned macOS PyTorch and ONNX fixture dependency
+        run: python -m pip install torch==2.13.0 onnx==1.21.0 numpy
+
+      - name: Require real MPS execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib
+          import torch
+          if not torch.backends.mps.is_available():
+              raise SystemExit('MPS is not available on this Apple runner')
+          probe = (torch.ones(4, device='mps') * 3).cpu().tolist()
+          if probe != [3.0, 3.0, 3.0, 3.0]:
+              raise SystemExit('MPS kernel probe returned unexpected values')
+          print('torch=' + torch.__version__)
+          print('cmake=' + torch.utils.cmake_prefix_path)
+          print('lib=' + str(pathlib.Path(torch.__file__).parent / 'lib'))
+          PY
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+          echo "TORCH_LIBRARY_PATH=$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')" >> "$GITHUB_ENV"
+          echo "TENSORA_NATIVE_LIBRARY=${GITHUB_WORKSPACE}/build/accelerator/libtensora_native.dylib" >> "$GITHUB_ENV"
+
+      - name: Configure MPS training runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/accelerator
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build MPS training runtime
+        run: cmake --build build/accelerator --config Release --parallel 2
+
+      - name: Run native training suite
+        env:
+          DYLD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+        run: ctest --test-dir build/accelerator --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run real MPS training acceptance
+        working-directory: packages/tensora
+        env:
+          DYLD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+        run: dart test integration_test/accelerator_training_integration_test.dart --reporter expanded
+
+      - name: Generate deterministic ONNX fixture
+        shell: bash
+        run: |
+          mkdir -p build/fixtures
+          python native/tests/generate_onnx_fixture.py build/fixtures/reference.onnx
+          echo "TENSORA_ONNX_TEST_MODEL=${GITHUB_WORKSPACE}/build/fixtures/reference.onnx" >> "$GITHUB_ENV"
+
+      - name: Download pinned ONNX Runtime for Apple Silicon
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="build/onnxruntime-osx-arm64-${ORT_VERSION}.tgz"
+          curl --fail --location --retry 3 \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-arm64-${ORT_VERSION}.tgz" \
+            --output "$archive"
+          echo "${ORT_SHA256}  ${archive}" | shasum -a 256 -c
+          tar -xzf "$archive" -C build
+          ort_root="${GITHUB_WORKSPACE}/build/onnxruntime-osx-arm64-${ORT_VERSION}"
+          echo "ORT_ROOT=$ort_root" >> "$GITHUB_ENV"
+          echo "ORT_LIBRARY_PATH=$ort_root/lib" >> "$GITHUB_ENV"
+
+      - name: Configure CoreML inference runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/coreml
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_WITH_ONNXRUNTIME=ON
+          -DTENSORA_ONNXRUNTIME_ROOT="$ORT_ROOT"
+          -DTENSORA_WITH_ORT_COREML=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build CoreML inference runtime
+        run: cmake --build build/coreml --config Release --parallel 2
+
+      - name: Run real CoreML inference acceptance
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/coreml/libtensora_native.dylib
+          TENSORA_TEST_ONNX_PROVIDER: coreml
+          DYLD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: dart test integration_test/accelerator_inference_integration_test.dart --reporter expanded
+
+  intel-windows-xpu:
+    if: ${{ inputs.target == 'intel-windows-xpu' }}
+    name: Intel XPU / Windows
+    runs-on: [self-hosted, windows, x64, gpu, intel]
+    timeout-minutes: 90
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}\build\accelerator\Release\tensora_native.dll
+      TENSORA_TEST_DEVICE: xpu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Record Intel display hardware
+        shell: powershell
+        run: |
+          $display = Get-CimInstance Win32_VideoController | Select-Object Name, AdapterCompatibility
+          $display | Format-Table -AutoSize
+          if (($display | Out-String) -notmatch 'Intel') { throw 'No Intel graphics adapter detected' }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned XPU PyTorch
+        shell: powershell
+        run: python -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/xpu
+
+      - name: Require real Intel XPU execution
+        shell: powershell
+        run: |
+          python -c "import torch; assert torch.xpu.is_available() and torch.xpu.device_count() > 0; x=(torch.ones(4,device='xpu')*3).cpu(); assert x.tolist()==[3.0]*4; print(torch.__version__); print(torch.xpu.device_count())"
+          $prefix = python -c "import torch; print(torch.utils.cmake_prefix_path)"
+          $lib = python -c "import pathlib, torch; print(pathlib.Path(torch.__file__).parent / 'lib')"
+          "TORCH_CMAKE_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TORCH_LIBRARY_PATH=$lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $lib | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Configure XPU training runtime
+        shell: powershell
+        run: >-
+          cmake -S native -B build/accelerator
+          -DCMAKE_PREFIX_PATH="$env:TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build XPU training runtime
+        run: cmake --build build/accelerator --config Release --parallel 2
+
+      - name: Run native training suite
+        run: ctest --test-dir build/accelerator --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run real Intel XPU acceptance
+        working-directory: packages/tensora
+        run: dart test integration_test/accelerator_training_integration_test.dart --reporter expanded
+
+  amd-linux-rocm:
+    if: ${{ inputs.target == 'amd-linux-rocm' }}
+    name: AMD ROCm / Linux
+    runs-on: [self-hosted, linux, x64, gpu, amd]
+    timeout-minutes: 90
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/accelerator/libtensora_native.so
+      TENSORA_TEST_DEVICE: hip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify AMD ROCm hardware
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v rocminfo
+          rocminfo | head -n 120
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned ROCm PyTorch
+        run: >-
+          python -m pip install
+          torch==2.13.0
+          --index-url https://download.pytorch.org/whl/rocm7.2
+
+      - name: Require real ROCm execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib
+          import torch
+          if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
+              raise SystemExit('ROCm PyTorch cannot see an AMD GPU')
+          if torch.version.hip is None:
+              raise SystemExit('Loaded PyTorch build is not ROCm/HIP')
+          probe = (torch.ones(4, device='cuda') * 3).cpu().tolist()
+          if probe != [3.0, 3.0, 3.0, 3.0]:
+              raise SystemExit('ROCm kernel probe returned unexpected values')
+          print('torch=' + torch.__version__)
+          print('hip=' + str(torch.version.hip))
+          print('gpu=' + torch.cuda.get_device_name(0))
+          print('cmake=' + torch.utils.cmake_prefix_path)
+          print('lib=' + str(pathlib.Path(torch.__file__).parent / 'lib'))
+          PY
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+          echo "TORCH_LIBRARY_PATH=$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')" >> "$GITHUB_ENV"
+
+      - name: Configure ROCm training runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/accelerator
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build ROCm training runtime
+        run: cmake --build build/accelerator --config Release --parallel 2
+
+      - name: Run native training suite
+        env:
+          LD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+        run: ctest --test-dir build/accelerator --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run real AMD ROCm acceptance
+        working-directory: packages/tensora
+        env:
+          LD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+        run: dart test integration_test/accelerator_training_integration_test.dart --reporter expanded
+
+  amd-windows-directml:
+    if: ${{ inputs.target == 'amd-windows-directml' }}
+    name: AMD DirectML / Windows
+    runs-on: [self-hosted, windows, x64, gpu, amd]
+    timeout-minutes: 90
+    env:
+      ORT_DML_ROOT: ${{ inputs.ort_dml_root }}
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}\build\directml\Release\tensora_native.dll
+      TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}\build\fixtures\reference.onnx
+      TENSORA_TEST_ONNX_PROVIDER: directml
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify AMD display hardware
+        shell: powershell
+        run: |
+          $display = Get-CimInstance Win32_VideoController | Select-Object Name, AdapterCompatibility
+          $display | Format-Table -AutoSize
+          $text = $display | Out-String
+          if ($text -notmatch 'AMD|Advanced Micro Devices|Radeon') { throw 'No AMD graphics adapter detected' }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Validate DirectML ONNX Runtime root
+        shell: powershell
+        run: |
+          if (-not (Test-Path "$env:ORT_DML_ROOT\include\onnxruntime_cxx_api.h")) { throw 'DirectML ONNX Runtime headers are missing' }
+          if (-not (Test-Path "$env:ORT_DML_ROOT\lib\onnxruntime.lib")) { throw 'DirectML ONNX Runtime import library is missing' }
+          if (-not (Test-Path "$env:ORT_DML_ROOT\lib\onnxruntime.dll")) { throw 'DirectML ONNX Runtime DLL is missing' }
+          "$env:ORT_DML_ROOT\lib" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Generate deterministic ONNX fixture
+        shell: powershell
+        run: |
+          python -m pip install onnx==1.21.0 numpy
+          New-Item -ItemType Directory -Force build\fixtures | Out-Null
+          python native/tests/generate_onnx_fixture.py "$env:TENSORA_ONNX_TEST_MODEL"
+
+      - name: Configure DirectML inference runtime
+        shell: powershell
+        run: >-
+          cmake -S native -B build/directml
+          -DTENSORA_WITH_ONNXRUNTIME=ON
+          -DTENSORA_ONNXRUNTIME_ROOT="$env:ORT_DML_ROOT"
+          -DTENSORA_WITH_ORT_DML=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build DirectML inference runtime
+        run: cmake --build build/directml --config Release --parallel 2
+
+      - name: Run native inference suite
+        run: ctest --test-dir build/directml --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Verify DirectML test quality
+        working-directory: packages/tensora
+        run: |
+          dart format --output=none --set-exit-if-changed integration_test/accelerator_inference_integration_test.dart
+          dart analyze --fatal-infos --fatal-warnings integration_test/accelerator_inference_integration_test.dart
+
+      - name: Run real AMD DirectML acceptance
+        working-directory: packages/tensora
+        run: dart test integration_test/accelerator_inference_integration_test.dart --reporter expanded
