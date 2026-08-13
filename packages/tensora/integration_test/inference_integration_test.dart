@@ -22,6 +22,35 @@ void main() {
     expect(OnnxRuntime.providers, contains('CPUExecutionProvider'));
   });
 
+  test('auto and explicit CPU sessions report the selected provider', () {
+    final automatic = OnnxSession(modelPath!);
+    final explicit = OnnxSession(
+      modelPath,
+      provider: OnnxExecutionProvider.cpu,
+    );
+    addTearDown(automatic.dispose);
+    addTearDown(explicit.dispose);
+
+    expect(automatic.requestedProvider, OnnxExecutionProvider.auto);
+    expect(automatic.selectedProvider, OnnxExecutionProvider.cpu);
+    expect(explicit.requestedProvider, OnnxExecutionProvider.cpu);
+    expect(explicit.selectedProvider, OnnxExecutionProvider.cpu);
+  });
+
+  test('explicit unavailable provider never falls back to CPU', () {
+    if (!OnnxRuntime.providers.contains(
+      OnnxExecutionProvider.cuda.runtimeName,
+    )) {
+      expect(
+        () => OnnxSession(
+          modelPath!,
+          provider: OnnxExecutionProvider.cuda,
+        ),
+        throwsA(isA<UnsupportedOperationException>()),
+      );
+    }
+  });
+
   test('missing model maps into ModelRuntimeException', () {
     expect(
       () => OnnxSession('/definitely/missing/tensora-model.onnx'),
