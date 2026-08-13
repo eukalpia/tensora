@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   training-cpu:
-    name: LibTorch CPU training
+    name: LibTorch CPU training / Linux
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -104,3 +104,137 @@ jobs:
       - name: Run native training wrapper edge suite in isolated process
         working-directory: packages/tensora
         run: dart test integration_test/native_training_runtime_edge_test.dart --reporter expanded
+
+  training-macos:
+    name: LibTorch CPU training / macOS
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/training/libtensora_native.dylib
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned macOS PyTorch
+        run: python -m pip install torch==2.13.0
+
+      - name: Record PyTorch environment and resolve native paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib
+          import platform
+          import torch
+          print('platform=' + platform.platform())
+          print('machine=' + platform.machine())
+          print('torch_version=' + torch.__version__)
+          print('torch_cmake_prefix=' + torch.utils.cmake_prefix_path)
+          print('mps_available=' + str(torch.backends.mps.is_available()))
+          print('torch_lib=' + str(pathlib.Path(torch.__file__).parent / 'lib'))
+          PY
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+          echo "TORCH_LIBRARY_PATH=$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')" >> "$GITHUB_ENV"
+
+      - name: Configure training-enabled runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/training
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build training-enabled runtime
+        run: cmake --build build/training --config Release --parallel 2
+
+      - name: Run native training acceptance suite
+        env:
+          DYLD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+        run: ctest --test-dir build/training --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run Dart training integration suites
+        working-directory: packages/tensora
+        env:
+          DYLD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+        run: |
+          dart test integration_test/training_integration_test.dart --reporter expanded
+          dart test integration_test/training_edge_integration_test.dart --reporter expanded
+          dart test integration_test/native_training_runtime_edge_test.dart --reporter expanded
+
+  training-windows:
+    name: LibTorch CPU training / Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}\build\training\Release\tensora_native.dll
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned CPU PyTorch
+        shell: powershell
+        run: python -m pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Record PyTorch environment and resolve native paths
+        shell: powershell
+        run: |
+          python -c "import platform, torch; print('platform=' + platform.platform()); print('torch_version=' + torch.__version__); print('torch_cmake_prefix=' + torch.utils.cmake_prefix_path); print('cuda_available=' + str(torch.cuda.is_available()))"
+          $prefix = python -c "import torch; print(torch.utils.cmake_prefix_path)"
+          $lib = python -c "import pathlib, torch; print(pathlib.Path(torch.__file__).parent / 'lib')"
+          "TORCH_CMAKE_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TORCH_LIBRARY_PATH=$lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $lib | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Configure training-enabled runtime
+        shell: powershell
+        run: >-
+          cmake -S native -B build/training
+          -DCMAKE_PREFIX_PATH="$env:TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build training-enabled runtime
+        run: cmake --build build/training --config Release --parallel 2
+
+      - name: Run native training acceptance suite
+        run: ctest --test-dir build/training --build-config Release --output-on-failure
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run Dart training integration suites
+        working-directory: packages/tensora
+        run: |
+          dart test integration_test/training_integration_test.dart --reporter expanded
+          dart test integration_test/training_edge_integration_test.dart --reporter expanded
+          dart test integration_test/native_training_runtime_edge_test.dart --reporter expanded
