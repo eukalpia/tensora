@@ -19,48 +19,53 @@ OnnxExecutionProvider _targetProvider() {
 }
 
 void main() {
-  test('selected ONNX provider executes the reference model without fallback', () {
-    final provider = _targetProvider();
-    final modelPath = Platform.environment['TENSORA_ONNX_TEST_MODEL'];
-    if (modelPath == null || modelPath.trim().isEmpty) {
-      throw StateError('TENSORA_ONNX_TEST_MODEL must point to the ONNX fixture.');
-    }
+  test(
+    'selected ONNX provider executes the reference model without fallback',
+    () {
+      final provider = _targetProvider();
+      final modelPath = Platform.environment['TENSORA_ONNX_TEST_MODEL'];
+      if (modelPath == null || modelPath.trim().isEmpty) {
+        throw StateError(
+          'TENSORA_ONNX_TEST_MODEL must point to the ONNX fixture.',
+        );
+      }
 
-    expect(OnnxRuntime.available, isTrue);
-    expect(
-      OnnxRuntime.providers,
-      contains(provider.runtimeName),
-      reason: '${provider.runtimeName} must be present in the linked runtime',
-    );
-
-    final baselineSessions = OnnxRuntime.liveSessionCount;
-    final session = OnnxSession(modelPath, provider: provider);
-    final input = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
-
-    try {
-      expect(session.requestedProvider, provider);
+      expect(OnnxRuntime.available, isTrue);
       expect(
-        session.selectedProvider,
-        provider,
-        reason: 'explicit accelerator provider must never fall back to CPU',
+        OnnxRuntime.providers,
+        contains(provider.runtimeName),
+        reason: '${provider.runtimeName} must be present in the linked runtime',
       );
 
-      final outputs = session.run({'X': input});
-      try {
-        expect(outputs.keys, ['Y']);
-        expect(outputs['Y']!.device, Device.cpu);
-        expect(outputs['Y']!.shape, Shape([2, 2]));
-        expect(outputs['Y']!.toList(), [3, 5, 7, 11]);
-      } finally {
-        for (final output in outputs.values) {
-          output.dispose();
-        }
-      }
-    } finally {
-      input.dispose();
-      session.dispose();
-    }
+      final baselineSessions = OnnxRuntime.liveSessionCount;
+      final session = OnnxSession(modelPath, provider: provider);
+      final input = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
 
-    expect(OnnxRuntime.liveSessionCount, baselineSessions);
-  });
+      try {
+        expect(session.requestedProvider, provider);
+        expect(
+          session.selectedProvider,
+          provider,
+          reason: 'explicit accelerator provider must never fall back to CPU',
+        );
+
+        final outputs = session.run({'X': input});
+        try {
+          expect(outputs.keys, ['Y']);
+          expect(outputs['Y']!.device, Device.cpu);
+          expect(outputs['Y']!.shape, Shape([2, 2]));
+          expect(outputs['Y']!.toList(), [3, 5, 7, 11]);
+        } finally {
+          for (final output in outputs.values) {
+            output.dispose();
+          }
+        }
+      } finally {
+        input.dispose();
+        session.dispose();
+      }
+
+      expect(OnnxRuntime.liveSessionCount, baselineSessions);
+    },
+  );
 }
