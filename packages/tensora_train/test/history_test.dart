@@ -15,10 +15,7 @@ void main() {
   });
 
   test('metric points validate public invariants', () {
-    expect(
-      () => MetricPoint(name: '', step: 0, value: 1),
-      throwsArgumentError,
-    );
+    expect(() => MetricPoint(name: '', step: 0, value: 1), throwsArgumentError);
     expect(
       () => MetricPoint(name: 'loss', step: -1, value: 1),
       throwsArgumentError,
