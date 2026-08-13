@@ -127,6 +127,10 @@ Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
   if (device == Device::kMps && device_index != 0) {
     return InvalidArgument("torch device: MPS device index must be zero");
   }
+  if (static_cast<uint64_t>(device_index) >
+      static_cast<uint64_t>(std::numeric_limits<c10::DeviceIndex>::max())) {
+    return InvalidArgument("torch device: accelerator index exceeds LibTorch range");
+  }
 
   uint32_t count = 0;
   Status status = DeviceCount(device, &count);
@@ -138,16 +142,18 @@ Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
   c10::DeviceType accelerator = c10::DeviceType::CPU;
   status = AcceleratorType(device, &accelerator);
   if (!status.ok()) return status;
+  const c10::DeviceIndex torch_device_index =
+      static_cast<c10::DeviceIndex>(device_index);
 
   switch (device) {
     case Device::kCuda:
-      *out = torch::Device(c10::DeviceType::CUDA, device_index);
+      *out = torch::Device(c10::DeviceType::CUDA, torch_device_index);
       return Status::Ok();
     case Device::kMps:
       *out = torch::Device(c10::DeviceType::MPS);
       return Status::Ok();
     case Device::kXpu:
-      *out = torch::Device(c10::DeviceType::XPU, device_index);
+      *out = torch::Device(c10::DeviceType::XPU, torch_device_index);
       return Status::Ok();
     case Device::kHip:
       if (accelerator != c10::DeviceType::HIP) {
@@ -155,7 +161,7 @@ Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
       }
       // ROCm PyTorch intentionally exposes tensors through CUDA device
       // semantics even though accelerator discovery identifies the HIP build.
-      *out = torch::Device(c10::DeviceType::CUDA, device_index);
+      *out = torch::Device(c10::DeviceType::CUDA, torch_device_index);
       return Status::Ok();
     case Device::kCpu:
       break;
