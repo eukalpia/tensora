@@ -165,19 +165,21 @@ ts_status_t ts_runtime_device_count(uint32_t device, uint32_t* out_count) {
           "runtime_device_count: output pointer is null");
     }
     *out_count = 0;
-    switch (device) {
-      case TS_DEVICE_CPU:
-        *out_count = 1;
-        return tensora::Status::Ok();
-      case TS_DEVICE_CUDA:
-        return tensora::training::CudaDeviceCount(out_count);
-      case TS_DEVICE_MPS:
-      case TS_DEVICE_XPU:
-      case TS_DEVICE_HIP:
-        return tensora::Status::Ok();
-      default:
-        return tensora::Unsupported("runtime_device_count: unknown device kind");
+
+    tensora::Device target = tensora::Device::kCpu;
+    tensora::Status status = tensora::DeviceFromCode(device, &target);
+    if (!status.ok()) return status;
+
+    if (target == tensora::Device::kCpu) {
+      *out_count = 1;
+      return tensora::Status::Ok();
     }
+
+#if defined(TENSORA_WITH_TORCH)
+    return tensora::training::DeviceCount(target, out_count);
+#else
+    return tensora::Status::Ok();
+#endif
   });
 }
 
