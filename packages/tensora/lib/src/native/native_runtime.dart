@@ -9,6 +9,19 @@ import '../errors/tensora_exception.dart';
 import '../shape/shape.dart';
 import 'native_bindings.dart';
 
+typedef _LoadLibraryExWNative = Pointer<Void> Function(
+  Pointer<Utf16> fileName,
+  Pointer<Void> file,
+  Uint32 flags,
+);
+typedef _LoadLibraryExWDart = Pointer<Void> Function(
+  Pointer<Utf16> fileName,
+  Pointer<Void> file,
+  int flags,
+);
+typedef _GetLastErrorNative = Uint32 Function();
+typedef _GetLastErrorDart = int Function();
+
 final class NativeRuntime {
   NativeRuntime._(this._bindings, this.libraryPath) {
     final version = _bindings.abiVersion();
@@ -22,8 +35,14 @@ final class NativeRuntime {
   }
 
   static const int expectedAbiVersion = 4;
+  static const int _loadLibrarySearchDllLoadDir = 0x00000100;
+  static const int _loadLibrarySearchDefaultDirs = 0x00001000;
 
   static NativeRuntime? _instance;
+
+  // LoadLibraryEx owns one module reference. Keep it for the process lifetime so
+  // Windows cannot unload the dependency graph before the Dart DynamicLibrary.
+  static final List<Pointer<Void>> _windowsPreloadedModules = <Pointer<Void>>[];
 
   static NativeRuntime get instance => _instance ??= _load();
 
@@ -33,7 +52,7 @@ final class NativeRuntime {
   static NativeRuntime _load() {
     final path = _resolveLibraryPath();
     try {
-      return NativeRuntime._(NativeBindings(DynamicLibrary.open(path)), path);
+      return NativeRuntime._(NativeBindings(_openLibrary(path)), path);
     } on TensoraException {
       rethrow;
     } catch (error) {
@@ -41,6 +60,53 @@ final class NativeRuntime {
         'Unable to load Tensora native runtime at "$path": $error',
         operation: 'runtime.load',
       );
+    }
+  }
+
+  static DynamicLibrary _openLibrary(String path) {
+    if (!Platform.isWindows) {
+      return DynamicLibrary.open(path);
+    }
+
+    final file = File(path);
+    if (!file.existsSync()) {
+      return DynamicLibrary.open(path);
+    }
+
+    final absolutePath = file.absolute.path;
+    _preloadWindowsLibrary(absolutePath);
+    return DynamicLibrary.open(absolutePath);
+  }
+
+  static void _preloadWindowsLibrary(String absolutePath) {
+    final kernel32 = DynamicLibrary.open('kernel32.dll');
+    final loadLibraryEx = kernel32.lookupFunction<
+      _LoadLibraryExWNative,
+      _LoadLibraryExWDart
+    >('LoadLibraryExW');
+    final getLastError = kernel32.lookupFunction<
+      _GetLastErrorNative,
+      _GetLastErrorDart
+    >('GetLastError');
+
+    final nativePath = absolutePath.toNativeUtf16();
+    try {
+      final handle = loadLibraryEx(
+        nativePath,
+        nullptr,
+        _loadLibrarySearchDllLoadDir | _loadLibrarySearchDefaultDirs,
+      );
+      if (handle.address == 0) {
+        final errorCode = getLastError();
+        throw NativeRuntimeException(
+          'Windows could not securely load Tensora and its sidecar '
+          'dependencies from "$absolutePath" (Win32 error $errorCode).',
+          operation: 'runtime.load',
+        );
+      }
+      _windowsPreloadedModules.add(handle);
+    } finally {
+      calloc.free(nativePath);
     }
   }
 
