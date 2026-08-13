@@ -4,7 +4,8 @@ abstract interface class Tokenizer {
 }
 
 final class TokenSequence {
-  TokenSequence(Iterable<int> tokens) : tokens = List<int>.unmodifiable(tokens) {
+  TokenSequence(Iterable<int> tokens)
+    : tokens = List<int>.unmodifiable(tokens) {
     for (final token in this.tokens) {
       if (token < 0) {
         throw ArgumentError.value(
