@@ -24,11 +24,12 @@ void main() {
       <int>[4],
     ]);
 
-    final dropped = DataLoader<int>(
-      dataset,
-      batchSize: 2,
-      dropLast: true,
-    ).batches().toList();
+    final dropped =
+        DataLoader<int>(
+          dataset,
+          batchSize: 2,
+          dropLast: true,
+        ).batches().toList();
     expect(dropped.map((batch) => batch.values).toList(), <List<int>>[
       <int>[0, 1],
       <int>[2, 3],
