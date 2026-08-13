@@ -61,7 +61,8 @@ jobs:
             tensora_transformers; do
             paths+=("packages/${package}/lib" "packages/${package}/test")
           done
-          dart format --output=none --set-exit-if-changed "${paths[@]}"
+          dart format "${paths[@]}"
+          git diff --exit-code -- "${paths[@]}"
 
       - name: Analyze workspace utilities and tests
         shell: bash
