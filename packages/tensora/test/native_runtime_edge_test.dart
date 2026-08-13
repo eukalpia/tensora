@@ -20,6 +20,15 @@ void main() {
     }
   });
 
+  test('runtime reports generic device counts', () {
+    expect(runtime.deviceCount(Device.cpu), 1);
+    expect(runtime.deviceCount(Device.cuda(0)), greaterThanOrEqualTo(0));
+    expect(runtime.deviceCount(Device.mps), greaterThanOrEqualTo(0));
+    expect(runtime.deviceCount(Device.xpu(0)), greaterThanOrEqualTo(0));
+    expect(runtime.deviceCount(Device.hip(0)), greaterThanOrEqualTo(0));
+    expect(runtime.cudaDeviceCount(), runtime.deviceCount(Device.cuda(0)));
+  });
+
   test(
     'zero tensor handles are rejected across the native wrapper surface',
     () {
