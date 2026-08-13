@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define TS_ABI_VERSION 3u
+#define TS_ABI_VERSION 4u
 
 typedef uint64_t ts_tensor_t;
 typedef uint64_t ts_module_t;
@@ -197,6 +197,16 @@ TS_API ts_status_t ts_onnx_session_create(const char* model_path,
                                           uint8_t enable_profiling,
                                           const char* profiling_prefix,
                                           ts_onnx_session_t* out_session);
+TS_API ts_status_t ts_onnx_session_create_with_provider(
+    const char* model_path,
+    const char* requested_provider,
+    uint8_t enable_profiling,
+    const char* profiling_prefix,
+    ts_onnx_session_t* out_session);
+TS_API ts_status_t ts_onnx_session_provider(ts_onnx_session_t session,
+                                            char* out_provider,
+                                            size_t capacity,
+                                            size_t* out_required);
 TS_API ts_status_t ts_onnx_session_input_count(ts_onnx_session_t session,
                                                size_t* out_count);
 TS_API ts_status_t ts_onnx_session_output_count(ts_onnx_session_t session,
