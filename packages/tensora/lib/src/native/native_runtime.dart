@@ -65,6 +65,9 @@ final class NativeRuntime {
     }
   }
 
+  // coverage:ignore-start
+  // This branch is exercised end-to-end by Windows FFI/training/inference CI.
+  // Linux High Assurance cannot execute Win32 loader APIs.
   static DynamicLibrary _openLibrary(String path) {
     if (!Platform.isWindows) {
       return DynamicLibrary.open(path);
@@ -109,6 +112,7 @@ final class NativeRuntime {
       calloc.free(nativePath);
     }
   }
+  // coverage:ignore-end
 
   static String _resolveLibraryPath() {
     final override = Platform.environment['TENSORA_NATIVE_LIBRARY'];

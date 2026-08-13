@@ -191,6 +191,7 @@ jobs:
                   raise SystemExit(f'{report} was not produced')
 
           lines: dict[str, dict[int, int]] = {}
+          ignored_lines: dict[str, set[int]] = {}
 
           def normalize_source(raw: str) -> str | None:
               source = raw.replace('\\', '/')
@@ -201,6 +202,43 @@ jobs:
                   return source
               return None
 
+          def read_ignored_lines(source: str) -> set[int]:
+              source_path = Path(source)
+              if not source_path.exists():
+                  raise SystemExit(f'coverage source does not exist: {source}')
+
+              ignored: set[int] = set()
+              active = False
+              for line_number, text in enumerate(
+                  source_path.read_text(encoding='utf-8').splitlines(), start=1
+              ):
+                  has_start = '// coverage:ignore-start' in text
+                  has_end = '// coverage:ignore-end' in text
+                  has_line = '// coverage:ignore-line' in text
+
+                  if has_start:
+                      if active:
+                          raise SystemExit(
+                              f'nested coverage:ignore-start in {source}:{line_number}'
+                          )
+                      active = True
+
+                  if active or has_line:
+                      ignored.add(line_number)
+
+                  if has_end:
+                      if not active:
+                          raise SystemExit(
+                              f'coverage:ignore-end without start in {source}:{line_number}'
+                          )
+                      active = False
+
+              if active:
+                  raise SystemExit(
+                      f'unterminated coverage:ignore-start in {source}'
+                  )
+              return ignored
+
           for report in reports:
               current = None
               for raw in report.read_text(encoding='utf-8').splitlines():
@@ -208,9 +246,14 @@ jobs:
                       current = normalize_source(raw[3:])
                       if current is not None:
                           lines.setdefault(current, {})
+                          ignored_lines.setdefault(
+                              current, read_ignored_lines(current)
+                          )
                   elif current is not None and raw.startswith('DA:'):
                       payload = raw[3:].split(',')
                       line_number = int(payload[0])
+                      if line_number in ignored_lines[current]:
+                          continue
                       hits = int(payload[1])
                       previous = lines[current].get(line_number, 0)
                       lines[current][line_number] = max(previous, hits)
@@ -228,6 +271,9 @@ jobs:
           missing = sorted(source for source in required_sources if source not in lines)
           if missing:
               raise SystemExit('coverage is missing required sources: ' + ', '.join(missing))
+
+          ignored_total = sum(len(values) for values in ignored_lines.values())
+          print(f'Validated coverage-ignore source lines: {ignored_total}')
 
           found = sum(len(source_lines) for source_lines in lines.values())
           hit = sum(
