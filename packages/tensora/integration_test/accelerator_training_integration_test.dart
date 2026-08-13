@@ -29,15 +29,6 @@ void _expectValues(
   }
 }
 
-Tensor _transferFromHost(List<num> values, Shape shape, Device device) {
-  final host = Tensor.fromList(values, shape: shape);
-  try {
-    return host.to(device);
-  } finally {
-    host.dispose();
-  }
-}
-
 void main() {
   test('selected accelerator executes tensor ops and a real training step', () {
     final device = _targetDevice();
@@ -53,11 +44,21 @@ void main() {
       greaterThan(0),
       reason: '$device must be visible to the loaded training runtime',
     );
+    expect(TensoraRuntime.availableDevices, contains(device));
+    expect(TensoraRuntime.preferredDevice, isNot(Device.cpu));
 
     TensoraRuntime.manualSeed(20260813);
 
-    final left = _transferFromHost([1, 2, 3, 4], Shape([2, 2]), device);
-    final right = _transferFromHost([5, 6, 7, 8], Shape([2, 2]), device);
+    final left = Tensor.fromList(
+      [1, 2, 3, 4],
+      shape: Shape([2, 2]),
+      device: device,
+    );
+    final right = Tensor.fromList(
+      [5, 6, 7, 8],
+      shape: Shape([2, 2]),
+      device: device,
+    );
     final product = left.matmul(right);
     try {
       expect(left.device, device);
@@ -103,8 +104,16 @@ void main() {
       );
 
       optimizer = SGD(module, learningRate: 0.05);
-      input = _transferFromHost([-2, -1, 1, 2], Shape([4, 1]), device);
-      target = _transferFromHost([-3, -1, 3, 5], Shape([4, 1]), device);
+      input = Tensor.fromList(
+        [-2, -1, 1, 2],
+        shape: Shape([4, 1]),
+        device: device,
+      );
+      target = Tensor.fromList(
+        [-3, -1, 3, 5],
+        shape: Shape([4, 1]),
+        device: device,
+      );
 
       expect(input.device, device);
       expect(target.device, device);
