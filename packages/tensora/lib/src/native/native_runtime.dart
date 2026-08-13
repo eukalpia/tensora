@@ -9,16 +9,18 @@ import '../errors/tensora_exception.dart';
 import '../shape/shape.dart';
 import 'native_bindings.dart';
 
-typedef _LoadLibraryExWNative = Pointer<Void> Function(
-  Pointer<Utf16> fileName,
-  Pointer<Void> file,
-  Uint32 flags,
-);
-typedef _LoadLibraryExWDart = Pointer<Void> Function(
-  Pointer<Utf16> fileName,
-  Pointer<Void> file,
-  int flags,
-);
+typedef _LoadLibraryExWNative =
+    Pointer<Void> Function(
+      Pointer<Utf16> fileName,
+      Pointer<Void> file,
+      Uint32 flags,
+    );
+typedef _LoadLibraryExWDart =
+    Pointer<Void> Function(
+      Pointer<Utf16> fileName,
+      Pointer<Void> file,
+      int flags,
+    );
 typedef _GetLastErrorNative = Uint32 Function();
 typedef _GetLastErrorDart = int Function();
 
@@ -80,14 +82,12 @@ final class NativeRuntime {
 
   static void _preloadWindowsLibrary(String absolutePath) {
     final kernel32 = DynamicLibrary.open('kernel32.dll');
-    final loadLibraryEx = kernel32.lookupFunction<
-      _LoadLibraryExWNative,
-      _LoadLibraryExWDart
-    >('LoadLibraryExW');
-    final getLastError = kernel32.lookupFunction<
-      _GetLastErrorNative,
-      _GetLastErrorDart
-    >('GetLastError');
+    final loadLibraryEx = kernel32
+        .lookupFunction<_LoadLibraryExWNative, _LoadLibraryExWDart>(
+          'LoadLibraryExW',
+        );
+    final getLastError = kernel32
+        .lookupFunction<_GetLastErrorNative, _GetLastErrorDart>('GetLastError');
 
     final nativePath = absolutePath.toNativeUtf16();
     try {
