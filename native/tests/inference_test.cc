@@ -17,6 +17,24 @@ bool Close(float actual, float expected, float tolerance = 1e-5f) {
   return std::fabs(actual - expected) <= tolerance;
 }
 
+std::string ReadEnvironment(const char* name) {
+  if (name == nullptr) return {};
+#if defined(_WIN32)
+  char* value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
+    std::free(value);
+    return {};
+  }
+  std::string result(value, length > 0 ? length - 1 : 0);
+  std::free(value);
+  return result;
+#else
+  const char* value = std::getenv(name);
+  return value == nullptr ? std::string() : std::string(value);
+#endif
+}
+
 std::string ReadName(ts_status_t (*function)(ts_onnx_session_t,
                                               size_t,
                                               char*,
@@ -65,8 +83,8 @@ bool RunReference(ts_onnx_session_t session,
 }  // namespace
 
 int main() {
-  const char* model_path = std::getenv("TENSORA_ONNX_TEST_MODEL");
-  if (model_path == nullptr || std::strlen(model_path) == 0) return 1;
+  const std::string model_path = ReadEnvironment("TENSORA_ONNX_TEST_MODEL");
+  if (model_path.empty()) return 1;
 
   uint8_t available = 0;
   if (!Check(ts_onnx_available(&available)) || available != 1) return 2;
@@ -106,7 +124,7 @@ int main() {
   if (!Check(ts_runtime_live_tensor_count(&baseline_tensors))) return 12;
 
   ts_onnx_session_t session = 0;
-  if (!Check(ts_onnx_session_create(model_path, 0, nullptr, &session)) ||
+  if (!Check(ts_onnx_session_create(model_path.c_str(), 0, nullptr, &session)) ||
       session == 0)
     return 13;
   size_t input_count = 0;
@@ -197,7 +215,7 @@ int main() {
   const std::filesystem::path profile_prefix =
       std::filesystem::temp_directory_path() / "tensora-ort-profile";
   ts_onnx_session_t profiling_session = 0;
-  if (!Check(ts_onnx_session_create(model_path, 1,
+  if (!Check(ts_onnx_session_create(model_path.c_str(), 1,
                                     profile_prefix.string().c_str(),
                                     &profiling_session)))
     return 33;
