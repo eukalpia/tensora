@@ -117,6 +117,16 @@ if(MSVC)
   target_compile_options(tensora_native PRIVATE /W4 /WX /permissive-)
   if(TENSORA_WITH_TORCH)
     target_compile_options(tensora_native PRIVATE /external:anglebrackets /external:W0)
+    # PyTorch 2.13 instantiates several size_t-to-int conversions inside its
+    # own headers under MSVC 19.51. Keep /WX for Tensora while suppressing only
+    # C4267 in translation units that must include the upstream LibTorch API.
+    set_source_files_properties(
+      src/runtime/dispatcher.cc
+      src/training/torch_backend.cc
+      src/training/torch_storage.cc
+      src/training/training_bridge_torch.cc
+      PROPERTIES COMPILE_OPTIONS "/wd4267"
+    )
   endif()
 else()
   target_compile_options(tensora_native PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -234,7 +244,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_c_abi_tests PRIVATE /W4 /WX)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE /W4 /WX /permissive-)
-      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0)
+      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0 /wd4267)
     endif()
     if(TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_tests PRIVATE /W4 /WX /permissive-)
