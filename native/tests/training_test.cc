@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -174,7 +175,10 @@ int TestTrainingAndCheckpoint() {
   if (!Check(ts_tensor_release(parameter), "release trained parameter"))
     return 63;
 
-  const std::string path = "/tmp/tensora-training-checkpoint.pt";
+  const std::string path =
+      (std::filesystem::temp_directory_path() /
+       "tensora-training-checkpoint.pt")
+          .string();
   if (!Check(ts_module_save(module, path.c_str()), "module_save")) return 64;
 
   ts_tensor_t saved_output = 0;
