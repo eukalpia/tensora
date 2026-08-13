@@ -28,6 +28,50 @@ final class TensoraRuntime {
   static int deviceCount(Device device) =>
       NativeTrainingRuntime.instance.deviceCount(device);
 
+  /// Every device visible through Tensora's tensor/training backend.
+  ///
+  /// Accelerators are ordered by backend kind and device index, followed by
+  /// [Device.cpu]. The returned list is immutable and reflects the currently
+  /// loaded native runtime.
+  static List<Device> get availableDevices {
+    final devices = <Device>[];
+
+    final cudaCount = deviceCount(Device.cuda(0));
+    for (var index = 0; index < cudaCount; index++) {
+      devices.add(Device.cuda(index));
+    }
+
+    if (deviceCount(Device.mps) > 0) {
+      devices.add(Device.mps);
+    }
+
+    final xpuCount = deviceCount(Device.xpu(0));
+    for (var index = 0; index < xpuCount; index++) {
+      devices.add(Device.xpu(index));
+    }
+
+    final hipCount = deviceCount(Device.hip(0));
+    for (var index = 0; index < hipCount; index++) {
+      devices.add(Device.hip(index));
+    }
+
+    devices.add(Device.cpu);
+    return List<Device>.unmodifiable(devices);
+  }
+
+  /// Preferred tensor/training device for the currently loaded runtime.
+  ///
+  /// An available accelerator is preferred over CPU. Tensora never changes the
+  /// default device of tensor factories implicitly; callers opt into this value
+  /// explicitly when they want automatic accelerator selection.
+  static Device get preferredDevice {
+    final devices = availableDevices;
+    for (final device in devices) {
+      if (!device.isCpu) return device;
+    }
+    return Device.cpu;
+  }
+
   /// Number of visible NVIDIA CUDA devices reported by the training backend.
   static int get cudaDeviceCount => deviceCount(Device.cuda(0));
 
