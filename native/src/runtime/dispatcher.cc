@@ -19,6 +19,11 @@ const Backend* TorchBackendInstance() {
   static const training::TorchBackend backend;
   return &backend;
 }
+
+bool IsTorchAccelerator(Device device) {
+  return device == Device::kCuda || device == Device::kMps ||
+      device == Device::kXpu || device == Device::kHip;
+}
 #endif
 
 }  // namespace
@@ -35,7 +40,7 @@ Status Dispatcher::For(Device device, const Backend** out) {
   }
 
 #if defined(TENSORA_WITH_TORCH)
-  if (device == Device::kCuda) {
+  if (IsTorchAccelerator(device)) {
     *out = TorchBackendInstance();
     return Status::Ok();
   }
