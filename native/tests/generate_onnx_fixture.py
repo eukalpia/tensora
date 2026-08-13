@@ -39,12 +39,39 @@ def build_model() -> onnx.ModelProto:
     return model
 
 
+def build_no_input_model() -> onnx.ModelProto:
+    output_info = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1])
+    constant = numpy_helper.from_array(
+        np.asarray([1.0], dtype=np.float32), name="constant_value"
+    )
+
+    graph = helper.make_graph(
+        [helper.make_node("Constant", [], ["Y"], value=constant)],
+        "tensora_no_input_graph",
+        [],
+        [output_info],
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="tensora",
+        opset_imports=[helper.make_opsetid("", 18)],
+    )
+    model.ir_version = 10
+    onnx.checker.check_model(model)
+    return model
+
+
+def no_input_model_path(output: Path) -> Path:
+    return output.with_name(f"{output.stem}-no-input{output.suffix}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     onnx.save(build_model(), args.output)
+    onnx.save(build_no_input_model(), no_input_model_path(args.output))
 
 
 if __name__ == "__main__":
