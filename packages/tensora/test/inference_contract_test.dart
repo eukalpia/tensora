@@ -12,10 +12,7 @@ void main() {
     expect(OnnxExecutionProvider.auto.runtimeName, 'auto');
     expect(OnnxExecutionProvider.cpu.runtimeName, 'CPUExecutionProvider');
     expect(OnnxExecutionProvider.cuda.runtimeName, 'CUDAExecutionProvider');
-    expect(
-      OnnxExecutionProvider.directML.runtimeName,
-      'DmlExecutionProvider',
-    );
+    expect(OnnxExecutionProvider.directML.runtimeName, 'DmlExecutionProvider');
     expect(OnnxExecutionProvider.coreML.runtimeName, 'CoreMLExecutionProvider');
     expect(
       OnnxExecutionProvider.openVino.runtimeName,
@@ -38,10 +35,8 @@ void main() {
       throwsA(isA<UnsupportedOperationException>()),
     );
     expect(
-      () => OnnxSession(
-        '/tmp/model.onnx',
-        provider: OnnxExecutionProvider.cuda,
-      ),
+      () =>
+          OnnxSession('/tmp/model.onnx', provider: OnnxExecutionProvider.cuda),
       throwsA(isA<UnsupportedOperationException>()),
     );
     expect(OnnxRuntime.liveSessionCount, 0);
