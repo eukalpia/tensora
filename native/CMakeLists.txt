@@ -162,6 +162,7 @@ if(TENSORA_BUILD_TESTS)
     src/core/status.cc
     src/runtime/handle_registry.cc
   )
+  target_compile_features(tensora_handle_registry_tests PRIVATE cxx_std_20)
   target_include_directories(tensora_handle_registry_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
