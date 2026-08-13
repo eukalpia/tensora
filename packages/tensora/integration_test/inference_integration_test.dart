@@ -113,10 +113,37 @@ void main() {
     addTearDown(session.dispose);
     addTearDown(input.dispose);
 
-    expect(() => session.run({}), throwsA(isA<InvalidArgumentException>()));
     expect(
       () => session.run({'wrong': input}),
-      throwsA(isA<InvalidArgumentException>()),
+      throwsA(
+        isA<InvalidArgumentException>()
+            .having(
+              (error) => error.operation,
+              'operation',
+              'onnx.session.run',
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              'Unknown ONNX input "wrong".',
+            ),
+      ),
+    );
+    expect(
+      () => session.run({}),
+      throwsA(
+        isA<InvalidArgumentException>()
+            .having(
+              (error) => error.operation,
+              'operation',
+              'onnx.session.run',
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              'Missing ONNX input "X".',
+            ),
+      ),
     );
     expect(
       () => session.run({'X': input}, outputs: const []),
