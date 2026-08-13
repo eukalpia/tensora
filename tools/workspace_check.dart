@@ -59,7 +59,11 @@ void main() {
   }
 
   final rootPubspec = _asMap(
-    loadYaml(File('${root.path}${Platform.pathSeparator}pubspec.yaml').readAsStringSync()),
+    loadYaml(
+      File(
+        '${root.path}${Platform.pathSeparator}pubspec.yaml',
+      ).readAsStringSync(),
+    ),
     'root pubspec',
   );
   final workspace = rootPubspec['workspace'];
@@ -78,9 +82,15 @@ void main() {
   final graph = <String, Set<String>>{};
   for (final entry in _workspacePackages.entries) {
     final package = entry.key;
-    final directory = Directory('${root.path}${Platform.pathSeparator}${entry.value}');
+    final directory = Directory(
+      '${root.path}${Platform.pathSeparator}${entry.value}',
+    );
     final pubspec = _asMap(
-      loadYaml(File('${directory.path}${Platform.pathSeparator}pubspec.yaml').readAsStringSync()),
+      loadYaml(
+        File(
+          '${directory.path}${Platform.pathSeparator}pubspec.yaml',
+        ).readAsStringSync(),
+      ),
       '$package pubspec',
     );
 
