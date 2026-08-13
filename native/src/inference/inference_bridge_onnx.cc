@@ -124,6 +124,12 @@ void AppendProvider(Ort::SessionOptions* options, const std::string& provider) {
   }
 #if defined(TENSORA_WITH_ORT_DML)
   if (provider == kDmlProvider) {
+    // DirectML requires sequential execution and does not support ONNX
+    // Runtime's memory-pattern optimization. Apply those requirements before
+    // appending the provider so explicit DML sessions never depend on ambient
+    // defaults.
+    options->DisableMemPattern();
+    options->SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
     Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(*options, 0));
     return;
   }
@@ -338,7 +344,7 @@ Status ProviderName(size_t index, std::string* out_name) {
 }
 
 Status SessionCreate(const std::string& model_path,
-                     const std::string& requested_provider,
+                     const std::string& provider,
                      bool enable_profiling,
                      const std::string& profiling_prefix,
                      uint64_t* out_session) {
@@ -351,7 +357,7 @@ Status SessionCreate(const std::string& model_path,
   }
   try {
     auto state = std::make_shared<SessionState>(
-        model_path, requested_provider, enable_profiling, profiling_prefix);
+        model_path, provider, enable_profiling, profiling_prefix);
     return HandleRegistry::Instance().Insert(
         HandleType::kInferenceSession, std::move(state), out_session);
   } catch (const Ort::Exception& error) {
