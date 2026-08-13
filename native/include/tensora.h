@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define TS_ABI_VERSION 2u
+#define TS_ABI_VERSION 3u
 
 typedef uint64_t ts_tensor_t;
 typedef uint64_t ts_module_t;
@@ -45,7 +45,10 @@ enum {
 
 enum {
   TS_DEVICE_CPU = 1u,
-  TS_DEVICE_CUDA = 2u
+  TS_DEVICE_CUDA = 2u,
+  TS_DEVICE_MPS = 3u,
+  TS_DEVICE_XPU = 4u,
+  TS_DEVICE_HIP = 5u
 };
 
 /* ABI and error diagnostics. */
@@ -56,6 +59,8 @@ TS_API ts_status_t ts_noop(void);
 
 /* Runtime/device discovery. */
 TS_API ts_status_t ts_training_available(uint8_t* out_available);
+TS_API ts_status_t ts_runtime_device_count(uint32_t device,
+                                           uint32_t* out_count);
 TS_API ts_status_t ts_runtime_cuda_device_count(uint32_t* out_count);
 TS_API ts_status_t ts_manual_seed(uint64_t seed);
 TS_API ts_status_t ts_onnx_available(uint8_t* out_available);

@@ -16,6 +16,9 @@ enum class DType : uint32_t {
 enum class Device : uint32_t {
   kCpu = TS_DEVICE_CPU,
   kCuda = TS_DEVICE_CUDA,
+  kMps = TS_DEVICE_MPS,
+  kXpu = TS_DEVICE_XPU,
+  kHip = TS_DEVICE_HIP,
 };
 
 class Tensor {

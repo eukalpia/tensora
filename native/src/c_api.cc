@@ -78,6 +78,15 @@ Status DeviceFromCode(uint32_t code, Device* out_device) {
     case TS_DEVICE_CUDA:
       *out_device = Device::kCuda;
       return Status::Ok();
+    case TS_DEVICE_MPS:
+      *out_device = Device::kMps;
+      return Status::Ok();
+    case TS_DEVICE_XPU:
+      *out_device = Device::kXpu;
+      return Status::Ok();
+    case TS_DEVICE_HIP:
+      *out_device = Device::kHip;
+      return Status::Ok();
     default:
       return Unsupported("device: unknown device kind");
   }
@@ -149,10 +158,31 @@ ts_status_t ts_noop(void) {
   return tensora::GuardedAbiCall("noop", [] { return tensora::Status::Ok(); });
 }
 
-ts_status_t ts_runtime_cuda_device_count(uint32_t* out_count) {
-  return tensora::GuardedAbiCall("runtime_cuda_device_count", [&] {
-    return tensora::training::CudaDeviceCount(out_count);
+ts_status_t ts_runtime_device_count(uint32_t device, uint32_t* out_count) {
+  return tensora::GuardedAbiCall("runtime_device_count", [&] {
+    if (out_count == nullptr) {
+      return tensora::InvalidArgument(
+          "runtime_device_count: output pointer is null");
+    }
+    *out_count = 0;
+    switch (device) {
+      case TS_DEVICE_CPU:
+        *out_count = 1;
+        return tensora::Status::Ok();
+      case TS_DEVICE_CUDA:
+        return tensora::training::CudaDeviceCount(out_count);
+      case TS_DEVICE_MPS:
+      case TS_DEVICE_XPU:
+      case TS_DEVICE_HIP:
+        return tensora::Status::Ok();
+      default:
+        return tensora::Unsupported("runtime_device_count: unknown device kind");
+    }
   });
+}
+
+ts_status_t ts_runtime_cuda_device_count(uint32_t* out_count) {
+  return ts_runtime_device_count(TS_DEVICE_CUDA, out_count);
 }
 
 ts_status_t ts_tensor_from_f32(const float* data,

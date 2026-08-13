@@ -21,7 +21,7 @@ final class NativeRuntime {
     }
   }
 
-  static const int expectedAbiVersion = 2;
+  static const int expectedAbiVersion = 3;
 
   static NativeRuntime? _instance;
 
@@ -91,7 +91,7 @@ final class NativeRuntime {
     'tensor.to',
     (out) => _bindings.tensorToDevice(
       handle,
-      device.isCpu ? 1 : 2,
+      _deviceCode(device),
       device.index,
       out,
     ),
@@ -230,6 +230,24 @@ final class NativeRuntime {
             'Native CUDA tensor returned invalid device index ${index.value}.',
             operation: 'tensor.device',
           ),
+        3 when index.value == 0 => Device.mps,
+        3 =>
+          throw NativeRuntimeException(
+            'Native MPS tensor returned invalid device index ${index.value}.',
+            operation: 'tensor.device',
+          ),
+        4 when index.value >= 0 => Device.xpu(index.value),
+        4 =>
+          throw NativeRuntimeException(
+            'Native XPU tensor returned invalid device index ${index.value}.',
+            operation: 'tensor.device',
+          ),
+        5 when index.value >= 0 => Device.hip(index.value),
+        5 =>
+          throw NativeRuntimeException(
+            'Native HIP tensor returned invalid device index ${index.value}.',
+            operation: 'tensor.device',
+          ),
         final code =>
           throw NativeRuntimeException(
             'Native runtime returned unknown device code $code.',
@@ -252,18 +270,20 @@ final class NativeRuntime {
     }
   }
 
-  int cudaDeviceCount() {
+  int deviceCount(Device device) {
     final value = calloc<Uint32>();
     try {
       _check(
-        _bindings.runtimeCudaDeviceCount(value),
-        'runtime.cudaDeviceCount',
+        _bindings.runtimeDeviceCount(_deviceCode(device), value),
+        'runtime.deviceCount',
       );
       return value.value;
     } finally {
       calloc.free(value);
     }
   }
+
+  int cudaDeviceCount() => deviceCount(Device.cuda(0));
 
   List<double> copyToHost(int handle, int numel) {
     final values = calloc<Float>(numel);
@@ -327,6 +347,15 @@ final class NativeRuntime {
     } finally {
       calloc.free(value);
     }
+  }
+
+  static int _deviceCode(Device device) {
+    if (device.isCpu) return 1;
+    if (device.isCuda) return 2;
+    if (device.isMps) return 3;
+    if (device.isXpu) return 4;
+    if (device.isHip) return 5;
+    throw UnsupportedError('Unknown Tensora device $device.');
   }
 
   int _newHandle(String operation, int Function(Pointer<Uint64> out) call) {

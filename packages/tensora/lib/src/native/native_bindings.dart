@@ -67,6 +67,9 @@ typedef _RuntimeCounterDart = int Function(Pointer<Uint64>);
 typedef _RuntimeUint32Native = Int32 Function(Pointer<Uint32>);
 typedef _RuntimeUint32Dart = int Function(Pointer<Uint32>);
 
+typedef _RuntimeDeviceCountNative = Int32 Function(Uint32, Pointer<Uint32>);
+typedef _RuntimeDeviceCountDart = int Function(int, Pointer<Uint32>);
+
 final class NativeBindings {
   NativeBindings(DynamicLibrary library)
     : abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -77,6 +80,10 @@ final class NativeBindings {
             'ts_last_error_message',
           ),
       noop = library.lookupFunction<_NoopNative, _NoopDart>('ts_noop'),
+      runtimeDeviceCount = library
+          .lookupFunction<_RuntimeDeviceCountNative, _RuntimeDeviceCountDart>(
+            'ts_runtime_device_count',
+          ),
       runtimeCudaDeviceCount = library
           .lookupFunction<_RuntimeUint32Native, _RuntimeUint32Dart>(
             'ts_runtime_cuda_device_count',
@@ -163,6 +170,7 @@ final class NativeBindings {
   final _AbiVersionDart abiVersion;
   final _LastErrorDart lastErrorMessage;
   final _NoopDart noop;
+  final _RuntimeDeviceCountDart runtimeDeviceCount;
   final _RuntimeUint32Dart runtimeCudaDeviceCount;
   final _TensorFromF32Dart tensorFromF32;
   final _TensorFullF32Dart tensorFullF32;
