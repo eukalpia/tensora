@@ -35,6 +35,7 @@ Status ProviderName(size_t, std::string* out_name) {
 }
 
 Status SessionCreate(const std::string&,
+                     const std::string&,
                      bool,
                      const std::string&,
                      uint64_t* out_session) {
@@ -43,6 +44,14 @@ Status SessionCreate(const std::string&,
   }
   *out_session = 0;
   return Disabled("onnx_session_create");
+}
+
+Status SessionProvider(uint64_t, std::string* out_provider) {
+  if (out_provider == nullptr) {
+    return InvalidArgument("onnx_session_provider: output string pointer is null");
+  }
+  out_provider->clear();
+  return Disabled("onnx_session_provider");
 }
 
 Status SessionInputCount(uint64_t, size_t* out_count) {
