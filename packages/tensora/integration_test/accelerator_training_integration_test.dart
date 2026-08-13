@@ -11,9 +11,10 @@ Device _targetDevice() {
     'mps' => Device.mps,
     'xpu' => Device.xpu(0),
     'hip' => Device.hip(0),
-    _ => throw StateError(
-      'TENSORA_TEST_DEVICE must be one of: cuda, mps, xpu, hip.',
-    ),
+    _ =>
+      throw StateError(
+        'TENSORA_TEST_DEVICE must be one of: cuda, mps, xpu, hip.',
+      ),
   };
 }
 
