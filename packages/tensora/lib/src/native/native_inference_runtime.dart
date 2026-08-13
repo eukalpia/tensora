@@ -44,7 +44,7 @@ final class NativeInferenceRuntime {
 
   int createSession(
     String modelPath, {
-    required String providerName,
+    String providerName = 'auto',
     required bool enableProfiling,
     String? profilingPrefix,
   }) {
@@ -92,12 +92,7 @@ final class NativeInferenceRuntime {
     final required = calloc<Size>();
     try {
       _check(
-        _bindings.sessionProvider(
-          session,
-          nullptr.cast<Utf8>(),
-          0,
-          required,
-        ),
+        _bindings.sessionProvider(session, nullptr.cast<Utf8>(), 0, required),
         'onnx.session.provider',
       );
       return _readSizedUtf8(
