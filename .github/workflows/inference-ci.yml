@@ -240,7 +240,6 @@ jobs:
           Expand-Archive -Path $archive -DestinationPath build -Force
           $ortRoot = Join-Path $env:GITHUB_WORKSPACE "build\onnxruntime-win-x64-$env:ORT_VERSION"
           "ORT_ROOT=$ortRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          (Join-Path $ortRoot 'lib') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Configure inference-enabled runtime
         shell: powershell
@@ -253,6 +252,15 @@ jobs:
 
       - name: Build inference-enabled runtime
         run: cmake --build build/inference --config Release --parallel 2
+
+      - name: Stage pinned ONNX Runtime DLLs
+        shell: powershell
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'build\inference\Release'
+          Copy-Item (Join-Path $env:ORT_ROOT 'lib\*.dll') $releaseDir -Force
+          $runtimeDll = Join-Path $releaseDir 'onnxruntime.dll'
+          if (-not (Test-Path $runtimeDll)) { throw "Pinned onnxruntime.dll was not staged" }
+          Get-Item $runtimeDll | Format-List FullName,Length,VersionInfo
 
       - name: Run native inference acceptance suite
         run: ctest --test-dir build/inference --build-config Release --output-on-failure
