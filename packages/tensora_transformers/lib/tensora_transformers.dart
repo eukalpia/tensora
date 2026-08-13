@@ -11,7 +11,11 @@ final class GenerationConfig {
     Iterable<int> stopTokenIds = const <int>[],
   }) : stopTokenIds = Set<int>.unmodifiable(stopTokenIds) {
     if (maxNewTokens <= 0) {
-      throw ArgumentError.value(maxNewTokens, 'maxNewTokens', 'must be positive');
+      throw ArgumentError.value(
+        maxNewTokens,
+        'maxNewTokens',
+        'must be positive',
+      );
     }
     if (!temperature.isFinite || temperature < 0) {
       throw ArgumentError.value(
