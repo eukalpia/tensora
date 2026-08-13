@@ -1,0 +1,10 @@
+name: tensora_data
+description: Deterministic dataset and batching primitives for Tensora.
+version: 0.1.0-dev.1
+repository: https://github.com/eukalpia/tensora
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+dev_dependencies:
+  test: ^1.27.0
