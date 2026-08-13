@@ -26,14 +26,17 @@ final class Tensor {
     _tensorFinalizer.attach(this, _handle, detach: this);
   }
 
-  /// Copies host values once into Tensora-owned native storage.
+  /// Copies host values into Tensora-owned storage on [device].
+  ///
+  /// Accelerator imports are staged through CPU storage and the staging handle
+  /// is deterministically released before this factory returns.
   factory Tensor.fromList(
     List<num> values, {
     required Shape shape,
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype: dtype, device: device, operation: 'fromList');
+    _validateCreation(dtype: dtype, operation: 'fromList');
     if (values.length != shape.numel) {
       throw InvalidShapeException(
         'Input contains ${values.length} values, but $shape requires '
@@ -42,34 +45,34 @@ final class Tensor {
       );
     }
 
-    final handle = NativeRuntime.instance.createFromList(values, shape);
-    return _adopt(handle);
+    final hostHandle = NativeRuntime.instance.createFromList(values, shape);
+    return _adoptCreatedHandle(hostHandle, device);
   }
 
-  /// Creates a native float32 tensor initialized to zero.
+  /// Creates a native float32 tensor initialized to zero on [device].
   factory Tensor.zeros(
     Shape shape, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) => Tensor.full(shape, 0, dtype: dtype, device: device);
 
-  /// Creates a native float32 tensor initialized to one.
+  /// Creates a native float32 tensor initialized to one on [device].
   factory Tensor.ones(
     Shape shape, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) => Tensor.full(shape, 1, dtype: dtype, device: device);
 
-  /// Creates a native float32 tensor filled with [value].
+  /// Creates a native float32 tensor filled with [value] on [device].
   factory Tensor.full(
     Shape shape,
     num value, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype: dtype, device: device, operation: 'full');
-    final handle = NativeRuntime.instance.full(shape, value.toDouble());
-    return _adopt(handle);
+    _validateCreation(dtype: dtype, operation: 'full');
+    final hostHandle = NativeRuntime.instance.full(shape, value.toDouble());
+    return _adoptCreatedHandle(hostHandle, device);
   }
 
   int _handle;
@@ -213,6 +216,18 @@ final class Tensor {
     return _handle;
   }
 
+  static Tensor _adoptCreatedHandle(int hostHandle, Device target) {
+    if (target.isCpu) return _adopt(hostHandle);
+
+    final runtime = NativeRuntime.instance;
+    try {
+      final targetHandle = runtime.toDevice(hostHandle, target);
+      return _adopt(targetHandle);
+    } finally {
+      runtime.release(hostHandle);
+    }
+  }
+
   static Tensor _adopt(int handle) {
     final runtime = NativeRuntime.instance;
     try {
@@ -236,18 +251,11 @@ final class Tensor {
 
   static void _validateCreation({
     required DType dtype,
-    required Device device,
     required String operation,
   }) {
     if (dtype != DType.float32) {
       throw UnsupportedOperationException(
         'Tensor creation currently supports only DType.float32.',
-        operation: 'tensor.$operation',
-      );
-    }
-    if (device != Device.cpu) {
-      throw UnsupportedOperationException(
-        'Create host tensors on Device.cpu and transfer them explicitly.',
         operation: 'tensor.$operation',
       );
     }
