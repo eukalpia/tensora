@@ -98,6 +98,9 @@ target_include_directories(tensora_native
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+if(TENSORA_WITH_TORCH)
+  target_include_directories(tensora_native SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
+endif()
 if(TENSORA_WITH_ONNXRUNTIME)
   target_include_directories(tensora_native PRIVATE ${TENSORA_ONNXRUNTIME_INCLUDE_DIR})
 endif()
@@ -112,6 +115,9 @@ endif()
 
 if(MSVC)
   target_compile_options(tensora_native PRIVATE /W4 /WX /permissive-)
+  if(TENSORA_WITH_TORCH)
+    target_compile_options(tensora_native PRIVATE /external:W0)
+  endif()
 else()
   target_compile_options(tensora_native PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
@@ -206,6 +212,7 @@ if(TENSORA_BUILD_TESTS)
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
+    target_include_directories(tensora_training_device_tests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
     target_link_libraries(tensora_training_device_tests PRIVATE
       tensora_native
       ${TORCH_LIBRARIES}
@@ -227,7 +234,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_c_abi_tests PRIVATE /W4 /WX)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE /W4 /WX /permissive-)
-      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive-)
+      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive- /external:W0)
     endif()
     if(TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_tests PRIVATE /W4 /WX /permissive-)
