@@ -29,6 +29,15 @@ void _expectValues(
   }
 }
 
+Tensor _transferFromHost(List<num> values, Shape shape, Device device) {
+  final host = Tensor.fromList(values, shape: shape);
+  try {
+    return host.to(device);
+  } finally {
+    host.dispose();
+  }
+}
+
 void main() {
   test('selected accelerator executes tensor ops and a real training step', () {
     final device = _targetDevice();
@@ -45,27 +54,29 @@ void main() {
       reason: '$device must be visible to the loaded training runtime',
     );
 
-    Tensor? left;
-    Tensor? right;
-    Tensor? product;
-    Tensor? input;
-    Tensor? target;
-    Linear? module;
-    SGD? optimizer;
+    TensoraRuntime.manualSeed(20260813);
 
+    final left = _transferFromHost([1, 2, 3, 4], Shape([2, 2]), device);
+    final right = _transferFromHost([5, 6, 7, 8], Shape([2, 2]), device);
+    final product = left.matmul(right);
     try {
-      TensoraRuntime.manualSeed(20260813);
-
-      left = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2])).to(device);
-      right = Tensor.fromList([5, 6, 7, 8], shape: Shape([2, 2])).to(device);
-      product = left.matmul(right);
-
       expect(left.device, device);
       expect(right.device, device);
       expect(product.device, device);
       _expectValues(product.toList(), [19, 22, 43, 50]);
+    } finally {
+      product.dispose();
+      right.dispose();
+      left.dispose();
+    }
+    expect(runtime.liveTensorCount(), baselineTensors);
+    expect(runtime.liveStorageBytes(), baselineStorage);
 
-      module = Linear(1, 1);
+    final module = Linear(1, 1);
+    SGD? optimizer;
+    Tensor? input;
+    Tensor? target;
+    try {
       module.to(device);
       module.train();
 
@@ -84,13 +95,23 @@ void main() {
           parameter.dispose();
         }
       }
+      expect(runtime.liveTensorCount(), baselineTensors);
+      expect(
+        runtime.liveStorageBytes(),
+        baselineStorage,
+        reason: 'disposed parameter views must release every Tensora wrapper',
+      );
 
       optimizer = SGD(module, learningRate: 0.05);
-      input = Tensor.fromList([-2, -1, 1, 2], shape: Shape([4, 1])).to(device);
-      target = Tensor.fromList([-3, -1, 3, 5], shape: Shape([4, 1])).to(device);
+      input = _transferFromHost([-2, -1, 1, 2], Shape([4, 1]), device);
+      target = _transferFromHost([-3, -1, 3, 5], Shape([4, 1]), device);
 
       expect(input.device, device);
       expect(target.device, device);
+      final persistentTrainingBytes =
+          baselineStorage + (input.numel + target.numel) * 4;
+      expect(runtime.liveTensorCount(), baselineTensors + 2);
+      expect(runtime.liveStorageBytes(), persistentTrainingBytes);
 
       double? firstLoss;
       var lastLoss = double.infinity;
@@ -119,6 +140,14 @@ void main() {
           loss.dispose();
           prediction.dispose();
         }
+        if (step == 0 || step == 119) {
+          expect(runtime.liveTensorCount(), baselineTensors + 2);
+          expect(
+            runtime.liveStorageBytes(),
+            persistentTrainingBytes,
+            reason: 'training temporaries must not survive a completed step',
+          );
+        }
       }
 
       expect(firstLoss, isNotNull);
@@ -136,14 +165,17 @@ void main() {
       } finally {
         finalPrediction.dispose();
       }
+      expect(runtime.liveTensorCount(), baselineTensors + 2);
+      expect(
+        runtime.liveStorageBytes(),
+        persistentTrainingBytes,
+        reason: 'disposing the final prediction must release its wrapper',
+      );
     } finally {
       optimizer?.dispose();
-      module?.dispose();
       target?.dispose();
       input?.dispose();
-      product?.dispose();
-      right?.dispose();
-      left?.dispose();
+      module.dispose();
     }
 
     expect(TensoraRuntime.liveOptimizerCount, baselineOptimizers);
