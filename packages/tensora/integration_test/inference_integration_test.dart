@@ -117,11 +117,7 @@ void main() {
       () => session.run({'wrong': input}),
       throwsA(
         isA<InvalidArgumentException>()
-            .having(
-              (error) => error.operation,
-              'operation',
-              'onnx.session.run',
-            )
+            .having((error) => error.operation, 'operation', 'onnx.session.run')
             .having(
               (error) => error.message,
               'message',
@@ -133,11 +129,7 @@ void main() {
       () => session.run({}),
       throwsA(
         isA<InvalidArgumentException>()
-            .having(
-              (error) => error.operation,
-              'operation',
-              'onnx.session.run',
-            )
+            .having((error) => error.operation, 'operation', 'onnx.session.run')
             .having(
               (error) => error.message,
               'message',
