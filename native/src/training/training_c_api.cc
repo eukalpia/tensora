@@ -6,6 +6,7 @@
 #include <string>
 
 #include "core/status.h"
+#include "runtime/device_codec.h"
 #include "runtime/handle_registry.h"
 #include "tensor/tensor.h"
 #include "training/training_bridge.h"
@@ -57,22 +58,6 @@ Status InsertTrainingTensor(std::shared_ptr<Tensor> tensor,
   *out_handle = 0;
   return HandleRegistry::Instance().Insert(
       HandleType::kTensor, std::move(tensor), out_handle);
-}
-
-Status TrainingDeviceFromCode(uint32_t code, Device* out_device) {
-  if (out_device == nullptr) {
-    return InvalidArgument("training device: output pointer is null");
-  }
-  switch (code) {
-    case TS_DEVICE_CPU:
-      *out_device = Device::kCpu;
-      return Status::Ok();
-    case TS_DEVICE_CUDA:
-      *out_device = Device::kCuda;
-      return Status::Ok();
-    default:
-      return Unsupported("training device: unknown device kind");
-  }
 }
 
 template <typename Unary>
@@ -286,8 +271,7 @@ ts_status_t ts_module_to_device(ts_module_t module,
                                 int32_t device_index) {
   return tensora::GuardedTrainingAbiCall("module_to_device", [&] {
     tensora::Device target = tensora::Device::kCpu;
-    tensora::Status status =
-        tensora::TrainingDeviceFromCode(device, &target);
+    tensora::Status status = tensora::DeviceFromCode(device, &target);
     if (!status.ok()) return status;
     return tensora::training::ModuleToDevice(module, target, device_index);
   });
