@@ -25,7 +25,7 @@ final class Batch<T> {
   Batch({required this.startIndex, required Iterable<T> values})
     : values = List<T>.unmodifiable(values) {
     if (startIndex < 0) {
-      throw ArgumentError.value(startIndex, 'startIndex', 'must be non-negative');
+      throw ArgumentError.value(startIndex, 'startIndex', 'negative');
     }
     if (this.values.isEmpty) {
       throw ArgumentError.value(values, 'values', 'must not be empty');
