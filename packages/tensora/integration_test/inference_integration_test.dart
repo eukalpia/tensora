@@ -16,6 +16,10 @@ void expectValues(
 
 void main() {
   final modelPath = Platform.environment['TENSORA_ONNX_TEST_MODEL'];
+  final noInputModelPath = modelPath?.replaceFirst(
+    RegExp(r'\.onnx$'),
+    '-no-input.onnx',
+  );
 
   test('ONNX runtime reports its portable CPU provider', () {
     expect(OnnxRuntime.available, isTrue);
@@ -62,6 +66,29 @@ void main() {
       () => OnnxSession('/definitely/missing/tensora-model.onnx'),
       throwsA(isA<ModelRuntimeException>()),
     );
+  });
+
+  test('models without inputs fail without leaking session handles', () {
+    expect(noInputModelPath, isNotNull);
+    final baseline = OnnxRuntime.liveSessionCount;
+
+    expect(
+      () => OnnxSession(noInputModelPath!),
+      throwsA(
+        isA<ModelRuntimeException>()
+            .having(
+              (error) => error.operation,
+              'operation',
+              'onnx.session.create',
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              'ONNX model exposes no inputs.',
+            ),
+      ),
+    );
+    expect(OnnxRuntime.liveSessionCount, baseline);
   });
 
   test('session exposes immutable model metadata and reference output', () {
