@@ -41,6 +41,11 @@ void main() {
       expectValues(full.toList(), [2.5, 2.5, 2.5, 2.5, 2.5, 2.5]);
     });
 
+    test('runtime exposes available devices and a deterministic preference', () {
+      expect(TensoraRuntime.availableDevices, [Device.cpu]);
+      expect(TensoraRuntime.preferredDevice, Device.cpu);
+    });
+
     test('CPU transfer returns an independent tensor with stable metadata', () {
       final input = Tensor.fromList([1, 2, 3, 4], shape: Shape([2, 2]));
       final copied = input.to(Device.cpu);
@@ -66,15 +71,19 @@ void main() {
       );
     });
 
-    test(
-      'creation requires explicit CPU host import before device transfer',
-      () {
-        expect(
-          () => Tensor.ones(Shape([1]), device: Device.cuda(0)),
-          throwsA(isA<UnsupportedOperationException>()),
-        );
-      },
-    );
+    test('failed accelerator creation releases all host staging memory', () {
+      final runtime = NativeRuntime.instance;
+      final baselineTensors = runtime.liveTensorCount();
+      final baselineStorage = runtime.liveStorageBytes();
+
+      expect(
+        () => Tensor.ones(Shape([1]), device: Device.cuda(0)),
+        throwsA(isA<UnsupportedOperationException>()),
+      );
+
+      expect(runtime.liveTensorCount(), baselineTensors);
+      expect(runtime.liveStorageBytes(), baselineStorage);
+    });
 
     test('reshape preserves values and element count', () {
       final input = Tensor.fromList([1, 2, 3, 4, 5, 6], shape: Shape([2, 3]));
