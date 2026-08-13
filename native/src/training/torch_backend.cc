@@ -1,12 +1,17 @@
 #include "training/torch_backend.h"
 
+#include <limits>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <ATen/DeviceAccelerator.h>
+
 #include "training/torch_storage.h"
+#include "training/training_bridge.h"
 
 namespace tensora::training {
 namespace {
@@ -22,7 +27,88 @@ Status EnsureFloat32(const Tensor& tensor, const char* operation) {
   return Status::Ok();
 }
 
+bool MatchesAccelerator(Device device, c10::DeviceType accelerator) {
+  switch (device) {
+    case Device::kCuda:
+      return accelerator == c10::DeviceType::CUDA;
+    case Device::kMps:
+      return accelerator == c10::DeviceType::MPS;
+    case Device::kXpu:
+      return accelerator == c10::DeviceType::XPU;
+    case Device::kHip:
+      return accelerator == c10::DeviceType::HIP;
+    case Device::kCpu:
+      return false;
+  }
+  return false;
+}
+
+Status AcceleratorType(Device device, c10::DeviceType* out) {
+  if (out == nullptr) {
+    return InvalidArgument("torch device: accelerator output pointer is null");
+  }
+
+  try {
+    const std::optional<c10::DeviceType> accelerator =
+        at::accelerator::getAccelerator(false);
+    if (!accelerator.has_value() ||
+        !MatchesAccelerator(device, *accelerator)) {
+      return Unsupported("torch device: requested accelerator is not available");
+    }
+    *out = *accelerator;
+    return Status::Ok();
+  } catch (const c10::Error& error) {
+    return TorchFailure("torch accelerator discovery", error);
+  }
+}
+
+Status DeviceIndex(const torch::Tensor& value, int32_t* out_index) {
+  if (out_index == nullptr) {
+    return InvalidArgument("wrap torch tensor: device index output is null");
+  }
+  const c10::DeviceIndex index = value.device().index();
+  if (index < 0) {
+    return InternalError("wrap torch tensor: accelerator has no device index");
+  }
+  *out_index = static_cast<int32_t>(index);
+  return Status::Ok();
+}
+
 }  // namespace
+
+Status DeviceCount(Device device, uint32_t* out_count) {
+  if (out_count == nullptr) {
+    return InvalidArgument("device_count: output pointer is null");
+  }
+  *out_count = 0;
+
+  if (device == Device::kCpu) {
+    *out_count = 1;
+    return Status::Ok();
+  }
+
+  try {
+    const std::optional<c10::DeviceType> accelerator =
+        at::accelerator::getAccelerator(false);
+    if (!accelerator.has_value() ||
+        !MatchesAccelerator(device, *accelerator)) {
+      return Status::Ok();
+    }
+
+    const c10::DeviceIndex count = at::accelerator::deviceCount();
+    if (count < 0) {
+      return InternalError("device_count: accelerator returned a negative count");
+    }
+    if (static_cast<uint64_t>(count) >
+        std::numeric_limits<uint32_t>::max()) {
+      return InternalError("device_count: accelerator count exceeds ABI range");
+    }
+    *out_count = static_cast<uint32_t>(count);
+    return Status::Ok();
+  } catch (const c10::Error& error) {
+    return TorchFailure("device_count", error);
+  }
+}
 
 Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
   if (out == nullptr) {
@@ -35,24 +121,46 @@ Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
     *out = torch::Device(torch::kCPU);
     return Status::Ok();
   }
-  if (device != Device::kCuda) {
-    return Unsupported("torch device: unknown device kind");
-  }
   if (device_index < 0) {
-    return InvalidArgument("torch device: CUDA device index cannot be negative");
+    return InvalidArgument("torch device: accelerator index cannot be negative");
+  }
+  if (device == Device::kMps && device_index != 0) {
+    return InvalidArgument("torch device: MPS device index must be zero");
   }
 
-  try {
-    const auto count = torch::cuda::device_count();
-    if (!torch::cuda::is_available() ||
-        static_cast<int64_t>(device_index) >= count) {
-      return Unsupported("torch device: requested CUDA device is not available");
-    }
-    *out = torch::Device(torch::kCUDA, device_index);
-    return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch device discovery", error);
+  uint32_t count = 0;
+  Status status = DeviceCount(device, &count);
+  if (!status.ok()) return status;
+  if (static_cast<uint32_t>(device_index) >= count) {
+    return Unsupported("torch device: requested accelerator is not available");
   }
+
+  c10::DeviceType accelerator = c10::DeviceType::CPU;
+  status = AcceleratorType(device, &accelerator);
+  if (!status.ok()) return status;
+
+  switch (device) {
+    case Device::kCuda:
+      *out = torch::Device(c10::DeviceType::CUDA, device_index);
+      return Status::Ok();
+    case Device::kMps:
+      *out = torch::Device(c10::DeviceType::MPS);
+      return Status::Ok();
+    case Device::kXpu:
+      *out = torch::Device(c10::DeviceType::XPU, device_index);
+      return Status::Ok();
+    case Device::kHip:
+      if (accelerator != c10::DeviceType::HIP) {
+        return Unsupported("torch device: HIP accelerator is not available");
+      }
+      // ROCm PyTorch intentionally exposes tensors through CUDA device
+      // semantics even though accelerator discovery identifies the HIP build.
+      *out = torch::Device(c10::DeviceType::CUDA, device_index);
+      return Status::Ok();
+    case Device::kCpu:
+      break;
+  }
+  return Unsupported("torch device: unknown device kind");
 }
 
 Status TensorToTorch(const Tensor& tensor, torch::Tensor* out) {
@@ -113,10 +221,33 @@ Status WrapTorchTensor(torch::Tensor value, std::shared_ptr<Tensor>* out) {
 
   Device device = Device::kCpu;
   int32_t device_index = 0;
-  if (value.device().is_cuda()) {
-    device = Device::kCuda;
-    device_index = static_cast<int32_t>(value.device().index());
-  } else if (!value.device().is_cpu()) {
+  const c10::DeviceType type = value.device().type();
+  if (value.device().is_cpu()) {
+    device = Device::kCpu;
+  } else if (type == c10::DeviceType::MPS) {
+    device = Device::kMps;
+  } else if (type == c10::DeviceType::XPU) {
+    device = Device::kXpu;
+    status = DeviceIndex(value, &device_index);
+    if (!status.ok()) return status;
+  } else if (type == c10::DeviceType::HIP) {
+    device = Device::kHip;
+    status = DeviceIndex(value, &device_index);
+    if (!status.ok()) return status;
+  } else if (value.device().is_cuda()) {
+    try {
+      const std::optional<c10::DeviceType> accelerator =
+          at::accelerator::getAccelerator(false);
+      device = accelerator.has_value() &&
+               *accelerator == c10::DeviceType::HIP
+                   ? Device::kHip
+                   : Device::kCuda;
+    } catch (const c10::Error& error) {
+      return TorchFailure("wrap torch tensor accelerator discovery", error);
+    }
+    status = DeviceIndex(value, &device_index);
+    if (!status.ok()) return status;
+  } else {
     return Unsupported("wrap torch tensor: unsupported Torch device");
   }
 
