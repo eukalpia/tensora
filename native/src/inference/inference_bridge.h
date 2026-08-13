@@ -21,6 +21,13 @@ Status SessionCreate(const std::string& model_path,
                      bool enable_profiling,
                      const std::string& profiling_prefix,
                      uint64_t* out_session);
+inline Status SessionCreate(const std::string& model_path,
+                            bool enable_profiling,
+                            const std::string& profiling_prefix,
+                            uint64_t* out_session) {
+  return SessionCreate(
+      model_path, "auto", enable_profiling, profiling_prefix, out_session);
+}
 Status SessionProvider(uint64_t session, std::string* out_provider);
 Status SessionInputCount(uint64_t session, size_t* out_count);
 Status SessionOutputCount(uint64_t session, size_t* out_count);
