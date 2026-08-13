@@ -44,19 +44,29 @@ final class NativeInferenceRuntime {
 
   int createSession(
     String modelPath, {
+    required String providerName,
     required bool enableProfiling,
     String? profilingPrefix,
   }) {
     if (modelPath.trim().isEmpty) {
       throw ArgumentError.value(modelPath, 'modelPath', 'must not be empty');
     }
+    if (providerName.trim().isEmpty) {
+      throw ArgumentError.value(
+        providerName,
+        'providerName',
+        'must not be empty',
+      );
+    }
     final path = modelPath.toNativeUtf8();
+    final provider = providerName.toNativeUtf8();
     final prefix = profilingPrefix?.toNativeUtf8();
     final output = calloc<Uint64>();
     try {
       _check(
-        _bindings.sessionCreate(
+        _bindings.sessionCreateWithProvider(
           path,
+          provider,
           enableProfiling ? 1 : 0,
           prefix ?? nullptr.cast<Utf8>(),
           output,
@@ -73,7 +83,35 @@ final class NativeInferenceRuntime {
     } finally {
       if (prefix != null) calloc.free(prefix);
       calloc.free(output);
+      calloc.free(provider);
       calloc.free(path);
+    }
+  }
+
+  String sessionProvider(int session) {
+    final required = calloc<Size>();
+    try {
+      _check(
+        _bindings.sessionProvider(
+          session,
+          nullptr.cast<Utf8>(),
+          0,
+          required,
+        ),
+        'onnx.session.provider',
+      );
+      return _readSizedUtf8(
+        required.value,
+        (buffer, capacity, secondRequired) => _bindings.sessionProvider(
+          session,
+          buffer,
+          capacity,
+          secondRequired,
+        ),
+        'onnx.session.provider',
+      );
+    } finally {
+      calloc.free(required);
     }
   }
 
