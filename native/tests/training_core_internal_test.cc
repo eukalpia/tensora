@@ -12,6 +12,7 @@
 #include "autograd/autograd.h"
 #include "backends/cpu/cpu_backend.h"
 #include "core/status.h"
+#include "memory/tensor_storage.h"
 #include "tensor/shape.h"
 #include "tensor/tensor.h"
 #include "training/training_bridge.h"
@@ -53,6 +54,25 @@ std::shared_ptr<tensora::Tensor> MakeTensor(const std::vector<float>& values,
   CHECK_TRUE(tensor != nullptr);
   return tensor;
 }
+
+class FakeCpuStorage final : public tensora::TensorStorage {
+ public:
+  explicit FakeCpuStorage(uint64_t byte_size) : byte_size_(byte_size) {}
+
+  tensora::StorageKind kind() const override {
+    return tensora::StorageKind::kCpu;
+  }
+
+  tensora::Status CopyToHostF32(float*, size_t, size_t* out_written) const override {
+    if (out_written != nullptr) *out_written = 0;
+    return tensora::Status::Ok();
+  }
+
+  uint64_t byte_size() const override { return byte_size_; }
+
+ private:
+  uint64_t byte_size_;
+};
 
 void TestDirectArgumentContracts() {
   using namespace tensora;
@@ -288,6 +308,128 @@ void TestAutogradInternalContracts() {
   ClearGradient(*vector);
 }
 
+void TestAutogradReachableEdgeContracts() {
+  using namespace tensora;
+  using namespace tensora::autograd;
+
+  const auto vector = MakeTensor({1.0f, 2.0f}, {2});
+  Tensor cuda_like(vector->shape(), vector->storage(), DType::kFloat32,
+                   Device::kCuda, 0);
+  CHECK_STATUS(EnsureCpuFloat32(cuda_like, "autograd_edge"), TS_UNSUPPORTED);
+  Tensor bad_dtype(vector->shape(), vector->storage(), static_cast<DType>(999),
+                   Device::kCpu, 0);
+  CHECK_STATUS(EnsureCpuFloat32(bad_dtype, "autograd_edge"), TS_UNSUPPORTED);
+
+  const auto matrix = MakeTensor({1, 2, 3, 4, 5, 6}, {2, 3});
+  CpuBackend backend;
+  std::shared_ptr<Tensor> transposed;
+  CHECK_STATUS(backend.Transpose2D(*matrix, &transposed), TS_OK);
+  const std::vector<float>* const_values = nullptr;
+  std::vector<float>* mutable_values = nullptr;
+  CHECK_STATUS(CpuValues(*transposed, "autograd_edge", &const_values),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(MutableCpuValues(*transposed, "autograd_edge", &mutable_values),
+               TS_INVALID_ARGUMENT);
+
+  ShapeInfo one_shape;
+  const int64_t one_dim[1] = {1};
+  CHECK_STATUS(ValidateShape(one_dim, 1, &one_shape), TS_OK);
+  Tensor partial(one_shape, vector->storage());
+  CHECK_STATUS(CpuValues(partial, "autograd_edge", &const_values),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(MutableCpuValues(partial, "autograd_edge", &mutable_values),
+               TS_INVALID_ARGUMENT);
+
+  const auto fake_storage = std::make_shared<FakeCpuStorage>(one_shape.byte_size);
+  Tensor fake_tensor(one_shape, fake_storage);
+  CHECK_STATUS(CpuValues(fake_tensor, "autograd_edge", &const_values),
+               TS_UNSUPPORTED);
+  CHECK_STATUS(MutableCpuValues(fake_tensor, "autograd_edge", &mutable_values),
+               TS_UNSUPPORTED);
+
+  ShapeInfo corrupt_shape;
+  corrupt_shape.dimensions = {2};
+  corrupt_shape.strides = {1};
+  corrupt_shape.numel = 3;
+  corrupt_shape.byte_size = 3 * sizeof(float);
+  std::shared_ptr<Tensor> output;
+  CHECK_STATUS(MakeCpuTensor(corrupt_shape, {1, 2, 3}, &output),
+               TS_INTERNAL_ERROR);
+
+  std::shared_ptr<Tensor> left;
+  std::shared_ptr<Tensor> right;
+  CHECK_STATUS(CloneAsLeaf(*vector, true, &left), TS_OK);
+  const auto other = MakeTensor({3.0f, 4.0f}, {2});
+  CHECK_STATUS(CloneAsLeaf(*other, true, &right), TS_OK);
+  const auto upstream = MakeTensor({5.0f, 6.0f}, {2});
+  const auto scalar = MakeTensor({1.0f}, {});
+  std::vector<GradientContribution> contributions;
+
+  GradNode identity{Operation::kIdentity, {left}, {Version(*left)}};
+  CHECK_STATUS(ApplyNode(identity, *upstream, &contributions), TS_OK);
+  CHECK_TRUE(contributions.size() == 1);
+
+  GradNode multiply{Operation::kMultiply,
+                    {left, right},
+                    {Version(*left), Version(*right)}};
+  CHECK_STATUS(ApplyNode(multiply, *scalar, &contributions), TS_INTERNAL_ERROR);
+
+  GradNode mse{Operation::kMse,
+               {left, right},
+               {Version(*left), Version(*right)}};
+  CHECK_STATUS(ApplyNode(mse, *scalar, &contributions), TS_OK);
+  CHECK_TRUE(contributions.size() == 2);
+
+  const auto logits_base = MakeTensor({1, 2, 3, 4}, {2, 2});
+  const auto target_base = MakeTensor({1, 0, 0, 1}, {2, 2});
+  std::shared_ptr<Tensor> logits;
+  std::shared_ptr<Tensor> target;
+  CHECK_STATUS(CloneAsLeaf(*logits_base, true, &logits), TS_OK);
+  CHECK_STATUS(CloneAsLeaf(*target_base, true, &target), TS_OK);
+  GradNode cross_entropy{Operation::kCrossEntropy,
+                         {logits, target},
+                         {Version(*logits), Version(*target)}};
+  CHECK_STATUS(ApplyNode(cross_entropy, *scalar, &contributions), TS_OK);
+  CHECK_TRUE(contributions.size() == 2);
+
+  const auto bad_target_base = MakeTensor({1, 0}, {2});
+  std::shared_ptr<Tensor> bad_target;
+  CHECK_STATUS(CloneAsLeaf(*bad_target_base, true, &bad_target), TS_OK);
+  GradNode cross_entropy_shape{Operation::kCrossEntropy,
+                               {logits, bad_target},
+                               {Version(*logits), Version(*bad_target)}};
+  CHECK_STATUS(ApplyNode(cross_entropy_shape, *scalar, &contributions),
+               TS_INTERNAL_ERROR);
+
+  GradNode bias_rank{Operation::kBiasAdd,
+                     {left, right},
+                     {Version(*left), Version(*right)}};
+  CHECK_STATUS(ApplyNode(bias_rank, *upstream, &contributions),
+               TS_INTERNAL_ERROR);
+
+  const auto matrix_base = MakeTensor({1, 2, 3, 4}, {2, 2});
+  std::shared_ptr<Tensor> matrix_leaf;
+  CHECK_STATUS(CloneAsLeaf(*matrix_base, true, &matrix_leaf), TS_OK);
+  const auto wrong_bias_base = MakeTensor({1, 2, 3}, {3});
+  std::shared_ptr<Tensor> wrong_bias;
+  CHECK_STATUS(CloneAsLeaf(*wrong_bias_base, true, &wrong_bias), TS_OK);
+  const auto matrix_upstream = MakeTensor({1, 1, 1, 1}, {2, 2});
+  GradNode bias_width{Operation::kBiasAdd,
+                      {matrix_leaf, wrong_bias},
+                      {Version(*matrix_leaf), Version(*wrong_bias)}};
+  CHECK_STATUS(ApplyNode(bias_width, *matrix_upstream, &contributions),
+               TS_INTERNAL_ERROR);
+
+  const auto bias_base = MakeTensor({1, 2}, {2});
+  std::shared_ptr<Tensor> bias;
+  CHECK_STATUS(CloneAsLeaf(*bias_base, true, &bias), TS_OK);
+  GradNode bias_gradient_shape{Operation::kBiasAdd,
+                               {matrix_leaf, bias},
+                               {Version(*matrix_leaf), Version(*bias)}};
+  CHECK_STATUS(ApplyNode(bias_gradient_shape, *upstream, &contributions),
+               TS_INTERNAL_ERROR);
+}
+
 void WriteBytes(const std::filesystem::path& path,
                 const std::vector<unsigned char>& bytes) {
   std::ofstream stream(path, std::ios::binary | std::ios::trunc);
@@ -368,6 +510,7 @@ void TestCheckpointCorruptionContracts() {
 int main() {
   TestDirectArgumentContracts();
   TestAutogradInternalContracts();
+  TestAutogradReachableEdgeContracts();
   TestCheckpointCorruptionContracts();
 
   if (failures != 0) {
