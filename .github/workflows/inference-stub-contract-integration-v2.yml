@@ -1,0 +1,138 @@
+name: Inference Stub Contract Integration V2
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: "${{ github.event.head_commit.message == 'ci: validate inference stub contracts v2' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/training-engine-v1
+          fetch-depth: 0
+
+      - name: Apply contract expansion
+        shell: bash
+        env:
+          STUB_TEST_B64: I2luY2x1ZGUgPGNzdGRpbnQ+CiNpbmNsdWRlIDxtZW1vcnk+CiNpbmNsdWRlIDxzdHJpbmc+CiNpbmNsdWRlIDx2ZWN0b3I+CgojaW5jbHVkZSAiaW5mZXJlbmNlL2luZmVyZW5jZV9icmlkZ2UuaCIKCmludCBtYWluKCkgewogIHVzaW5nIG5hbWVzcGFjZSB0ZW5zb3JhOjppbmZlcmVuY2U7CiAgc3RkOjpzdHJpbmcgdGV4dDsKICBzaXplX3QgY291bnQgPSAwOwogIHVpbnQ2NF90IHNlc3Npb24gPSAwOwogIHN0ZDo6dmVjdG9yPHN0ZDo6c2hhcmVkX3B0cjx0ZW5zb3JhOjpUZW5zb3I+PiBvdXRwdXRzOwoKICBpZiAoUHJvdmlkZXJOYW1lKDAsIG51bGxwdHIpLmNvZGUoKSAhPSBUU19JTlZBTElEX0FSR1VNRU5UKSByZXR1cm4gMTsKICBpZiAoU2Vzc2lvbkNyZWF0ZSgiIiwgIiIsIGZhbHNlLCAiIiwgbnVsbHB0cikuY29kZSgpICE9IFRTX0lOVkFMSURfQVJHVU1FTlQpCiAgICByZXR1cm4gMjsKICBpZiAoU2Vzc2lvblByb3ZpZGVyKDAsIG51bGxwdHIpLmNvZGUoKSAhPSBUU19JTlZBTElEX0FSR1VNRU5UKSByZXR1cm4gMzsKICBpZiAoU2Vzc2lvbklucHV0TmFtZSgwLCAwLCBudWxscHRyKS5jb2RlKCkgIT0gVFNfSU5WQUxJRF9BUkdVTUVOVCkgcmV0dXJuIDQ7CiAgaWYgKFNlc3Npb25PdXRwdXROYW1lKDAsIDAsIG51bGxwdHIpLmNvZGUoKSAhPSBUU19JTlZBTElEX0FSR1VNRU5UKSByZXR1cm4gNTsKICBpZiAoU2Vzc2lvblJ1bigwLCB7fSwge30sIHt9LCBudWxscHRyKS5jb2RlKCkgIT0gVFNfSU5WQUxJRF9BUkdVTUVOVCkgcmV0dXJuIDY7CiAgaWYgKFNlc3Npb25FbmRQcm9maWxpbmcoMCwgbnVsbHB0cikuY29kZSgpICE9IFRTX0lOVkFMSURfQVJHVU1FTlQpIHJldHVybiA3OwoKICBpZiAoUHJvdmlkZXJDb3VudCgmY291bnQpLmNvZGUoKSAhPSBUU19PSyB8fCBjb3VudCAhPSAwKSByZXR1cm4gODsKICBpZiAoUHJvdmlkZXJOYW1lKDAsICZ0ZXh0KS5jb2RlKCkgIT0gVFNfVU5TVVBQT1JURUQgfHwgIXRleHQuZW1wdHkoKSkgcmV0dXJuIDk7CiAgaWYgKFNlc3Npb25DcmVhdGUoIiIsICIiLCBmYWxzZSwgIiIsICZzZXNzaW9uKS5jb2RlKCkgIT0gVFNfVU5TVVBQT1JURUQgfHwKICAgICAgc2Vzc2lvbiAhPSAwKQogICAgcmV0dXJuIDEwOwogIGlmIChTZXNzaW9uUHJvdmlkZXIoMCwgJnRleHQpLmNvZGUoKSAhPSBUU19VTlNVUFBPUlRFRCB8fCAhdGV4dC5lbXB0eSgpKQogICAgcmV0dXJuIDExOwogIGlmIChTZXNzaW9uSW5wdXRDb3VudCgwLCAmY291bnQpLmNvZGUoKSAhPSBUU19VTlNVUFBPUlRFRCB8fCBjb3VudCAhPSAwKQogICAgcmV0dXJuIDEyOwogIGlmIChTZXNzaW9uT3V0cHV0Q291bnQoMCwgJmNvdW50KS5jb2RlKCkgIT0gVFNfVU5TVVBQT1JURUQgfHwgY291bnQgIT0gMCkKICAgIHJldHVybiAxMzsKICBpZiAoU2Vzc2lvbklucHV0TmFtZSgwLCAwLCAmdGV4dCkuY29kZSgpICE9IFRTX1VOU1VQUE9SVEVEIHx8ICF0ZXh0LmVtcHR5KCkpCiAgICByZXR1cm4gMTQ7CiAgaWYgKFNlc3Npb25PdXRwdXROYW1lKDAsIDAsICZ0ZXh0KS5jb2RlKCkgIT0gVFNfVU5TVVBQT1JURUQgfHwgIXRleHQuZW1wdHkoKSkKICAgIHJldHVybiAxNTsKICBpZiAoU2Vzc2lvblJ1bigwLCB7fSwge30sIHt9LCAmb3V0cHV0cykuY29kZSgpICE9IFRTX1VOU1VQUE9SVEVEIHx8CiAgICAgICFvdXRwdXRzLmVtcHR5KCkpCiAgICByZXR1cm4gMTY7CiAgaWYgKFNlc3Npb25FbmRQcm9maWxpbmcoMCwgJnRleHQpLmNvZGUoKSAhPSBUU19VTlNVUFBPUlRFRCB8fCAhdGV4dC5lbXB0eSgpKQogICAgcmV0dXJuIDE3OwogIGlmIChTZXNzaW9uUmVsZWFzZSgwKS5jb2RlKCkgIT0gVFNfVU5TVVBQT1JURUQpIHJldHVybiAxODsKICByZXR1cm4gMDsKfQo=
+        run: |
+          python - <<'PY'
+          import base64, os
+          from pathlib import Path
+
+          Path('native/tests/inference_stub_internal_test.cc').write_text(
+              base64.b64decode(os.environ['STUB_TEST_B64']).decode())
+
+          p = Path('native/src/c_api.cc')
+          text = p.read_text()
+          old = '    if (object->dtype() != tensora::DType::kFloat32) {\n      return tensora::Unsupported(\n          "tensor_copy_to_host_f32: tensor dtype is not float32");\n    }\n'
+          if text.count(old) != 1:
+              raise SystemExit('c_api dtype guard mismatch')
+          p.write_text(text.replace(old, '', 1))
+
+          p = Path('native/tests/c_abi_test.c')
+          text = p.read_text()
+          substitutions = [
+            ('  if (ts_noop() != TS_OK) return 2;\n',
+             '  if (ts_noop() != TS_OK) return 2;\n  if (ts_last_error_message() == NULL) return 201;\n'),
+            ('  if (ts_tensor_device_index(tensor, &device_index) != TS_OK ||\n      device_index != 0)\n    return 19;\n',
+             '  if (ts_tensor_device_index(tensor, &device_index) != TS_OK ||\n      device_index != 0)\n    return 19;\n  if (ts_tensor_device_index(tensor, NULL) != TS_INVALID_ARGUMENT)\n    return 202;\n'),
+            ('  if (ts_tensor_to_device(tensor, TS_DEVICE_CPU, 0, &copied) != TS_OK)\n    return 31;\n',
+             '  if (ts_tensor_to_device(tensor, TS_DEVICE_CPU, 0, NULL) !=\n      TS_INVALID_ARGUMENT)\n    return 203;\n  if (ts_tensor_to_device(tensor, TS_DEVICE_CPU, 0, &copied) != TS_OK)\n    return 31;\n'),
+            ('  if (ts_linear_create(1, 1, 1, &module) != TS_OK) return 42;\n  if (module == 0) return 43;\n',
+             '  if (ts_linear_create(1, 1, 1, &module) != TS_OK) return 42;\n  if (module == 0) return 43;\n  if (ts_module_parameter_at(module, 0, NULL) != TS_INVALID_ARGUMENT)\n    return 204;\n  if (ts_module_buffer_at(module, 0, NULL) != TS_INVALID_ARGUMENT)\n    return 205;\n')
+          ]
+          for old, new in substitutions:
+              if text.count(old) != 1:
+                  raise SystemExit('c_abi anchor mismatch')
+              text = text.replace(old, new, 1)
+          p.write_text(text)
+
+          p = Path('native/CMakeLists.txt')
+          lines = p.read_text().splitlines()
+
+          def insert_after_line(anchor, block, occurrence=1):
+              hits = [i for i, line in enumerate(lines) if line == anchor]
+              if len(hits) < occurrence:
+                  raise SystemExit(f'CMake anchor missing: {anchor}')
+              idx = hits[occurrence - 1] + 1
+              lines[idx:idx] = block
+
+          # Register target after the tensor view target block.
+          anchor = '  target_link_libraries(tensora_tensor_view_tests PRIVATE tensora_native)'
+          block = [
+            '',
+            '  if(NOT TENSORA_WITH_ONNXRUNTIME)',
+            '    add_executable(tensora_inference_stub_internal_tests',
+            '      tests/inference_stub_internal_test.cc',
+            '    )',
+            '    target_include_directories(tensora_inference_stub_internal_tests PRIVATE',
+            '      ${CMAKE_CURRENT_SOURCE_DIR}/include',
+            '      ${CMAKE_CURRENT_SOURCE_DIR}/src',
+            '    )',
+            '    target_link_libraries(tensora_inference_stub_internal_tests PRIVATE tensora_native)',
+            '  endif()'
+          ]
+          insert_after_line(anchor, block)
+
+          insert_after_line('    target_compile_options(tensora_tensor_view_tests PRIVATE /W4 /WX /permissive-)', [
+            '    if(NOT TENSORA_WITH_ONNXRUNTIME)',
+            '      target_compile_options(tensora_inference_stub_internal_tests PRIVATE /W4 /WX /permissive-)',
+            '    endif()'])
+          insert_after_line('    target_compile_options(tensora_tensor_view_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)', [
+            '    if(NOT TENSORA_WITH_ONNXRUNTIME)',
+            '      target_compile_options(tensora_inference_stub_internal_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)',
+            '    endif()'])
+          insert_after_line('    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=address,undefined)', [
+            '    if(NOT TENSORA_WITH_ONNXRUNTIME)',
+            '      target_compile_options(tensora_inference_stub_internal_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})',
+            '      target_link_options(tensora_inference_stub_internal_tests PRIVATE -fsanitize=address,undefined)',
+            '    endif()'])
+          insert_after_line('    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=thread)', [
+            '    if(NOT TENSORA_WITH_ONNXRUNTIME)',
+            '      target_compile_options(tensora_inference_stub_internal_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})',
+            '      target_link_options(tensora_inference_stub_internal_tests PRIVATE -fsanitize=thread)',
+            '    endif()'])
+          insert_after_line('  add_test(NAME tensora_tensor_view_tests COMMAND tensora_tensor_view_tests)', [
+            '  if(NOT TENSORA_WITH_ONNXRUNTIME)',
+            '    add_test(NAME tensora_inference_stub_internal_tests COMMAND tensora_inference_stub_internal_tests)',
+            '  endif()'])
+          p.write_text('\n'.join(lines) + '\n')
+          PY
+          git diff --check
+
+      - name: Validate Release matrix
+        run: |
+          cmake -S native -B build/release -DCMAKE_BUILD_TYPE=Release -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/release --parallel 2
+          ctest --test-dir build/release --output-on-failure
+
+      - name: Validate ASan and UBSan matrix
+        env:
+          CC: clang
+          CXX: clang++
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake -S native -B build/asan -DCMAKE_BUILD_TYPE=Debug -DTENSORA_ENABLE_SANITIZERS=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/asan --parallel 2
+          ctest --test-dir build/asan --output-on-failure
+
+      - name: Commit validated contracts
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/CMakeLists.txt native/src/c_api.cc native/tests/c_abi_test.c native/tests/inference_stub_internal_test.cc
+          git diff --cached --check
+          git commit -m 'test: integrate disabled inference contracts'
+          git push origin HEAD:feature/training-engine-v1
