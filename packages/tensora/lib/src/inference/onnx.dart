@@ -1,8 +1,9 @@
 import '../errors/tensora_exception.dart';
 import '../native/native_inference_runtime.dart';
-import '../native/native_runtime.dart';
 import '../tensor/native_adoption.dart';
 import '../tensor/tensor.dart';
+import 'finalizer_release.dart';
+import 'output_adoption.dart';
 
 /// A supported ONNX Runtime execution-provider preference.
 enum OnnxExecutionProvider {
@@ -44,14 +45,12 @@ enum OnnxExecutionProvider {
   }
 }
 
-final Finalizer<int> _onnxSessionFinalizer = Finalizer<int>((handle) {
-  NativeInferenceRuntime.instance.releaseFromFinalizer(handle);
-});
+final Finalizer<int> _onnxSessionFinalizer = Finalizer<int>(
+  releaseOnnxSessionHandleFromFinalizer,
+);
 
 /// ONNX Runtime capability and provider diagnostics.
-final class OnnxRuntime {
-  OnnxRuntime._();
-
+abstract final class OnnxRuntime {
   /// Whether the loaded native library contains the ONNX Runtime backend.
   static bool get available => NativeInferenceRuntime.instance.available();
 
@@ -184,27 +183,11 @@ final class OnnxSession {
       inputHandles: inputHandles,
       outputNames: requestedOutputs,
     );
-
-    final adopted = <Tensor>[];
-    try {
-      for (final handle in handles) {
-        adopted.add(
-          Tensor.adoptNativeHandleForRuntime(handle, nativeTensorAdoptionToken),
-        );
-      }
-      return <String, Tensor>{
-        for (var index = 0; index < requestedOutputs.length; index++)
-          requestedOutputs[index]: adopted[index],
-      };
-    } catch (_) {
-      for (final tensor in adopted) {
-        tensor.dispose();
-      }
-      for (var index = adopted.length; index < handles.length; index++) {
-        NativeRuntime.instance.releaseFromFinalizer(handles[index]);
-      }
-      rethrow;
-    }
+    final adopted = adoptOnnxOutputHandles(handles);
+    return <String, Tensor>{
+      for (var index = 0; index < requestedOutputs.length; index++)
+        requestedOutputs[index]: adopted[index],
+    };
   }
 
   /// Ends native profiling and returns the generated profiling file path.

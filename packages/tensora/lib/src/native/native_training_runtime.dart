@@ -4,6 +4,7 @@ import 'package:ffi/ffi.dart';
 
 import '../device/device.dart';
 import '../errors/tensora_exception.dart';
+import 'native_device_codec.dart';
 import 'native_runtime.dart';
 import 'native_training_bindings.dart';
 
@@ -121,7 +122,7 @@ final class NativeTrainingRuntime {
 
   void moduleToDevice(int module, Device device) {
     _check(
-      _bindings.moduleToDevice(module, _deviceCode(device), device.index),
+      _bindings.moduleToDevice(module, nativeDeviceCode(device), device.index),
       'module.to',
     );
   }
@@ -230,15 +231,6 @@ final class NativeTrainingRuntime {
     'runtime.liveOptimizerCount',
     _bindings.liveOptimizerCount,
   );
-
-  static int _deviceCode(Device device) {
-    if (device.isCpu) return 1;
-    if (device.isCuda) return 2;
-    if (device.isMps) return 3;
-    if (device.isXpu) return 4;
-    if (device.isHip) return 5;
-    throw UnsupportedError('Unknown Tensora device $device.');
-  }
 
   int _moduleCount(
     int module,

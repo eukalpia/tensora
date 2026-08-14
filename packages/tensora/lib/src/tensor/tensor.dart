@@ -4,11 +4,12 @@ import '../errors/tensora_exception.dart';
 import '../native/native_runtime.dart';
 import '../native/native_training_runtime.dart';
 import '../shape/shape.dart';
+import 'finalizer_release.dart';
 import 'native_adoption.dart';
 
-final Finalizer<int> _tensorFinalizer = Finalizer<int>((handle) {
-  NativeRuntime.instance.releaseFromFinalizer(handle);
-});
+final Finalizer<int> _tensorFinalizer = Finalizer<int>(
+  releaseTensorHandleFromFinalizer,
+);
 
 /// An immutable native-backed tensor.
 ///
@@ -36,7 +37,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype: dtype, operation: 'fromList');
+    _validateCreation(dtype);
     if (values.length != shape.numel) {
       throw InvalidShapeException(
         'Input contains ${values.length} values, but $shape requires '
@@ -70,7 +71,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype: dtype, operation: 'full');
+    _validateCreation(dtype);
     final hostHandle = NativeRuntime.instance.full(shape, value.toDouble());
     return _adoptCreatedHandle(hostHandle, device);
   }
@@ -249,16 +250,11 @@ final class Tensor {
     }
   }
 
-  static void _validateCreation({
-    required DType dtype,
-    required String operation,
-  }) {
-    if (dtype != DType.float32) {
-      throw UnsupportedOperationException(
-        'Tensor creation currently supports only DType.float32.',
-        operation: 'tensor.$operation',
-      );
-    }
+  static void _validateCreation(DType dtype) {
+    final supported = switch (dtype) {
+      DType.float32 => true,
+    };
+    assert(supported);
   }
 
   void _ensureLive(String operation) {

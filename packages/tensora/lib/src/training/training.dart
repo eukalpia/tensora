@@ -3,19 +3,19 @@ import '../errors/tensora_exception.dart';
 import '../native/native_training_runtime.dart';
 import '../tensor/native_adoption.dart';
 import '../tensor/tensor.dart';
+import 'finalizer_release.dart';
+import 'module_tensor_collection.dart';
 
-final Finalizer<int> _moduleFinalizer = Finalizer<int>((handle) {
-  NativeTrainingRuntime.instance.moduleReleaseFromFinalizer(handle);
-});
+final Finalizer<int> _moduleFinalizer = Finalizer<int>(
+  releaseModuleHandleFromFinalizer,
+);
 
-final Finalizer<int> _optimizerFinalizer = Finalizer<int>((handle) {
-  NativeTrainingRuntime.instance.optimizerReleaseFromFinalizer(handle);
-});
+final Finalizer<int> _optimizerFinalizer = Finalizer<int>(
+  releaseOptimizerHandleFromFinalizer,
+);
 
 /// Runtime-level training capabilities and diagnostics.
-final class TensoraRuntime {
-  TensoraRuntime._();
-
+abstract final class TensoraRuntime {
   /// Whether the loaded native library contains the training backend.
   static bool get trainingAvailable =>
       NativeTrainingRuntime.instance.trainingAvailable();
@@ -140,10 +140,7 @@ abstract base class Module {
     _ensureLive('parameters');
     final runtime = NativeTrainingRuntime.instance;
     final count = runtime.moduleParameterCount(_handle);
-    return _collectTensors(
-      count,
-      (index) => runtime.moduleParameterAt(_handle, index),
-    );
+    return collectModuleTensors(count, moduleParameterHandleReader(_handle));
   }
 
   /// Returns native buffer views as independently owned Tensor handles.
@@ -153,10 +150,7 @@ abstract base class Module {
     _ensureLive('buffers');
     final runtime = NativeTrainingRuntime.instance;
     final count = runtime.moduleBufferCount(_handle);
-    return _collectTensors(
-      count,
-      (index) => runtime.moduleBufferAt(_handle, index),
-    );
+    return collectModuleTensors(count, moduleBufferHandleReader(_handle));
   }
 
   /// Saves this module's native state to [path].
@@ -178,26 +172,6 @@ abstract base class Module {
     _moduleFinalizer.detach(this);
     _handle = 0;
     _disposed = true;
-  }
-
-  List<Tensor> _collectTensors(int count, int Function(int index) getHandle) {
-    final tensors = <Tensor>[];
-    try {
-      for (var index = 0; index < count; index++) {
-        tensors.add(
-          Tensor.adoptNativeHandleForRuntime(
-            getHandle(index),
-            nativeTensorAdoptionToken,
-          ),
-        );
-      }
-      return tensors;
-    } catch (_) {
-      for (final tensor in tensors) {
-        tensor.dispose();
-      }
-      rethrow;
-    }
   }
 
   void _ensureLive(String operation) {
@@ -352,9 +326,7 @@ final class AdamW extends Optimizer {
 }
 
 /// Native training losses.
-final class Losses {
-  Losses._();
-
+abstract final class Losses {
   /// Mean squared error over equal-shaped tensors.
   static Tensor mse(Tensor prediction, Tensor target) {
     final predictionHandle = prediction.nativeHandleForRuntime(

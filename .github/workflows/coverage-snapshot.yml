@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - feature/coverage-snapshot-20260814
+      - feature/stability-100-tensor-core
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -183,6 +185,16 @@ jobs:
           --coverage-path=coverage/inference-runtime.info
           --reporter expanded
 
+      - name: Collect native contract fault coverage
+        run: bash tools/collect_contract_coverage.sh
+
+      - name: Enforce complete Dart production coverage
+        run: >-
+          python tools/merge_dart_coverage.py
+          packages/tensora/coverage
+          --output packages/tensora/coverage/merged.info
+          --summary packages/tensora/coverage/summary.md
+
       - name: Package enabled runtime
         shell: bash
         run: |
@@ -194,18 +206,22 @@ jobs:
           tar -C snapshot -czf /tmp/tensora-enabled-runtime.tar.gz .
 
       - name: Upload coverage reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tensora-coverage-reports
-          path: packages/tensora/coverage/*.info
+          path: |
+            packages/tensora/coverage/*.info
+            packages/tensora/coverage/summary.md
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
       - name: Upload enabled runtime
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tensora-enabled-runtime
           path: /tmp/tensora-enabled-runtime.tar.gz
-          if-no-files-found: error
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 1
