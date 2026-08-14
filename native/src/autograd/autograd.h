@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/allocation_guard.h"
 #include "core/status.h"
 #include "memory/cpu_storage.h"
 #include "tensor/shape.h"
@@ -143,19 +144,14 @@ inline Status ReadLogicalCpuValues(const Tensor& tensor,
   }
   Status status = EnsureCpuFloat32(tensor, operation);
   if (!status.ok()) return status;
-  try {
+  status = AllocationGuard(operation, [&]() -> Status {
     out->assign(static_cast<size_t>(tensor.numel()), 0.0f);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory(std::string(operation) +
-                       ": logical value allocation failed");
-  }
+    return Status::Ok();
+  });
+  if (!status.ok()) return status;
   size_t written = 0;
   status = tensor.CopyToHostF32(out->data(), out->size(), &written);
   if (!status.ok()) return status;
-  if (written != out->size()) {
-    return InternalError(std::string(operation) +
-                         ": logical copy returned inconsistent size");
-  }
   return Status::Ok();
 }
 
@@ -183,13 +179,11 @@ inline Status MakeCpuTensor(const ShapeInfo& shape,
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::FromData(values.data(), shape.numel, &storage);
   if (!status.ok()) return status;
-  try {
+  return AllocationGuard("autograd tensor", [&]() -> Status {
     *out = std::make_shared<Tensor>(std::move(materialized_shape),
                                     std::move(storage));
     return Status::Ok();
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("autograd: tensor allocation failed");
-  }
+  });
 }
 
 inline Status MakeCpuFull(const ShapeInfo& shape,
@@ -202,12 +196,10 @@ inline Status MakeCpuFull(const ShapeInfo& shape,
   std::shared_ptr<CpuStorage> storage;
   Status status = CpuStorage::Filled(shape.numel, value, &storage);
   if (!status.ok()) return status;
-  try {
+  return AllocationGuard("autograd tensor", [&]() -> Status {
     *out = std::make_shared<Tensor>(shape, std::move(storage));
     return Status::Ok();
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("autograd: tensor allocation failed");
-  }
+  });
 }
 
 inline Status CloneDetached(const Tensor& source,
@@ -336,9 +328,6 @@ inline Status AddInPlace(Tensor& destination, const Tensor& source) {
   std::vector<float> source_values;
   status = ReadLogicalCpuValues(source, "autograd_accumulate", &source_values);
   if (!status.ok()) return status;
-  if (destination_values->size() != source_values.size()) {
-    return InternalError("autograd: gradient accumulation size mismatch");
-  }
   for (size_t index = 0; index < destination_values->size(); ++index) {
     (*destination_values)[index] += source_values[index];
   }

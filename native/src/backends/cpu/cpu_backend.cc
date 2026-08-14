@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "autograd/autograd.h"
+#include "core/allocation_guard.h"
 
 namespace tensora {
 namespace {
@@ -34,13 +35,11 @@ Status MakeTensor(ShapeInfo shape,
         "cpu backend: materialized tensor shape/storage contract is invalid");
   }
 
-  try {
+  return AllocationGuard("cpu backend tensor", [&]() -> Status {
     *out = std::make_shared<Tensor>(std::move(materialized_shape),
                                     std::move(storage));
     return Status::Ok();
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("cpu backend: tensor object allocation failed");
-  }
+  });
 }
 
 Status MakeView(ShapeInfo shape,
@@ -50,14 +49,12 @@ Status MakeView(ShapeInfo shape,
     return InvalidArgument("cpu backend: output tensor pointer is null");
   }
   *out = nullptr;
-  try {
+  return AllocationGuard("cpu backend view", [&]() -> Status {
     *out = std::make_shared<Tensor>(
         std::move(shape), source.storage(), source.dtype(), source.device(),
         source.device_index(), source.storage_offset(), source.version_counter());
     return Status::Ok();
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("cpu backend: tensor view allocation failed");
-  }
+  });
 }
 
 Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
@@ -79,12 +76,11 @@ Status LogicalValues(const Tensor& tensor,
   }
   Status status = EnsureCpuFloat32(tensor, operation);
   if (!status.ok()) return status;
-  try {
+  status = AllocationGuard(operation, [&]() -> Status {
     out->assign(static_cast<size_t>(tensor.numel()), 0.0f);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory(std::string(operation) +
-                       ": logical value buffer allocation failed");
-  }
+    return Status::Ok();
+  });
+  if (!status.ok()) return status;
   size_t written = 0;
   status = tensor.CopyToHostF32(out->data(), out->size(), &written);
   if (!status.ok()) return status;

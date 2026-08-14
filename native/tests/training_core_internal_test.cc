@@ -11,6 +11,7 @@
 
 #include "autograd/autograd.h"
 #include "backends/cpu/cpu_backend.h"
+#include "core/allocation_guard.h"
 #include "core/status.h"
 #include "runtime/dispatcher.h"
 #include "memory/tensor_storage.h"
@@ -74,6 +75,19 @@ class FakeCpuStorage final : public tensora::TensorStorage {
  private:
   uint64_t byte_size_;
 };
+
+void TestAllocationGuardContracts() {
+  using tensora::AllocationGuard;
+  using tensora::Status;
+
+  CHECK_STATUS(AllocationGuard("alloc_ok", [] { return Status::Ok(); }), TS_OK);
+  CHECK_STATUS(AllocationGuard("alloc_bad", []() -> Status { throw std::bad_alloc(); }),
+               TS_OUT_OF_MEMORY);
+  CHECK_STATUS(AllocationGuard("alloc_length", []() -> Status {
+                 throw std::length_error("too large");
+               }),
+               TS_OUT_OF_MEMORY);
+}
 
 void TestDirectArgumentContracts() {
   using namespace tensora;
@@ -587,6 +601,7 @@ void TestCheckpointCorruptionContracts() {
 }  // namespace
 
 int main() {
+  TestAllocationGuardContracts();
   TestDirectArgumentContracts();
   TestAutogradInternalContracts();
   TestAutogradReachableEdgeContracts();

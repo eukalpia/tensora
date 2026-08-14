@@ -1,7 +1,7 @@
 #include "memory/cpu_storage.h"
 
+#include "core/allocation_guard.h"
 #include <algorithm>
-#include <exception>
 
 namespace tensora {
 
@@ -21,13 +21,11 @@ Status CpuStorage::Filled(uint64_t numel,
   if (out == nullptr) {
     return InvalidArgument("cpu storage: output pointer is null");
   }
-  try {
+  return AllocationGuard("cpu storage", [&]() -> Status {
     std::vector<float> values(static_cast<size_t>(numel), value);
     *out = std::shared_ptr<CpuStorage>(new CpuStorage(std::move(values)));
     return Status::Ok();
-  } catch (const std::exception&) {
-    return OutOfMemory("cpu storage: allocation failed");
-  }
+  });
 }
 
 Status CpuStorage::FromData(const float* data,
@@ -39,14 +37,12 @@ Status CpuStorage::FromData(const float* data,
   if (numel > 0 && data == nullptr) {
     return InvalidArgument("cpu storage: input data pointer is null");
   }
-  try {
+  return AllocationGuard("cpu storage", [&]() -> Status {
     std::vector<float> values(static_cast<size_t>(numel));
     std::copy_n(data, static_cast<size_t>(numel), values.begin());
     *out = std::shared_ptr<CpuStorage>(new CpuStorage(std::move(values)));
     return Status::Ok();
-  } catch (const std::exception&) {
-    return OutOfMemory("cpu storage: allocation failed");
-  }
+  });
 }
 
 Status CpuStorage::CopyToHostF32(float* out_values,
