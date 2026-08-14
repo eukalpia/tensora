@@ -1,0 +1,30 @@
+name: Current Source Snapshot
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: "${{ github.event.head_commit.message == 'ci: snapshot current training engine source' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+      - name: Preserve source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-current-source-${{ github.sha }}
+          path: |
+            native
+            packages
+            tools
+            pubspec.yaml
+            melos.yaml
+          if-no-files-found: error
+          retention-days: 1
