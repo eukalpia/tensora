@@ -1,0 +1,41 @@
+name: Dart Toolchain Snapshot
+
+on:
+  push:
+    branches:
+      - work/source-snapshot-20260814
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Package Dart SDK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Create SDK archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DART_HOME:-}"
+          tar -C "$(dirname "$DART_HOME")" -czf /tmp/dart-sdk.tar.gz "$(basename "$DART_HOME")"
+
+      - name: Upload SDK archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-sdk-linux-x64
+          path: /tmp/dart-sdk.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
