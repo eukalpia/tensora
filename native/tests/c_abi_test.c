@@ -166,8 +166,8 @@ static int test_disabled_training_contract(ts_tensor_t tensor) {
                171);
   CHECK_STATUS(ts_runtime_live_optimizer_count(&live), TS_OK, 172);
   CHECK_TRUE(live == 0, 173);
-#endif
   return 0;
+#endif
 }
 
 static int test_disabled_inference_contract(ts_tensor_t tensor) {

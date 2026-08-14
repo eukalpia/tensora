@@ -245,11 +245,26 @@ if(TENSORA_BUILD_TESTS)
     add_executable(tensora_training_device_tests tests/training_device_test.cc)
     target_include_directories(tensora_training_device_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(tensora_training_device_tests PRIVATE tensora_native)
+
+    add_executable(tensora_training_backend_internal_tests
+      tests/training_backend_internal_test.cc
+      src/core/status.cc
+      src/memory/cpu_storage.cc
+      src/tensor/shape.cc
+      src/tensor/tensor.cc
+      src/training/torch_backend.cc
+      src/training/torch_storage.cc
+    )
+    target_compile_features(tensora_training_backend_internal_tests PRIVATE cxx_std_20)
+    target_include_directories(tensora_training_backend_internal_tests PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-    target_include_directories(tensora_training_device_tests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
-    target_link_libraries(tensora_training_device_tests PRIVATE
-      tensora_native
+    target_include_directories(tensora_training_backend_internal_tests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
+    target_link_libraries(tensora_training_backend_internal_tests PRIVATE
+      Threads::Threads
       ${TORCH_LIBRARIES}
     )
   endif()
@@ -272,7 +287,8 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_tensor_view_tests PRIVATE /W4 /WX /permissive-)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE /W4 /WX /permissive-)
-      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0 /wd4267 /wd4702)
+      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive-)
+      target_compile_options(tensora_training_backend_internal_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0 /wd4267 /wd4702)
     endif()
     if(TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_tests PRIVATE /W4 /WX /permissive-)
@@ -288,6 +304,7 @@ if(TENSORA_BUILD_TESTS)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
       target_compile_options(tensora_training_device_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+      target_compile_options(tensora_training_backend_internal_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     if(TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -338,6 +355,7 @@ if(TENSORA_BUILD_TESTS)
   if(TENSORA_WITH_TORCH)
     add_test(NAME tensora_training_tests COMMAND tensora_training_tests)
     add_test(NAME tensora_training_device_tests COMMAND tensora_training_device_tests)
+    add_test(NAME tensora_training_backend_internal_tests COMMAND tensora_training_backend_internal_tests)
   endif()
   if(TENSORA_WITH_ONNXRUNTIME)
     add_test(NAME tensora_inference_tests COMMAND tensora_inference_tests)
