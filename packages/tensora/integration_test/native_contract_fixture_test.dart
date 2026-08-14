@@ -34,9 +34,10 @@ void main() {
 
   final fixture = DynamicLibrary.open(fixturePath);
   final reset = fixture.lookupFunction<_VoidNative, _VoidDart>('ts_test_reset');
-  final setAbiVersion = fixture.lookupFunction<_SetUint32Native, _SetUint32Dart>(
-    'ts_test_set_abi_version',
-  );
+  final setAbiVersion = fixture
+      .lookupFunction<_SetUint32Native, _SetUint32Dart>(
+        'ts_test_set_abi_version',
+      );
   final setForcedStatus = fixture
       .lookupFunction<_SetInt32Native, _SetInt32Dart>(
         'ts_test_set_forced_status',
@@ -133,20 +134,23 @@ void main() {
     }
   });
 
-  test('core status mapping synthesizes a diagnostic when native returns null', () {
-    setNullDiagnostic(1);
-    setForcedStatus(99);
-    expect(
-      () => runtime.noop(),
-      throwsA(
-        isA<NativeRuntimeException>().having(
-          (error) => error.message,
-          'message',
-          contains('without a diagnostic'),
+  test(
+    'core status mapping synthesizes a diagnostic when native returns null',
+    () {
+      setNullDiagnostic(1);
+      setForcedStatus(99);
+      expect(
+        () => runtime.noop(),
+        throwsA(
+          isA<NativeRuntimeException>().having(
+            (error) => error.message,
+            'message',
+            contains('without a diagnostic'),
+          ),
         ),
-      ),
-    );
-  });
+      );
+    },
+  );
 
   test('successful native creation may never return a null tensor handle', () {
     setNullHandle(1);
@@ -166,17 +170,26 @@ void main() {
     final handle = runtime.full(Shape([1]), 1);
     try {
       setRank(Shape.maxRank + 1);
-      expect(() => runtime.shape(handle), throwsA(isA<NativeRuntimeException>()));
+      expect(
+        () => runtime.shape(handle),
+        throwsA(isA<NativeRuntimeException>()),
+      );
 
       reset();
       setRank(0);
       setShapeReturnedRank(1);
-      expect(() => runtime.shape(handle), throwsA(isA<NativeRuntimeException>()));
+      expect(
+        () => runtime.shape(handle),
+        throwsA(isA<NativeRuntimeException>()),
+      );
 
       reset();
       setRank(1);
       setShapeReturnedRank(2);
-      expect(() => runtime.shape(handle), throwsA(isA<NativeRuntimeException>()));
+      expect(
+        () => runtime.shape(handle),
+        throwsA(isA<NativeRuntimeException>()),
+      );
     } finally {
       reset();
       runtime.release(handle);
@@ -187,11 +200,17 @@ void main() {
     final handle = runtime.full(Shape([1]), 1);
     try {
       setShapeDimension(0);
-      expect(() => runtime.shape(handle), throwsA(isA<NativeRuntimeException>()));
+      expect(
+        () => runtime.shape(handle),
+        throwsA(isA<NativeRuntimeException>()),
+      );
 
       reset();
       setDType(999);
-      expect(() => runtime.dtype(handle), throwsA(isA<NativeRuntimeException>()));
+      expect(
+        () => runtime.dtype(handle),
+        throwsA(isA<NativeRuntimeException>()),
+      );
     } finally {
       reset();
       runtime.release(handle);
@@ -248,11 +267,17 @@ void main() {
     }
   });
 
-  test('Tensor adoption rolls back a native handle on inconsistent metadata', () {
-    setNumel(2);
-    expect(() => Tensor.full(Shape([1]), 1), throwsA(isA<NativeRuntimeException>()));
-    expect(tensorReleaseCount(), 1);
-  });
+  test(
+    'Tensor adoption rolls back a native handle on inconsistent metadata',
+    () {
+      setNumel(2);
+      expect(
+        () => Tensor.full(Shape([1]), 1),
+        throwsA(isA<NativeRuntimeException>()),
+      );
+      expect(tensorReleaseCount(), 1);
+    },
+  );
 
   test('runtime-only Tensor capabilities reject ordinary objects', () {
     expect(
@@ -268,17 +293,20 @@ void main() {
     }
   });
 
-  test('runtime device enumeration covers all visible accelerator families', () {
-    expect(TensoraRuntime.availableDevices, <Device>[
-      Device.cuda(0),
-      Device.cuda(1),
-      Device.mps,
-      Device.xpu(0),
-      Device.hip(0),
-      Device.cpu,
-    ]);
-    expect(TensoraRuntime.preferredDevice, Device.cuda(0));
-  });
+  test(
+    'runtime device enumeration covers all visible accelerator families',
+    () {
+      expect(TensoraRuntime.availableDevices, <Device>[
+        Device.cuda(0),
+        Device.cuda(1),
+        Device.mps,
+        Device.xpu(0),
+        Device.hip(0),
+        Device.cpu,
+      ]);
+      expect(TensoraRuntime.preferredDevice, Device.cuda(0));
+    },
+  );
 
   test('training status mapping preserves every structured failure class', () {
     final cases = <(int, Matcher)>[
@@ -300,13 +328,16 @@ void main() {
     }
   });
 
-  test('training object creation rejects a null handle returned on success', () {
-    setNullHandle(1);
-    expect(
-      () => training.createLinear(1, 1, true),
-      throwsA(isA<NativeRuntimeException>()),
-    );
-  });
+  test(
+    'training object creation rejects a null handle returned on success',
+    () {
+      setNullHandle(1);
+      expect(
+        () => training.createLinear(1, 1, true),
+        throwsA(isA<NativeRuntimeException>()),
+      );
+    },
+  );
 
   test('training device encoding covers CPU and every accelerator family', () {
     final module = training.createLinear(1, 1, true);
@@ -325,16 +356,22 @@ void main() {
     }
   });
 
-  test('Module parameter collection releases all partially adopted tensors', () {
-    final module = Linear(1, 1);
-    try {
-      setTrainingMode(1);
-      expect(() => module.parameters(), throwsA(isA<NativeRuntimeException>()));
-      expect(tensorReleaseCount(), 2);
-    } finally {
-      module.dispose();
-    }
-  });
+  test(
+    'Module parameter collection releases all partially adopted tensors',
+    () {
+      final module = Linear(1, 1);
+      try {
+        setTrainingMode(1);
+        expect(
+          () => module.parameters(),
+          throwsA(isA<NativeRuntimeException>()),
+        );
+        expect(tensorReleaseCount(), 2);
+      } finally {
+        module.dispose();
+      }
+    },
+  );
 
   test('inference status mapping includes model and unknown failures', () {
     final cases = <(int, Matcher)>[
@@ -349,7 +386,11 @@ void main() {
     ];
     for (final (status, matcher) in cases) {
       setForcedStatus(status);
-      expect(() => inference.available(), throwsA(matcher), reason: 'status $status');
+      expect(
+        () => inference.available(),
+        throwsA(matcher),
+        reason: 'status $status',
+      );
     }
   });
 
@@ -414,12 +455,18 @@ void main() {
 
   test('ONNX session creation rejects models without inputs or outputs', () {
     setInferenceMode(6);
-    expect(() => OnnxSession('fixture.onnx'), throwsA(isA<ModelRuntimeException>()));
+    expect(
+      () => OnnxSession('fixture.onnx'),
+      throwsA(isA<ModelRuntimeException>()),
+    );
     expect(sessionReleaseCount(), 1);
 
     reset();
     setInferenceMode(7);
-    expect(() => OnnxSession('fixture.onnx'), throwsA(isA<ModelRuntimeException>()));
+    expect(
+      () => OnnxSession('fixture.onnx'),
+      throwsA(isA<ModelRuntimeException>()),
+    );
     expect(sessionReleaseCount(), 1);
   });
 
@@ -458,7 +505,8 @@ void main() {
       expect(
         tensorReleaseCount(),
         2,
-        reason: 'one adopted output and one failed output must each be released once',
+        reason:
+            'one adopted output and one failed output must each be released once',
       );
     } finally {
       session.dispose();
