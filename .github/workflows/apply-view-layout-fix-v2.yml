@@ -1,0 +1,196 @@
+name: Tensor View Layout Repair V2
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tensor-view-layout-repair-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-commit:
+    if: "${{ github.event.head_commit.message == 'ci: run validated tensor view repair' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/training-engine-v1
+          fetch-depth: 0
+
+      - name: Apply guarded source patch
+        shell: bash
+        run: |
+          cat > /tmp/tensor-view-layout.patch <<'PATCH'
+          --- a/native/src/c_api.cc
+          +++ b/native/src/c_api.cc
+          @@ -516,8 +516,7 @@
+                     "tensor_copy_to_host_f32: output values pointer is null");
+               }
+           
+          -    status = object->storage()->CopyToHostF32(
+          -        out_values, capacity, out_written);
+          +    status = object->CopyToHostF32(out_values, capacity, out_written);
+               if (!status.ok()) return status;
+               if (*out_written != object->numel()) {
+                 *out_written = 0;
+          --- a/native/src/autograd/autograd.h
+          +++ b/native/src/autograd/autograd.h
+          @@ -169,11 +169,23 @@
+             if (values.size() != static_cast<size_t>(shape.numel)) {
+               return InternalError("autograd: gradient value count does not match shape");
+             }
+          +
+          +  ShapeInfo materialized_shape;
+          +  const int64_t* dimensions =
+          +      shape.dimensions.empty() ? nullptr : shape.dimensions.data();
+          +  Status status =
+          +      ValidateShape(dimensions, shape.dimensions.size(), &materialized_shape);
+          +  if (!status.ok() || materialized_shape.numel != shape.numel) {
+          +    return InternalError(
+          +        "autograd: could not canonicalize materialized gradient shape");
+          +  }
+          +
+             std::shared_ptr<CpuStorage> storage;
+          -  Status status = CpuStorage::FromData(values.data(), shape.numel, &storage);
+          +  status = CpuStorage::FromData(values.data(), shape.numel, &storage);
+             if (!status.ok()) return status;
+             try {
+          -    *out = std::make_shared<Tensor>(shape, std::move(storage));
+          +    *out = std::make_shared<Tensor>(std::move(materialized_shape),
+          +                                    std::move(storage));
+               return Status::Ok();
+             } catch (const std::bad_alloc&) {
+               return OutOfMemory("autograd: tensor allocation failed");
+          --- a/native/src/backends/cpu/cpu_backend.cc
+          +++ b/native/src/backends/cpu/cpu_backend.cc
+          @@ -19,8 +19,24 @@
+             if (out == nullptr) {
+               return InvalidArgument("cpu backend: output tensor pointer is null");
+             }
+          +  if (!storage) {
+          +    return InvalidArgument("cpu backend: materialized tensor storage is null");
+          +  }
+          +
+          +  ShapeInfo materialized_shape;
+          +  const int64_t* dimensions =
+          +      shape.dimensions.empty() ? nullptr : shape.dimensions.data();
+          +  Status status =
+          +      ValidateShape(dimensions, shape.dimensions.size(), &materialized_shape);
+          +  if (!status.ok() || materialized_shape.numel != shape.numel ||
+          +      storage->numel() != shape.numel) {
+          +    return InternalError(
+          +        "cpu backend: materialized tensor shape/storage contract is invalid");
+          +  }
+          +
+             try {
+          -    *out = std::make_shared<Tensor>(std::move(shape), std::move(storage));
+          +    *out = std::make_shared<Tensor>(std::move(materialized_shape),
+          +                                    std::move(storage));
+               return Status::Ok();
+             } catch (const std::bad_alloc&) {
+               return OutOfMemory("cpu backend: tensor object allocation failed");
+          --- a/native/CMakeLists.txt
+          +++ b/native/CMakeLists.txt
+          @@ -229,6 +229,12 @@
+             )
+             target_link_libraries(tensora_autograd_finite_difference_tests PRIVATE tensora_native)
+           
+          +  add_executable(tensora_tensor_view_tests tests/tensor_view_test.cc)
+          +  target_include_directories(tensora_tensor_view_tests PRIVATE
+          +    ${CMAKE_CURRENT_SOURCE_DIR}/include
+          +  )
+          +  target_link_libraries(tensora_tensor_view_tests PRIVATE tensora_native)
+          +
+             if(TENSORA_WITH_TORCH)
+               add_executable(tensora_training_tests tests/training_test.cc)
+               target_include_directories(tensora_training_tests PRIVATE
+          @@ -263,6 +269,7 @@
+               target_compile_options(tensora_c_abi_tests PRIVATE /W4 /WX)
+               target_compile_options(tensora_cpu_training_tests PRIVATE /W4 /WX /permissive-)
+               target_compile_options(tensora_autograd_finite_difference_tests PRIVATE /W4 /WX /permissive-)
+          +    target_compile_options(tensora_tensor_view_tests PRIVATE /W4 /WX /permissive-)
+               if(TENSORA_WITH_TORCH)
+                 target_compile_options(tensora_training_tests PRIVATE /W4 /WX /permissive-)
+                 target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0 /wd4267 /wd4702)
+          @@ -277,6 +284,7 @@
+               target_compile_options(tensora_c_abi_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+               target_compile_options(tensora_cpu_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+               target_compile_options(tensora_autograd_finite_difference_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+          +    target_compile_options(tensora_tensor_view_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+               if(TENSORA_WITH_TORCH)
+                 target_compile_options(tensora_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+                 target_compile_options(tensora_training_device_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+          @@ -299,6 +307,8 @@
+               target_link_options(tensora_cpu_training_tests PRIVATE -fsanitize=address,undefined)
+               target_compile_options(tensora_autograd_finite_difference_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
+               target_link_options(tensora_autograd_finite_difference_tests PRIVATE -fsanitize=address,undefined)
+          +    target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
+          +    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=address,undefined)
+             endif()
+           
+             if(TENSORA_ENABLE_THREAD_SANITIZER)
+          @@ -314,6 +324,8 @@
+               target_link_options(tensora_cpu_training_tests PRIVATE -fsanitize=thread)
+               target_compile_options(tensora_autograd_finite_difference_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
+               target_link_options(tensora_autograd_finite_difference_tests PRIVATE -fsanitize=thread)
+          +    target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
+          +    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=thread)
+             endif()
+           
+             add_test(NAME tensora_native_tests COMMAND tensora_native_tests)
+          @@ -322,6 +334,7 @@
+             add_test(NAME tensora_c_abi_tests COMMAND tensora_c_abi_tests)
+             add_test(NAME tensora_cpu_training_tests COMMAND tensora_cpu_training_tests)
+             add_test(NAME tensora_autograd_finite_difference_tests COMMAND tensora_autograd_finite_difference_tests)
+          +  add_test(NAME tensora_tensor_view_tests COMMAND tensora_tensor_view_tests)
+             if(TENSORA_WITH_TORCH)
+               add_test(NAME tensora_training_tests COMMAND tensora_training_tests)
+               add_test(NAME tensora_training_device_tests COMMAND tensora_training_device_tests)
+          PATCH
+          sed -i 's/^          //' /tmp/tensor-view-layout.patch
+          git apply --check /tmp/tensor-view-layout.patch
+          git apply /tmp/tensor-view-layout.patch
+          git diff --check
+
+      - name: Validate Release matrix
+        shell: bash
+        run: |
+          cmake -S native -B build/release -DCMAKE_BUILD_TYPE=Release -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=ON
+          cmake --build build/release --parallel 2
+          ctest --test-dir build/release --output-on-failure
+
+      - name: Validate Debug matrix
+        shell: bash
+        run: |
+          cmake -S native -B build/debug -DCMAKE_BUILD_TYPE=Debug -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/debug --parallel 2
+          ctest --test-dir build/debug --output-on-failure
+
+      - name: Validate ASan and UBSan matrix
+        shell: bash
+        env:
+          CC: clang
+          CXX: clang++
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake -S native -B build/asan -DCMAKE_BUILD_TYPE=Debug -DTENSORA_ENABLE_SANITIZERS=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/asan --parallel 2
+          ctest --test-dir build/asan --output-on-failure
+
+      - name: Commit validated repair
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/CMakeLists.txt native/src/c_api.cc native/src/autograd/autograd.h native/src/backends/cpu/cpu_backend.cc
+          git diff --cached --check
+          git commit -m 'fix: canonicalize materialized tensor layouts'
+          git push origin HEAD:feature/training-engine-v1
