@@ -13,6 +13,15 @@ namespace {
 
 bool Check(ts_status_t status) { return status == TS_OK; }
 
+bool ExpectStatus(ts_status_t actual,
+                  ts_status_t expected,
+                  const char* operation) {
+  if (actual == expected) return true;
+  std::fprintf(stderr, "%s expected status %d, got %d: %s\n", operation,
+               expected, actual, ts_last_error_message());
+  return false;
+}
+
 bool Close(float actual, float expected, float tolerance = 1e-5f) {
   return std::fabs(actual - expected) <= tolerance;
 }
@@ -93,95 +102,293 @@ int main() {
   size_t provider_count = 0;
   if (!Check(ts_onnx_provider_count(&provider_count)) || provider_count == 0)
     return 4;
+  if (!ExpectStatus(ts_onnx_provider_count(nullptr), TS_INVALID_ARGUMENT,
+                    "provider count null"))
+    return 5;
+
   bool cpu_provider = false;
   for (size_t index = 0; index < provider_count; ++index) {
     size_t required = 0;
     if (!Check(ts_onnx_provider_name(index, nullptr, 0, &required)) ||
         required == 0)
-      return 5;
+      return 6;
     std::vector<char> name(required);
     size_t second_required = 0;
     if (!Check(ts_onnx_provider_name(index, name.data(), name.size(),
                                      &second_required)) ||
         second_required != required)
-      return 6;
+      return 7;
     if (std::string(name.data()) == "CPUExecutionProvider") cpu_provider = true;
   }
-  if (!cpu_provider) return 7;
+  if (!cpu_provider) return 8;
+
+  size_t provider_required = 0;
+  if (!Check(ts_onnx_provider_name(0, nullptr, 0, &provider_required)) ||
+      provider_required < 2)
+    return 9;
+  std::vector<char> provider_buffer(provider_required);
+  if (!ExpectStatus(ts_onnx_provider_name(0, provider_buffer.data(),
+                                          provider_buffer.size(), nullptr),
+                    TS_INVALID_ARGUMENT, "provider required pointer null"))
+    return 10;
+  if (!ExpectStatus(ts_onnx_provider_name(0, nullptr, provider_required,
+                                          &provider_required),
+                    TS_INVALID_ARGUMENT, "provider output buffer null"))
+    return 11;
+  if (!ExpectStatus(ts_onnx_provider_name(0, provider_buffer.data(),
+                                          provider_required - 1,
+                                          &provider_required),
+                    TS_INVALID_ARGUMENT, "provider output too small"))
+    return 12;
   if (ts_onnx_provider_name(provider_count, nullptr, 0, &provider_count) !=
       TS_INVALID_ARGUMENT)
-    return 8;
+    return 13;
 
   ts_onnx_session_t missing = 123;
+  if (!ExpectStatus(ts_onnx_session_create(nullptr, 0, nullptr, &missing),
+                    TS_INVALID_ARGUMENT, "session null model path"))
+    return 14;
+  if (!ExpectStatus(ts_onnx_session_create("", 0, nullptr, &missing),
+                    TS_INVALID_ARGUMENT, "session empty model path"))
+    return 15;
+  if (!ExpectStatus(ts_onnx_session_create(model_path.c_str(), 0, nullptr,
+                                           nullptr),
+                    TS_INVALID_ARGUMENT, "session null output handle"))
+    return 16;
+  if (!ExpectStatus(ts_onnx_session_create_with_provider(
+                        model_path.c_str(), nullptr, 0, nullptr, &missing),
+                    TS_INVALID_ARGUMENT, "session null provider"))
+    return 17;
+  if (!ExpectStatus(ts_onnx_session_create_with_provider(
+                        model_path.c_str(), "DefinitelyUnknownProvider", 0,
+                        nullptr, &missing),
+                    TS_INVALID_ARGUMENT, "session unknown provider"))
+    return 18;
+  if (!ExpectStatus(ts_onnx_session_create_with_provider(
+                        model_path.c_str(), "CUDAExecutionProvider", 0, nullptr,
+                        &missing),
+                    TS_UNSUPPORTED, "session unavailable CUDA provider"))
+    return 19;
+
   if (ts_onnx_session_create("/definitely/missing/tensora-model.onnx", 0,
                              nullptr, &missing) != TS_MODEL_ERROR)
-    return 9;
-  if (missing != 0) return 10;
+    return 20;
+  if (missing != 0) return 21;
 
   uint64_t baseline_sessions = 0;
   uint64_t baseline_tensors = 0;
-  if (!Check(ts_runtime_live_onnx_session_count(&baseline_sessions))) return 11;
-  if (!Check(ts_runtime_live_tensor_count(&baseline_tensors))) return 12;
+  if (!Check(ts_runtime_live_onnx_session_count(&baseline_sessions))) return 22;
+  if (!Check(ts_runtime_live_tensor_count(&baseline_tensors))) return 23;
+  if (!ExpectStatus(ts_runtime_live_onnx_session_count(nullptr),
+                    TS_INVALID_ARGUMENT, "live session count null"))
+    return 24;
 
   ts_onnx_session_t session = 0;
   if (!Check(ts_onnx_session_create(model_path.c_str(), 0, nullptr, &session)) ||
       session == 0)
-    return 13;
+    return 25;
+
+  size_t provider_name_required = 0;
+  if (!Check(ts_onnx_session_provider(session, nullptr, 0,
+                                      &provider_name_required)) ||
+      provider_name_required == 0)
+    return 26;
+  std::vector<char> selected_provider(provider_name_required);
+  if (!Check(ts_onnx_session_provider(session, selected_provider.data(),
+                                      selected_provider.size(),
+                                      &provider_name_required)))
+    return 27;
+  if (std::string(selected_provider.data()).empty()) return 28;
+  if (!ExpectStatus(ts_onnx_session_provider(session, nullptr,
+                                             provider_name_required,
+                                             &provider_name_required),
+                    TS_INVALID_ARGUMENT, "session provider null buffer"))
+    return 29;
+  if (!ExpectStatus(ts_onnx_session_provider(session, selected_provider.data(),
+                                             selected_provider.size(), nullptr),
+                    TS_INVALID_ARGUMENT, "session provider null required"))
+    return 30;
+  if (!ExpectStatus(ts_onnx_session_provider(UINT64_C(999999999), nullptr, 0,
+                                             &provider_name_required),
+                    TS_INVALID_HANDLE, "session provider invalid handle"))
+    return 31;
+
   size_t input_count = 0;
   size_t output_count = 0;
   if (!Check(ts_onnx_session_input_count(session, &input_count)) ||
       input_count != 1)
-    return 14;
+    return 32;
   if (!Check(ts_onnx_session_output_count(session, &output_count)) ||
       output_count != 1)
-    return 15;
-  if (ReadName(ts_onnx_session_input_name, session, 0) != "X") return 16;
-  if (ReadName(ts_onnx_session_output_name, session, 0) != "Y") return 17;
+    return 33;
+  if (!ExpectStatus(ts_onnx_session_input_count(session, nullptr),
+                    TS_INVALID_ARGUMENT, "input count null"))
+    return 34;
+  if (!ExpectStatus(ts_onnx_session_output_count(session, nullptr),
+                    TS_INVALID_ARGUMENT, "output count null"))
+    return 35;
+  if (!ExpectStatus(ts_onnx_session_output_count(UINT64_C(999999999),
+                                                 &output_count),
+                    TS_INVALID_HANDLE, "output count invalid session"))
+    return 36;
+
+  if (ReadName(ts_onnx_session_input_name, session, 0) != "X") return 37;
+  if (ReadName(ts_onnx_session_output_name, session, 0) != "Y") return 38;
   if (ts_onnx_session_input_name(session, 1, nullptr, 0, &input_count) !=
       TS_INVALID_ARGUMENT)
-    return 18;
+    return 39;
+  if (!ExpectStatus(ts_onnx_session_output_name(session, 1, nullptr, 0,
+                                                &output_count),
+                    TS_INVALID_ARGUMENT, "output name out of range"))
+    return 40;
+
+  size_t input_name_required = 0;
+  if (!Check(ts_onnx_session_input_name(session, 0, nullptr, 0,
+                                        &input_name_required)) ||
+      input_name_required < 2)
+    return 41;
+  std::vector<char> input_name_buffer(input_name_required);
+  if (!ExpectStatus(ts_onnx_session_input_name(
+                        session, 0, input_name_buffer.data(),
+                        input_name_buffer.size(), nullptr),
+                    TS_INVALID_ARGUMENT, "input name null required"))
+    return 42;
+  if (!ExpectStatus(ts_onnx_session_input_name(session, 0, nullptr,
+                                               input_name_required,
+                                               &input_name_required),
+                    TS_INVALID_ARGUMENT, "input name null buffer"))
+    return 43;
+  if (!ExpectStatus(ts_onnx_session_input_name(
+                        session, 0, input_name_buffer.data(),
+                        input_name_required - 1, &input_name_required),
+                    TS_INVALID_ARGUMENT, "input name too small"))
+    return 44;
 
   const int64_t dims[2] = {2, 2};
   const float values[4] = {1.0f, 2.0f, 3.0f, 4.0f};
   ts_tensor_t input = 0;
-  if (!Check(ts_tensor_from_f32(values, 4, dims, 2, &input))) return 19;
+  if (!Check(ts_tensor_from_f32(values, 4, dims, 2, &input))) return 45;
 
   std::vector<float> result;
-  if (!RunReference(session, input, &result)) return 20;
+  if (!RunReference(session, input, &result)) return 46;
   const float expected[4] = {3.0f, 5.0f, 7.0f, 11.0f};
   for (size_t index = 0; index < 4; ++index) {
-    if (!Close(result[index], expected[index])) return 21;
+    if (!Close(result[index], expected[index])) return 47;
   }
 
-  const char* wrong_input_names[1] = {"wrong"};
+  const char* input_names[1] = {"X"};
   const char* output_names[1] = {"Y"};
+  const char* wrong_input_names[1] = {"wrong"};
+  const char* wrong_output_names[1] = {"wrong"};
+  const char* null_names[1] = {nullptr};
   ts_tensor_t bad_output = 99;
   size_t bad_written = 99;
+
   const ts_status_t wrong_name_status = ts_onnx_session_run(
       session, wrong_input_names, &input, 1, output_names, 1, &bad_output, 1,
       &bad_written);
   if (wrong_name_status == TS_OK || bad_output != 0 || bad_written != 0)
-    return 22;
+    return 48;
+  const ts_status_t wrong_output_status = ts_onnx_session_run(
+      session, input_names, &input, 1, wrong_output_names, 1, &bad_output, 1,
+      &bad_written);
+  if (wrong_output_status == TS_OK || bad_output != 0 || bad_written != 0)
+    return 49;
+
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &input, 1,
+                                        output_names, 1, &bad_output, 1,
+                                        nullptr),
+                    TS_INVALID_ARGUMENT, "run null written"))
+    return 50;
+  if (!ExpectStatus(ts_onnx_session_run(session, nullptr, &input, 1,
+                                        output_names, 1, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run null input names"))
+    return 51;
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, nullptr, 1,
+                                        output_names, 1, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run null input tensors"))
+    return 52;
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &input, 1,
+                                        nullptr, 1, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run null output names"))
+    return 53;
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &input, 1,
+                                        output_names, 0, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run zero outputs"))
+    return 54;
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &input, 1,
+                                        output_names, 1, &bad_output, 0,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run insufficient output capacity"))
+    return 55;
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &input, 1,
+                                        output_names, 1, nullptr, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run null output handles"))
+    return 56;
+  if (!ExpectStatus(ts_onnx_session_run(session, null_names, &input, 1,
+                                        output_names, 1, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run null input name element"))
+    return 57;
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &input, 1,
+                                        null_names, 1, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run null output name element"))
+    return 58;
+  const ts_tensor_t invalid_input = UINT64_C(999999999);
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &invalid_input, 1,
+                                        output_names, 1, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_HANDLE, "run invalid tensor handle"))
+    return 59;
+  if (!ExpectStatus(ts_onnx_session_run(UINT64_C(999999999), input_names,
+                                        &input, 1, output_names, 1,
+                                        &bad_output, 1, &bad_written),
+                    TS_INVALID_HANDLE, "run invalid session handle"))
+    return 60;
+
+  const char* two_input_names[2] = {"X", "X"};
+  const ts_tensor_t two_inputs[2] = {input, input};
+  if (!ExpectStatus(ts_onnx_session_run(session, two_input_names, two_inputs, 2,
+                                        output_names, 1, &bad_output, 1,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run input count mismatch"))
+    return 61;
+  const char* two_output_names[2] = {"Y", "Y"};
+  ts_tensor_t two_outputs[2] = {99, 99};
+  if (!ExpectStatus(ts_onnx_session_run(session, input_names, &input, 1,
+                                        two_output_names, 2, two_outputs, 2,
+                                        &bad_written),
+                    TS_INVALID_ARGUMENT, "run output count mismatch"))
+    return 62;
 
   if (ts_onnx_session_run(session, nullptr, nullptr, 0, output_names, 1,
                           &bad_output, 1, &bad_written) != TS_INVALID_ARGUMENT)
-    return 23;
-  if (bad_output != 0 || bad_written != 0) return 24;
+    return 63;
+  if (bad_output != 0 || bad_written != 0) return 64;
 
   const int64_t wrong_dims[2] = {1, 4};
   ts_tensor_t wrong_shape = 0;
   if (!Check(ts_tensor_from_f32(values, 4, wrong_dims, 2, &wrong_shape)))
-    return 25;
-  const char* input_names[1] = {"X"};
+    return 65;
   const ts_status_t wrong_shape_status = ts_onnx_session_run(
       session, input_names, &wrong_shape, 1, output_names, 1, &bad_output, 1,
       &bad_written);
   if (wrong_shape_status == TS_OK || bad_output != 0 || bad_written != 0)
-    return 26;
-  if (!Check(ts_tensor_release(wrong_shape))) return 27;
+    return 66;
+  if (!Check(ts_tensor_release(wrong_shape))) return 67;
 
   if (ts_onnx_session_input_count(input, &input_count) != TS_INVALID_HANDLE)
-    return 28;
+    return 68;
+  if (!ExpectStatus(ts_onnx_session_end_profiling(session, nullptr, 0,
+                                                  &provider_required),
+                    TS_INVALID_ARGUMENT, "end profiling disabled"))
+    return 69;
 
   std::atomic<bool> concurrent_ok{true};
   std::vector<std::thread> threads;
@@ -200,17 +407,20 @@ int main() {
     });
   }
   for (auto& thread : threads) thread.join();
-  if (!concurrent_ok.load()) return 29;
+  if (!concurrent_ok.load()) return 70;
 
   for (int iteration = 0; iteration < 10000; ++iteration) {
     std::vector<float> stress_result;
     if (!RunReference(session, input, &stress_result) ||
         !Close(stress_result[1], 5.0f))
-      return 30;
+      return 71;
   }
 
-  if (!Check(ts_onnx_session_release(session))) return 31;
-  if (ts_onnx_session_release(session) != TS_INVALID_HANDLE) return 32;
+  if (!Check(ts_onnx_session_release(session))) return 72;
+  if (ts_onnx_session_release(session) != TS_INVALID_HANDLE) return 73;
+  if (!ExpectStatus(ts_onnx_session_release(input), TS_INVALID_HANDLE,
+                    "release wrong handle type"))
+    return 74;
 
   const std::filesystem::path profile_prefix =
       std::filesystem::temp_directory_path() / "tensora-ort-profile";
@@ -218,31 +428,51 @@ int main() {
   if (!Check(ts_onnx_session_create(model_path.c_str(), 1,
                                     profile_prefix.string().c_str(),
                                     &profiling_session)))
-    return 33;
+    return 75;
   std::vector<float> profile_result;
-  if (!RunReference(profiling_session, input, &profile_result)) return 34;
-  std::vector<char> profile_path(4096);
+  if (!RunReference(profiling_session, input, &profile_result)) return 76;
+
+  if (!ExpectStatus(ts_onnx_session_end_profiling(
+                        profiling_session, nullptr, 0, nullptr),
+                    TS_INVALID_ARGUMENT, "profiling null required"))
+    return 77;
+
   size_t profile_required = 0;
+  if (!Check(ts_onnx_session_end_profiling(profiling_session, nullptr, 0,
+                                           &profile_required)) ||
+      profile_required < 2)
+    return 78;
+  std::vector<char> profile_path(profile_required);
+  if (!ExpectStatus(ts_onnx_session_end_profiling(
+                        profiling_session, nullptr, profile_required,
+                        &profile_required),
+                    TS_INVALID_ARGUMENT, "profiling null buffer"))
+    return 79;
+  if (!ExpectStatus(ts_onnx_session_end_profiling(
+                        profiling_session, profile_path.data(),
+                        profile_required - 1, &profile_required),
+                    TS_INVALID_ARGUMENT, "profiling buffer too small"))
+    return 80;
   if (!Check(ts_onnx_session_end_profiling(
           profiling_session, profile_path.data(), profile_path.size(),
           &profile_required)) ||
       profile_required == 0)
-    return 35;
+    return 81;
   if (!std::filesystem::exists(std::filesystem::path(profile_path.data())))
-    return 36;
+    return 82;
   std::filesystem::remove(std::filesystem::path(profile_path.data()));
-  if (!Check(ts_onnx_session_release(profiling_session))) return 37;
+  if (!Check(ts_onnx_session_release(profiling_session))) return 83;
 
-  if (!Check(ts_tensor_release(input))) return 38;
+  if (!Check(ts_tensor_release(input))) return 84;
 
   uint64_t final_sessions = 0;
   uint64_t final_tensors = 0;
   if (!Check(ts_runtime_live_onnx_session_count(&final_sessions)) ||
       final_sessions != baseline_sessions)
-    return 39;
+    return 85;
   if (!Check(ts_runtime_live_tensor_count(&final_tensors)) ||
       final_tensors != baseline_tensors)
-    return 40;
+    return 86;
 
   return 0;
 }
