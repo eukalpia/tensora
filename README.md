@@ -10,7 +10,9 @@ The project is pre-1.0. The current implementation is already more than a CPU te
 
 ### Tensor runtime
 
-- `Tensor`, immutable `Shape`, `DType.float32`;
+- `Tensor`, immutable `Shape`, and centralized `DType` semantics for
+  `float16`, `bfloat16`, `float32`, `float64`, signed/unsigned integers, and
+  booleans;
 - devices: CPU, CUDA, MPS, XPU, and HIP/ROCm identities;
 - `fromList`, `zeros`, `ones`, `full`;
 - reshape, 2D transpose, equal-shape add/multiply, sum, and 2D matmul;
@@ -209,7 +211,10 @@ Hardware qualification for other GPU vendors is kept separate from ordinary host
 ## Current limitations
 
 - pre-1.0 API/ABI and source-built native runtime;
-- only `float32` is a public tensor dtype today;
+- native tensor allocation and numerical kernels currently implement
+  `float32`; the broader public `DType` table defines stable metadata,
+  promotion, reduction-accumulator, and ABI semantics but does not imply
+  storage/kernel support;
 - no published native binary distribution contract yet;
 - CUDA/XPU/HIP and several ONNX accelerator providers still require physical qualification before promotion;
 - ONNX input binding is currently host-materialized rather than device zero-copy;

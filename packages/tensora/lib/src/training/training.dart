@@ -1,21 +1,20 @@
 import '../device/device.dart';
 import '../errors/tensora_exception.dart';
+import '../native/finalizer_callbacks.dart';
 import '../native/native_training_runtime.dart';
 import '../tensor/native_adoption.dart';
 import '../tensor/tensor.dart';
 
-final Finalizer<int> _moduleFinalizer = Finalizer<int>((handle) {
-  NativeTrainingRuntime.instance.moduleReleaseFromFinalizer(handle);
-});
+final Finalizer<int> _moduleFinalizer = Finalizer<int>(
+  releaseModuleFromFinalizer,
+);
 
-final Finalizer<int> _optimizerFinalizer = Finalizer<int>((handle) {
-  NativeTrainingRuntime.instance.optimizerReleaseFromFinalizer(handle);
-});
+final Finalizer<int> _optimizerFinalizer = Finalizer<int>(
+  releaseOptimizerFromFinalizer,
+);
 
 /// Runtime-level training capabilities and diagnostics.
-final class TensoraRuntime {
-  TensoraRuntime._();
-
+abstract final class TensoraRuntime {
   /// Whether the loaded native library contains the training backend.
   static bool get trainingAvailable =>
       NativeTrainingRuntime.instance.trainingAvailable();
@@ -352,9 +351,7 @@ final class AdamW extends Optimizer {
 }
 
 /// Native training losses.
-final class Losses {
-  Losses._();
-
+abstract final class Losses {
   /// Mean squared error over equal-shaped tensors.
   static Tensor mse(Tensor prediction, Tensor target) {
     final predictionHandle = prediction.nativeHandleForRuntime(

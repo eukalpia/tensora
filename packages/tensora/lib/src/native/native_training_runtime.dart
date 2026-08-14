@@ -236,8 +236,7 @@ final class NativeTrainingRuntime {
     if (device.isCuda) return 2;
     if (device.isMps) return 3;
     if (device.isXpu) return 4;
-    if (device.isHip) return 5;
-    throw UnsupportedError('Unknown Tensora device $device.');
+    return 5;
   }
 
   int _moduleCount(

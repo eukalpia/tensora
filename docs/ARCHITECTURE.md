@@ -41,6 +41,11 @@ Owns:
 
 It must not expose backend implementation types.
 
+Public dtype semantics are centralized in `DType`. Stable ABI codes cross the C
+boundary, while native tensor metadata and backend dispatch decide whether a
+specific dtype/device/operator combination is implemented. Adding a descriptor
+must not produce scattered `float32` conditionals or imply kernel support.
+
 ### Dart FFI bridge
 
 Owns:

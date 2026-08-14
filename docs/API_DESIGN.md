@@ -122,6 +122,12 @@ Prefer immutable value objects for:
 
 Immutability improves reasoning across asynchronous boundaries.
 
+`DType` is the single public source of truth for element byte width, stable C
+ABI value, numerical category, promotion, and reduction accumulator. A dtype
+descriptor may exist before a native storage/backend implementation does;
+factories and operators must reject unsupported combinations explicitly rather
+than silently converting to `float32`.
+
 ## 9. Tensor mutation
 
 Default tensor operations should favor clear functional semantics.

@@ -44,7 +44,11 @@ The project must not describe a milestone as error-free or assign a numerical pr
 
 ### Coverage
 
-- Dart library line coverage must remain at least 90% for Milestones 2 and 3 release candidates;
+- merged Dart library line coverage must remain at least 99.9%;
+- platform-only coverage exclusions are restricted to the validated Win32
+  loader region and have a fixed line budget checked by CI;
+- deterministic C ABI fault fixtures exercise invalid statuses, diagnostics,
+  metadata races, null handles, and partial-adoption rollback paths;
 - critical ownership, error translation, native-handle, device-selection, checkpoint, and session-lifecycle branches require direct tests regardless of aggregate coverage;
 - native coverage reports are recorded for the Linux reference build, but numerical coverage percentages never replace sanitizer, fuzz, stress, or integration evidence.
 

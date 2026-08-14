@@ -35,6 +35,12 @@ int main(void) {
   size_t written = 0;
 
   if (ts_abi_version() != TS_ABI_VERSION) return 1;
+  if (TS_DTYPE_FLOAT32 != 1u || TS_DTYPE_FLOAT16 != 2u ||
+      TS_DTYPE_BFLOAT16 != 3u || TS_DTYPE_FLOAT64 != 4u ||
+      TS_DTYPE_INT8 != 5u || TS_DTYPE_UINT8 != 6u ||
+      TS_DTYPE_INT16 != 7u || TS_DTYPE_INT32 != 8u ||
+      TS_DTYPE_INT64 != 9u || TS_DTYPE_BOOL != 10u)
+    return 63;
   if (ts_noop() != TS_OK) return 2;
   if (TS_DEVICE_CPU == TS_DEVICE_CUDA) return 3;
   if (ts_training_available(&training_available) != TS_OK) return 4;

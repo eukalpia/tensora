@@ -33,7 +33,8 @@ Tensora does not currently label any public runtime surface Stable.
 | Dart core package | Beta | Dart 3.7 minimum compatibility plus current stable Dart | Native runtime is still source-built/provided separately |
 | C ABI | Beta | ABI v4, C11 consumer tests, typed opaque handles, fixed-width statuses/devices | Pre-1.0 ABI may evolve through explicit version changes |
 | CPU tensor backend | Beta | Linux, macOS, Windows native + Dart FFI | `float32` only; compact eager operation set |
-| `float32` | Beta | Tensor creation, transfer, transforms, elementwise ops, reduction, 2D matmul, training/inference paths where documented | No other public dtype yet |
+| DType semantic table | Beta | Stable byte widths, ABI codes, category metadata, promotion, and reduction-accumulator rules for floating, integer, and boolean descriptors | Semantic availability does not imply native storage or operator support |
+| `float32` native storage | Beta | Tensor creation, transfer, transforms, elementwise ops, reduction, 2D matmul, training/inference paths where documented | Other native storage types are not implemented yet |
 | LibTorch CPU training | Beta | Linux, macOS, Windows native + Dart integration | Optional build dependency; not a packaged binary contract |
 | Apple MPS training | Beta | Real Apple Silicon hosted CI: device transfer, matmul, module transfer, forward/loss/backward, optimizer steps, lifecycle checks | Validated operation surface is intentionally narrow |
 | NVIDIA CUDA training | Experimental | Device/runtime integration and manual hardware qualification workflow | Physical NVIDIA qualification still required |
@@ -48,7 +49,7 @@ Tensora does not currently label any public runtime surface Stable.
 | MIGraphX ONNX provider | Experimental | Provider selection path implemented | Provider/hardware qualification pending |
 | Flutter/mobile runtime | Unsupported | None | Separate future runtime integration work |
 | `.tmodel` | Unsupported | Design/roadmap only | No production parser/runtime/container implementation |
-| Additional public dtypes | Unsupported | None | Public tensor API currently exposes only `float32` |
+| Additional native dtype storage | Unsupported | None | Non-`float32` descriptors are public for semantic and ABI stability, but allocation and kernels reject them explicitly |
 
 The matrix deliberately distinguishes **implemented** from **hardware-qualified**. A manual qualification workflow existing in the repository is not itself evidence that the target hardware has passed.
 
@@ -163,13 +164,26 @@ DirectML sessions use provider-compatible session settings rather than inheritin
 
 A dtype is supported only for the specific operation/backend/device combination that has executable coverage.
 
-The current public dtype is:
+The public semantic descriptors are:
 
 ```text
+float16
+bfloat16
 float32
+float64
+int8
+uint8
+int16
+int32
+int64
+boolean
 ```
 
-Do not infer float16, bfloat16, integer, quantized, or mixed-precision support from upstream backend capabilities.
+Only `float32` currently has native tensor storage and numerical-kernel support.
+The other descriptors define stable byte widths, C ABI values, promotion, and
+reduction-accumulator behavior so future backends share one contract. Do not
+infer allocation, quantization, mixed precision, or operator support from a
+descriptor being present or from an upstream backend capability.
 
 ## 8. Public Dart API compatibility
 

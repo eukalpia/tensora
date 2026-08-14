@@ -2,8 +2,8 @@ import 'package:tensora/tensora.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('Tensora exposes the implemented dtype', () {
-    expect(DType.values, [DType.float32]);
+  test('Tensora exposes the stable dtype descriptor table', () {
+    expect(DType.values, hasLength(10));
     expect(DType.float32.toString(), 'DType.float32');
   });
 
