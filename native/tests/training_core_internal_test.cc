@@ -11,6 +11,7 @@
 
 #include "autograd/autograd.h"
 #include "backends/cpu/cpu_backend.h"
+#include "backends/cpu/cpu_backend_internal.h"
 #include "core/allocation_guard.h"
 #include "core/integer_math.h"
 #include "core/status.h"
@@ -100,6 +101,38 @@ void TestIntegerAndStatusContracts() {
                              "checked_add", &result), TS_INTERNAL_ERROR);
   CHECK_TRUE(result == 0);
   CHECK_STATUS(ModelError("model failure"), TS_MODEL_ERROR);
+}
+
+void TestCpuBackendInternalContracts() {
+  using namespace tensora;
+
+  ShapeInfo shape;
+  const int64_t dims[1] = {2};
+  CHECK_STATUS(ValidateShape(dims, 1, &shape), TS_OK);
+  std::shared_ptr<CpuStorage> storage;
+  CHECK_STATUS(CpuStorage::Filled(2, 1.0f, &storage), TS_OK);
+  CHECK_TRUE(storage != nullptr);
+
+  std::shared_ptr<Tensor> tensor;
+  CHECK_STATUS(tensora::cpu_backend_internal::MakeTensor(shape, storage, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(tensora::cpu_backend_internal::MakeTensor(shape, nullptr, &tensor), TS_INVALID_ARGUMENT);
+
+  ShapeInfo corrupt = shape;
+  corrupt.numel = 3;
+  corrupt.byte_size = 3 * sizeof(float);
+  CHECK_STATUS(tensora::cpu_backend_internal::MakeTensor(corrupt, storage, &tensor), TS_INTERNAL_ERROR);
+
+  Tensor source(shape, storage);
+  CHECK_STATUS(tensora::cpu_backend_internal::MakeView(shape, source, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(tensora::cpu_backend_internal::EnsureCpuFloat32(source, "cpu_internal"), TS_OK);
+  Tensor cuda_like(shape, storage, DType::kFloat32, Device::kCuda, 0);
+  CHECK_STATUS(tensora::cpu_backend_internal::EnsureCpuFloat32(cuda_like, "cpu_internal"), TS_UNSUPPORTED);
+  Tensor bad_dtype(shape, storage, static_cast<DType>(999), Device::kCpu, 0);
+  CHECK_STATUS(tensora::cpu_backend_internal::EnsureCpuFloat32(bad_dtype, "cpu_internal"), TS_UNSUPPORTED);
+  CHECK_STATUS(tensora::cpu_backend_internal::LogicalValues(source, "cpu_internal", nullptr), TS_INVALID_ARGUMENT);
+  std::vector<float> values;
+  CHECK_STATUS(tensora::cpu_backend_internal::LogicalValues(source, "cpu_internal", &values), TS_OK);
+  CHECK_TRUE(values == std::vector<float>({1.0f, 1.0f}));
 }
 
 void TestDirectArgumentContracts() {
@@ -616,6 +649,7 @@ void TestCheckpointCorruptionContracts() {
 int main() {
   TestAllocationGuardContracts();
   TestIntegerAndStatusContracts();
+  TestCpuBackendInternalContracts();
   TestDirectArgumentContracts();
   TestAutogradInternalContracts();
   TestAutogradReachableEdgeContracts();

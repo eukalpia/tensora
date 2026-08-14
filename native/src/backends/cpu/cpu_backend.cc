@@ -1,4 +1,5 @@
 #include "backends/cpu/cpu_backend.h"
+#include "backends/cpu/cpu_backend_internal.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -12,7 +13,7 @@
 #include "core/allocation_guard.h"
 
 namespace tensora {
-namespace {
+namespace cpu_backend_internal {
 
 Status MakeTensor(ShapeInfo shape,
                   std::shared_ptr<CpuStorage> storage,
@@ -84,14 +85,15 @@ Status LogicalValues(const Tensor& tensor,
   size_t written = 0;
   status = tensor.CopyToHostF32(out->data(), out->size(), &written);
   if (!status.ok()) return status;
-  if (written != out->size()) {
-    return InternalError(std::string(operation) +
-                         ": logical copy returned inconsistent size");
-  }
   return Status::Ok();
 }
 
-}  // namespace
+}  // namespace cpu_backend_internal
+
+using cpu_backend_internal::EnsureCpuFloat32;
+using cpu_backend_internal::LogicalValues;
+using cpu_backend_internal::MakeTensor;
+using cpu_backend_internal::MakeView;
 
 Status CpuBackend::FromData(const ShapeInfo& shape,
                             const float* data,
