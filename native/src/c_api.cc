@@ -8,6 +8,7 @@
 #include <string>
 
 #include "backends/backend.h"
+#include "core/abi_guard.h"
 #include "core/status.h"
 #include "memory/cpu_storage.h"
 #include "runtime/dispatcher.h"
@@ -19,35 +20,6 @@
 namespace tensora {
 namespace {
 
-template <typename Function>
-ts_status_t GuardedAbiCall(const char* operation, Function&& function) noexcept {
-  ClearLastError();
-  try {
-    Status status = function();
-    if (!status.ok()) {
-      if (status.message().empty()) {
-        status = Status(status.code(), std::string(operation) + ": failed");
-      }
-      SetLastError(status);
-    }
-    return status.code();
-  } catch (const std::bad_alloc&) {
-    const Status status =
-        OutOfMemory(std::string(operation) + ": native allocation failed");
-    SetLastError(status);
-    return status.code();
-  } catch (const std::exception& error) {
-    const Status status =
-        InternalError(std::string(operation) + ": " + error.what());
-    SetLastError(status);
-    return status.code();
-  } catch (...) {
-    const Status status =
-        InternalError(std::string(operation) + ": unknown native exception");
-    SetLastError(status);
-    return status.code();
-  }
-}
 
 Status LookupTensor(ts_tensor_t handle, std::shared_ptr<Tensor>* out) {
   return HandleRegistry::Instance().Lookup<Tensor>(
@@ -155,11 +127,11 @@ const char* ts_status_name(int32_t status) {
 }
 
 ts_status_t ts_noop(void) {
-  return tensora::GuardedAbiCall("noop", [] { return tensora::Status::Ok(); });
+  return tensora::AbiGuard("noop", [] { return tensora::Status::Ok(); });
 }
 
 ts_status_t ts_runtime_device_count(uint32_t device, uint32_t* out_count) {
-  return tensora::GuardedAbiCall("runtime_device_count", [&] {
+  return tensora::AbiGuard("runtime_device_count", [&] {
     if (out_count == nullptr) {
       return tensora::InvalidArgument(
           "runtime_device_count: output pointer is null");
@@ -192,7 +164,7 @@ ts_status_t ts_tensor_from_f32(const float* data,
                                const int64_t* dims,
                                size_t rank,
                                ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_from_f32", [&] {
+  return tensora::AbiGuard("tensor_from_f32", [&] {
     if (out_tensor == nullptr) {
       return tensora::InvalidArgument(
           "tensor_from_f32: output handle pointer is null");
@@ -227,7 +199,7 @@ ts_status_t ts_tensor_full_f32(const int64_t* dims,
                                size_t rank,
                                float value,
                                ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_full_f32", [&] {
+  return tensora::AbiGuard("tensor_full_f32", [&] {
     if (out_tensor == nullptr) {
       return tensora::InvalidArgument(
           "tensor_full_f32: output handle pointer is null");
@@ -250,7 +222,7 @@ ts_status_t ts_tensor_full_f32(const int64_t* dims,
 }
 
 ts_status_t ts_tensor_rank(ts_tensor_t tensor, size_t* out_rank) {
-  return tensora::GuardedAbiCall("tensor_rank", [&] {
+  return tensora::AbiGuard("tensor_rank", [&] {
     if (out_rank == nullptr) {
       return tensora::InvalidArgument("tensor_rank: output rank pointer is null");
     }
@@ -267,7 +239,7 @@ ts_status_t ts_tensor_shape(ts_tensor_t tensor,
                             int64_t* out_dims,
                             size_t capacity,
                             size_t* out_rank) {
-  return tensora::GuardedAbiCall("tensor_shape", [&] {
+  return tensora::AbiGuard("tensor_shape", [&] {
     if (out_rank == nullptr) {
       return tensora::InvalidArgument(
           "tensor_shape: output rank pointer is null");
@@ -297,7 +269,7 @@ ts_status_t ts_tensor_shape(ts_tensor_t tensor,
 }
 
 ts_status_t ts_tensor_dtype(ts_tensor_t tensor, uint32_t* out_dtype) {
-  return tensora::GuardedAbiCall("tensor_dtype", [&] {
+  return tensora::AbiGuard("tensor_dtype", [&] {
     if (out_dtype == nullptr) {
       return tensora::InvalidArgument(
           "tensor_dtype: output dtype pointer is null");
@@ -312,7 +284,7 @@ ts_status_t ts_tensor_dtype(ts_tensor_t tensor, uint32_t* out_dtype) {
 }
 
 ts_status_t ts_tensor_device(ts_tensor_t tensor, uint32_t* out_device) {
-  return tensora::GuardedAbiCall("tensor_device", [&] {
+  return tensora::AbiGuard("tensor_device", [&] {
     if (out_device == nullptr) {
       return tensora::InvalidArgument(
           "tensor_device: output device pointer is null");
@@ -328,7 +300,7 @@ ts_status_t ts_tensor_device(ts_tensor_t tensor, uint32_t* out_device) {
 
 ts_status_t ts_tensor_device_index(ts_tensor_t tensor,
                                    int32_t* out_device_index) {
-  return tensora::GuardedAbiCall("tensor_device_index", [&] {
+  return tensora::AbiGuard("tensor_device_index", [&] {
     if (out_device_index == nullptr) {
       return tensora::InvalidArgument(
           "tensor_device_index: output device index pointer is null");
@@ -343,7 +315,7 @@ ts_status_t ts_tensor_device_index(ts_tensor_t tensor,
 }
 
 ts_status_t ts_tensor_numel(ts_tensor_t tensor, uint64_t* out_numel) {
-  return tensora::GuardedAbiCall("tensor_numel", [&] {
+  return tensora::AbiGuard("tensor_numel", [&] {
     if (out_numel == nullptr) {
       return tensora::InvalidArgument(
           "tensor_numel: output numel pointer is null");
@@ -361,7 +333,7 @@ ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
                                 uint32_t device,
                                 int32_t device_index,
                                 ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_to_device", [&] {
+  return tensora::AbiGuard("tensor_to_device", [&] {
     if (out_tensor == nullptr) {
       return tensora::InvalidArgument(
           "tensor_to_device: output handle pointer is null");
@@ -388,7 +360,7 @@ ts_status_t ts_tensor_reshape(ts_tensor_t tensor,
                               const int64_t* dims,
                               size_t rank,
                               ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_reshape", [&] {
+  return tensora::AbiGuard("tensor_reshape", [&] {
     if (out_tensor == nullptr) {
       return tensora::InvalidArgument(
           "tensor_reshape: output handle pointer is null");
@@ -416,7 +388,7 @@ ts_status_t ts_tensor_reshape(ts_tensor_t tensor,
 
 ts_status_t ts_tensor_transpose2d(ts_tensor_t tensor,
                                   ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_transpose2d", [&] {
+  return tensora::AbiGuard("tensor_transpose2d", [&] {
     if (out_tensor == nullptr) {
       return tensora::InvalidArgument(
           "tensor_transpose2d: output handle pointer is null");
@@ -441,7 +413,7 @@ ts_status_t ts_tensor_transpose2d(ts_tensor_t tensor,
 ts_status_t ts_tensor_add(ts_tensor_t left,
                           ts_tensor_t right,
                           ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_add", [&] {
+  return tensora::AbiGuard("tensor_add", [&] {
     return tensora::RunBinaryOperation(
         left, right, out_tensor, "tensor_add", &tensora::Backend::Add);
   });
@@ -450,7 +422,7 @@ ts_status_t ts_tensor_add(ts_tensor_t left,
 ts_status_t ts_tensor_multiply(ts_tensor_t left,
                                ts_tensor_t right,
                                ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_multiply", [&] {
+  return tensora::AbiGuard("tensor_multiply", [&] {
     return tensora::RunBinaryOperation(left, right, out_tensor,
                                        "tensor_multiply",
                                        &tensora::Backend::Multiply);
@@ -458,7 +430,7 @@ ts_status_t ts_tensor_multiply(ts_tensor_t left,
 }
 
 ts_status_t ts_tensor_sum(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_sum", [&] {
+  return tensora::AbiGuard("tensor_sum", [&] {
     if (out_tensor == nullptr) {
       return tensora::InvalidArgument(
           "tensor_sum: output handle pointer is null");
@@ -483,7 +455,7 @@ ts_status_t ts_tensor_sum(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
 ts_status_t ts_tensor_matmul(ts_tensor_t left,
                              ts_tensor_t right,
                              ts_tensor_t* out_tensor) {
-  return tensora::GuardedAbiCall("tensor_matmul", [&] {
+  return tensora::AbiGuard("tensor_matmul", [&] {
     return tensora::RunBinaryOperation(
         left, right, out_tensor, "tensor_matmul", &tensora::Backend::Matmul);
   });
@@ -493,7 +465,7 @@ ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
                                        float* out_values,
                                        size_t capacity,
                                        size_t* out_written) {
-  return tensora::GuardedAbiCall("tensor_copy_to_host_f32", [&] {
+  return tensora::AbiGuard("tensor_copy_to_host_f32", [&] {
     if (out_written == nullptr) {
       return tensora::InvalidArgument(
           "tensor_copy_to_host_f32: output count pointer is null");
@@ -528,21 +500,21 @@ ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
 }
 
 ts_status_t ts_tensor_retain(ts_tensor_t tensor) {
-  return tensora::GuardedAbiCall("tensor_retain", [&] {
+  return tensora::AbiGuard("tensor_retain", [&] {
     return tensora::HandleRegistry::Instance().Retain(
         tensor, tensora::HandleType::kTensor);
   });
 }
 
 ts_status_t ts_tensor_release(ts_tensor_t tensor) {
-  return tensora::GuardedAbiCall("tensor_release", [&] {
+  return tensora::AbiGuard("tensor_release", [&] {
     return tensora::HandleRegistry::Instance().Release(
         tensor, tensora::HandleType::kTensor);
   });
 }
 
 ts_status_t ts_runtime_live_tensor_count(uint64_t* out_count) {
-  return tensora::GuardedAbiCall("runtime_live_tensor_count", [&] {
+  return tensora::AbiGuard("runtime_live_tensor_count", [&] {
     if (out_count == nullptr) {
       return tensora::InvalidArgument(
           "runtime_live_tensor_count: output pointer is null");
@@ -554,7 +526,7 @@ ts_status_t ts_runtime_live_tensor_count(uint64_t* out_count) {
 }
 
 ts_status_t ts_runtime_live_storage_bytes(uint64_t* out_bytes) {
-  return tensora::GuardedAbiCall("runtime_live_storage_bytes", [&] {
+  return tensora::AbiGuard("runtime_live_storage_bytes", [&] {
     if (out_bytes == nullptr) {
       return tensora::InvalidArgument(
           "runtime_live_storage_bytes: output pointer is null");

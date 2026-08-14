@@ -9,6 +9,7 @@
 
 #include "backends/backend.h"
 #include "backends/cpu/cpu_backend.h"
+#include "core/abi_guard.h"
 #include "core/status.h"
 #include "memory/cpu_storage.h"
 #include "runtime/dispatcher.h"
@@ -31,6 +32,42 @@ bool ExpectCode(const Status& status,
   std::cerr << operation << ": expected status " << expected << ", got "
             << status.code() << "\n";
   return false;
+}
+
+
+int TestAbiGuardContracts() {
+  using tensora::AbiGuard;
+  using tensora::InvalidArgument;
+  using tensora::Status;
+
+  if (AbiGuard("abi_ok", [] { return Status::Ok(); }) != TS_OK) return 201;
+  if (AbiGuard("abi_empty", [] { return Status(TS_INVALID_ARGUMENT, ""); }) !=
+      TS_INVALID_ARGUMENT)
+    return 202;
+  if (std::string(tensora::LastErrorMessage()) != "abi_empty: failed") return 203;
+  if (AbiGuard("abi_error", [] { return InvalidArgument("bad input"); }) !=
+      TS_INVALID_ARGUMENT)
+    return 204;
+  if (std::string(tensora::LastErrorMessage()) != "bad input") return 205;
+  if (AbiGuard("abi_alloc", []() -> Status { throw std::bad_alloc(); }) !=
+      TS_OUT_OF_MEMORY)
+    return 206;
+  if (std::string(tensora::LastErrorMessage()).find("native allocation failed") ==
+      std::string::npos)
+    return 207;
+  if (AbiGuard("abi_std", []() -> Status { throw std::runtime_error("boom"); }) !=
+      TS_INTERNAL_ERROR)
+    return 208;
+  if (std::string(tensora::LastErrorMessage()).find("boom") ==
+      std::string::npos)
+    return 209;
+  if (AbiGuard("abi_unknown", []() -> Status { throw 7; }) !=
+      TS_INTERNAL_ERROR)
+    return 210;
+  if (std::string(tensora::LastErrorMessage()).find("unknown native exception") ==
+      std::string::npos)
+    return 211;
+  return 0;
 }
 
 int TestRegistryContracts() {
@@ -235,6 +272,8 @@ int TestCoreContracts() {
 }  // namespace
 
 int main() {
+  const int abi_guard = TestAbiGuardContracts();
+  if (abi_guard != 0) return abi_guard;
   const int registry = TestRegistryContracts();
   if (registry != 0) return registry;
   return TestCoreContracts();
