@@ -1,0 +1,44 @@
+name: Dart Dependency Snapshot
+
+on:
+  push:
+    branches:
+      - work/source-snapshot-20260814
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Package Dart dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: Create dependency archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PUB_CACHE:-}"
+          tar -C "$(dirname "$PUB_CACHE")" -czf /tmp/dart-pub-cache.tar.gz "$(basename "$PUB_CACHE")"
+
+      - name: Upload dependency archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-pub-cache
+          path: /tmp/dart-pub-cache.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
