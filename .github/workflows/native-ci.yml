@@ -72,23 +72,26 @@ jobs:
         shell: bash
         run: |
           set +e
+          mkdir -p build/diagnostics
           ctest --test-dir build/native --build-config ${{ matrix.build_type }} --output-on-failure
           ctest_status=$?
           if [ "$ctest_status" -ne 0 ]; then
-            echo "CTest failed; replaying individual native tests for exact exit codes"
-            for executable in \
-              tensora_native_tests \
-              tensora_handle_registry_tests \
-              tensora_device_codec_tests \
-              tensora_c_abi_tests \
-              tensora_cpu_training_tests \
-              tensora_autograd_finite_difference_tests; do
-              if [ -x "build/native/$executable" ]; then
-                "build/native/$executable"
-                code=$?
-                echo "$executable exit_code=$code"
-              fi
-            done
+            {
+              echo "CTest failed; replaying individual native tests for exact exit codes"
+              for executable in \
+                tensora_native_tests \
+                tensora_handle_registry_tests \
+                tensora_device_codec_tests \
+                tensora_c_abi_tests \
+                tensora_cpu_training_tests \
+                tensora_autograd_finite_difference_tests; do
+                if [ -x "build/native/$executable" ]; then
+                  "build/native/$executable"
+                  code=$?
+                  echo "$executable exit_code=$code"
+                fi
+              done
+            } 2>&1 | tee build/diagnostics/test-replay-${{ matrix.os }}-${{ matrix.build_type }}.log
             exit "$ctest_status"
           fi
 
