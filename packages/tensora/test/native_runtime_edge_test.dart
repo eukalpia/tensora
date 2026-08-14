@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:tensora/src/native/native_runtime.dart';
 import 'package:tensora/tensora.dart';
 import 'package:test/test.dart';
@@ -20,8 +22,12 @@ void main() {
     }
   });
 
-  test('non-Windows processes retain no preloaded module references', () {
-    expect(NativeRuntime.retainedWindowsModuleCount, 0);
+  test('Windows module retention matches the platform contract', () {
+    if (Platform.isWindows) {
+      expect(NativeRuntime.retainedWindowsModuleCount, greaterThan(0));
+    } else {
+      expect(NativeRuntime.retainedWindowsModuleCount, 0);
+    }
   });
 
   test('runtime reports generic device counts', () {
