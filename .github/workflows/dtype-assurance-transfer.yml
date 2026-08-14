@@ -33,7 +33,7 @@ jobs:
             | base64 --decode \
             | gzip --decompress \
             > /tmp/dtype-abi-assurance.patch
-          echo "339504a637abc80360046385052ce75224882a70d101c4a27a39196c71892f56  /tmp/dtype-abi-assurance.patch" \
+          echo "6c076a9ea56ce312e226084fd82e82b4b5fe260bae2fafe8643c11fd4e64fe88  /tmp/dtype-abi-assurance.patch" \
             | sha256sum --check --strict
           git apply --check /tmp/dtype-abi-assurance.patch
 
