@@ -12,6 +12,7 @@
 #include "autograd/autograd.h"
 #include "backends/cpu/cpu_backend.h"
 #include "core/status.h"
+#include "runtime/dispatcher.h"
 #include "memory/tensor_storage.h"
 #include "tensor/shape.h"
 #include "tensor/tensor.h"
@@ -453,6 +454,84 @@ std::vector<unsigned char> ReadBytes(const std::filesystem::path& path) {
                                     std::istreambuf_iterator<char>());
 }
 
+void TestTensorAndStorageSafetyContracts() {
+  using namespace tensora;
+
+  ShapeInfo vector_shape;
+  const int64_t vector_dims[1] = {2};
+  CHECK_STATUS(ValidateShape(vector_dims, 1, &vector_shape), TS_OK);
+  CHECK_STATUS(ValidateShape(vector_dims, 1, nullptr), TS_INVALID_ARGUMENT);
+
+  std::shared_ptr<CpuStorage> storage;
+  CHECK_STATUS(CpuStorage::Filled(2, 1.0f, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(CpuStorage::FromData(nullptr, 1, &storage), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(CpuStorage::FromData(nullptr, 0, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(CpuStorage::Filled(std::numeric_limits<uint64_t>::max(), 0.0f,
+                                  &storage),
+               TS_OUT_OF_MEMORY);
+  const float one = 1.0f;
+  CHECK_STATUS(CpuStorage::FromData(&one, std::numeric_limits<uint64_t>::max(),
+                                    &storage),
+               TS_OUT_OF_MEMORY);
+
+  CHECK_STATUS(CpuStorage::Filled(2, 1.0f, &storage), TS_OK);
+  CHECK_TRUE(storage != nullptr);
+  size_t written = 777;
+  float values[2] = {0.0f, 0.0f};
+  CHECK_STATUS(storage->CopyToHostF32(values, 2, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(storage->CopyToHostF32(values, 1, &written), TS_INVALID_ARGUMENT);
+  CHECK_TRUE(written == 0);
+  CHECK_STATUS(storage->CopyToHostF32(nullptr, 2, &written), TS_INVALID_ARGUMENT);
+  CHECK_TRUE(written == 0);
+
+  Tensor base(vector_shape, storage);
+  CHECK_STATUS(base.CopyToHostF32(values, 2, nullptr), TS_INVALID_ARGUMENT);
+  Tensor bad_dtype(vector_shape, storage, static_cast<DType>(999), Device::kCpu,
+                   0);
+  CHECK_STATUS(bad_dtype.CopyToHostF32(values, 2, &written), TS_UNSUPPORTED);
+  CHECK_STATUS(base.CopyToHostF32(values, 1, &written), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(base.CopyToHostF32(nullptr, 2, &written), TS_INVALID_ARGUMENT);
+
+  const auto inconsistent =
+      std::make_shared<FakeCpuStorage>(vector_shape.byte_size);
+  Tensor inconsistent_tensor(vector_shape, inconsistent);
+  CHECK_STATUS(inconsistent_tensor.CopyToHostF32(values, 2, &written),
+               TS_INTERNAL_ERROR);
+  CHECK_TRUE(written == 0);
+
+  ShapeInfo non_contiguous = vector_shape;
+  non_contiguous.strides[0] = 2;
+  Tensor accelerator_view(non_contiguous, storage, DType::kFloat32,
+                          Device::kCuda, 0);
+  CHECK_STATUS(accelerator_view.CopyToHostF32(values, 2, &written),
+               TS_UNSUPPORTED);
+
+  Tensor fake_cpu_view(non_contiguous, inconsistent);
+  CHECK_STATUS(fake_cpu_view.CopyToHostF32(values, 2, &written), TS_UNSUPPORTED);
+
+  ShapeInfo overflowing_view = vector_shape;
+  overflowing_view.strides[0] = 3;
+  Tensor out_of_storage_view(overflowing_view, storage);
+  CHECK_STATUS(out_of_storage_view.CopyToHostF32(values, 2, &written),
+               TS_INTERNAL_ERROR);
+  CHECK_TRUE(written == 0);
+
+  const Backend* backend = nullptr;
+  CHECK_STATUS(Dispatcher::For(Device::kCpu, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(Dispatcher::For(Device::kCpu, &backend), TS_OK);
+  CHECK_TRUE(backend != nullptr);
+  CHECK_STATUS(Dispatcher::For(static_cast<Device>(999), &backend), TS_UNSUPPORTED);
+  CHECK_TRUE(backend == nullptr);
+  CHECK_STATUS(Dispatcher::ForTensor(base, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(Dispatcher::ForTensor(base, &backend), TS_OK);
+  CHECK_TRUE(backend != nullptr);
+
+  Tensor other_device(vector_shape, storage, DType::kFloat32, Device::kCpu, 1);
+  CHECK_STATUS(Dispatcher::ForTensors(base, other_device, &backend),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(Dispatcher::ForTensors(base, base, nullptr), TS_INVALID_ARGUMENT);
+}
+
 void TestCheckpointCorruptionContracts() {
   using namespace tensora::training;
   namespace fs = std::filesystem;
@@ -511,6 +590,7 @@ int main() {
   TestDirectArgumentContracts();
   TestAutogradInternalContracts();
   TestAutogradReachableEdgeContracts();
+  TestTensorAndStorageSafetyContracts();
   TestCheckpointCorruptionContracts();
 
   if (failures != 0) {

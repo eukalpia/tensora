@@ -1,7 +1,7 @@
 #include "memory/cpu_storage.h"
 
 #include <algorithm>
-#include <new>
+#include <exception>
 
 namespace tensora {
 
@@ -25,7 +25,7 @@ Status CpuStorage::Filled(uint64_t numel,
     std::vector<float> values(static_cast<size_t>(numel), value);
     *out = std::shared_ptr<CpuStorage>(new CpuStorage(std::move(values)));
     return Status::Ok();
-  } catch (const std::bad_alloc&) {
+  } catch (const std::exception&) {
     return OutOfMemory("cpu storage: allocation failed");
   }
 }
@@ -44,7 +44,7 @@ Status CpuStorage::FromData(const float* data,
     std::copy_n(data, static_cast<size_t>(numel), values.begin());
     *out = std::shared_ptr<CpuStorage>(new CpuStorage(std::move(values)));
     return Status::Ok();
-  } catch (const std::bad_alloc&) {
+  } catch (const std::exception&) {
     return OutOfMemory("cpu storage: allocation failed");
   }
 }
