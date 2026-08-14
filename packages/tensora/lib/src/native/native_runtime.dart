@@ -8,6 +8,9 @@ import '../dtype/dtype.dart';
 import '../errors/tensora_exception.dart';
 import '../shape/shape.dart';
 import 'native_bindings.dart';
+import 'native_device_codec.dart';
+import 'native_library_path.dart';
+import 'native_windows_loader_state.dart';
 
 typedef _LoadLibraryExWNative =
     Pointer<Void> Function(
@@ -41,10 +44,6 @@ final class NativeRuntime {
   static const int _loadLibrarySearchDefaultDirs = 0x00001000;
 
   static NativeRuntime? _instance;
-
-  // LoadLibraryEx owns one module reference. Keep it for the process lifetime so
-  // Windows cannot unload the dependency graph before the Dart DynamicLibrary.
-  static final List<Pointer<Void>> _windowsPreloadedModules = <Pointer<Void>>[];
 
   static NativeRuntime get instance => _instance ??= _load();
 
@@ -107,7 +106,7 @@ final class NativeRuntime {
           operation: 'runtime.load',
         );
       }
-      _windowsPreloadedModules.add(handle);
+      windowsPreloadedModules.add(handle);
     } finally {
       calloc.free(nativePath);
     }
@@ -119,15 +118,7 @@ final class NativeRuntime {
     if (override != null && override.trim().isNotEmpty) {
       return override;
     }
-
-    if (Platform.isLinux) return 'libtensora_native.so';
-    if (Platform.isMacOS) return 'libtensora_native.dylib';
-    if (Platform.isWindows) return 'tensora_native.dll';
-
-    throw UnsupportedOperationException(
-      'Native runtime discovery supports Linux, macOS, and Windows.',
-      operation: 'runtime.load',
-    );
+    return nativeLibraryNameForOperatingSystem(Platform.operatingSystem);
   }
 
   int createFromList(List<num> values, Shape shape) {
@@ -161,7 +152,7 @@ final class NativeRuntime {
     'tensor.to',
     (out) => _bindings.tensorToDevice(
       handle,
-      _deviceCode(device),
+      nativeDeviceCode(device),
       device.index,
       out,
     ),
@@ -344,7 +335,7 @@ final class NativeRuntime {
     final value = calloc<Uint32>();
     try {
       _check(
-        _bindings.runtimeDeviceCount(_deviceCode(device), value),
+        _bindings.runtimeDeviceCount(nativeDeviceCode(device), value),
         'runtime.deviceCount',
       );
       return value.value;
@@ -417,15 +408,6 @@ final class NativeRuntime {
     } finally {
       calloc.free(value);
     }
-  }
-
-  static int _deviceCode(Device device) {
-    if (device.isCpu) return 1;
-    if (device.isCuda) return 2;
-    if (device.isMps) return 3;
-    if (device.isXpu) return 4;
-    if (device.isHip) return 5;
-    throw UnsupportedError('Unknown Tensora device $device.');
   }
 
   int _newHandle(String operation, int Function(Pointer<Uint64> out) call) {

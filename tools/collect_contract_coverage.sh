@@ -17,3 +17,8 @@ TENSORA_NATIVE_LIBRARY="$fixture" \
   dart test integration_test/native_contract_fixture_test.dart \
   --coverage-path=coverage/native-contract.info \
   --reporter expanded
+
+TENSORA_NATIVE_LIBRARY="$fixture" \
+  dart test integration_test/native_contract_completion_test.dart \
+  --coverage-path=coverage/native-contract-completion.info \
+  --reporter expanded
