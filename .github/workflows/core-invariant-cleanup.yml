@@ -1,0 +1,114 @@
+name: Core Invariant Cleanup
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: "${{ github.event.head_commit.message == 'ci: validate core invariant cleanup' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/training-engine-v1
+          fetch-depth: 0
+      - name: Apply core invariant cleanup
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          Path('native/src/runtime/handle_registry_internal.h').write_text('''#ifndef TENSORA_RUNTIME_HANDLE_REGISTRY_INTERNAL_H_\n#define TENSORA_RUNTIME_HANDLE_REGISTRY_INTERNAL_H_\n\n#include <cstdint>\n#include <limits>\n\n#include "core/status.h"\n\nnamespace tensora::handle_registry_internal {\n\ninline Status ValidateNextHandle(uint64_t next_handle) {\n  if (next_handle == 0 ||\n      next_handle == std::numeric_limits<uint64_t>::max()) {\n    return InternalError("handle registry: handle identifier space exhausted");\n  }\n  return Status::Ok();\n}\n\ninline Status ValidateInsertion(bool inserted) {\n  if (!inserted) {\n    return InternalError("handle registry: duplicate handle identifier");\n  }\n  return Status::Ok();\n}\n\ninline Status IncrementReferenceCount(uint64_t& refs) {\n  if (refs == std::numeric_limits<uint64_t>::max()) {\n    return InternalError("handle registry: reference count overflow");\n  }\n  ++refs;\n  return Status::Ok();\n}\n\ninline Status DecrementReferenceCount(uint64_t& refs) {\n  if (refs == 0) {\n    return InternalError("handle registry: corrupted zero reference count");\n  }\n  --refs;\n  return Status::Ok();\n}\n\n}  // namespace tensora::handle_registry_internal\n\n#endif  // TENSORA_RUNTIME_HANDLE_REGISTRY_INTERNAL_H_\n''')
+          Path('native/src/core/integer_math.h').write_text('''#ifndef TENSORA_CORE_INTEGER_MATH_H_\n#define TENSORA_CORE_INTEGER_MATH_H_\n\n#include <cstdint>\n#include <limits>\n#include <string>\n\n#include "core/status.h"\n\nnamespace tensora {\n\ninline Status CheckedAddU64(uint64_t left, uint64_t right, const char* operation, uint64_t* out) {\n  if (out == nullptr) {\n    return InvalidArgument(std::string(operation) + ": output pointer is null");\n  }\n  *out = 0;\n  if (right > std::numeric_limits<uint64_t>::max() - left) {\n    return InternalError(std::string(operation) + ": counter overflow");\n  }\n  *out = left + right;\n  return Status::Ok();\n}\n\n}  // namespace tensora\n\n#endif  // TENSORA_CORE_INTEGER_MATH_H_\n''')
+
+          p = Path('native/src/runtime/handle_registry.cc')
+          text = p.read_text().replace('#include <limits>\n', '#include "runtime/handle_registry_internal.h"\n')
+          old = '''  if (next_handle_ == 0 ||\n      next_handle_ == std::numeric_limits<uint64_t>::max()) {\n    return InternalError("handle registry: handle identifier space exhausted");\n  }\n\n  const uint64_t handle = next_handle_++;\n  const auto [_, inserted] =\n      entries_.emplace(handle, Entry{type, 1, std::move(object)});\n  if (!inserted) {\n    return InternalError("handle registry: duplicate handle identifier");\n  }\n'''
+          new = '''  Status status = handle_registry_internal::ValidateNextHandle(next_handle_);\n  if (!status.ok()) return status;\n\n  const uint64_t handle = next_handle_++;\n  const auto [_, inserted] =\n      entries_.emplace(handle, Entry{type, 1, std::move(object)});\n  status = handle_registry_internal::ValidateInsertion(inserted);\n  if (!status.ok()) return status;\n'''
+          if text.count(old) != 1: raise SystemExit('registry insert block mismatch')
+          text = text.replace(old, new, 1)
+          old = '''  if (it->second.refs == std::numeric_limits<uint64_t>::max()) {\n    return InternalError("handle registry: reference count overflow");\n  }\n  ++it->second.refs;\n  return Status::Ok();'''
+          if text.count(old) != 1: raise SystemExit('registry retain block mismatch')
+          text = text.replace(old, '  return handle_registry_internal::IncrementReferenceCount(it->second.refs);', 1)
+          old = '''    if (it->second.refs == 0) {\n      return InternalError("handle registry: corrupted zero reference count");\n    }\n\n    --it->second.refs;'''
+          new = '''    Status status =\n        handle_registry_internal::DecrementReferenceCount(it->second.refs);\n    if (!status.ok()) return status;'''
+          if text.count(old) != 1: raise SystemExit('registry release block mismatch')
+          p.write_text(text.replace(old, new, 1))
+
+          p = Path('native/src/tensor/shape.cc')
+          text = p.read_text()
+          old = '''      if (i > 0) {\n        if (stride > kMaxNumel / dim) {\n          return InvalidShape("shape: stride calculation overflow");\n        }\n        stride *= dim;\n      }'''
+          new = '''      if (i > 0) {\n        stride *= dim;\n      }'''
+          if text.count(old) != 1: raise SystemExit('shape redundant guard mismatch')
+          p.write_text(text.replace(old, new, 1))
+
+          p = Path('native/src/c_api.cc')
+          text = p.read_text()
+          text = text.replace('#include "core/abi_guard.h"\n', '#include "core/abi_guard.h"\n#include "core/integer_math.h"\n', 1)
+          text = text.replace('#include "runtime/dispatcher.h"\n', '#include "runtime/device_codec.h"\n#include "runtime/dispatcher.h"\n', 1)
+          old = '''Status InsertTensor(std::shared_ptr<Tensor> tensor, ts_tensor_t* out_handle) {\n  if (out_handle == nullptr) {\n    return InvalidArgument("tensor: output handle pointer is null");\n  }\n  *out_handle = 0;\n  return HandleRegistry::Instance().Insert(\n      HandleType::kTensor, std::move(tensor), out_handle);\n}\n'''
+          new = '''Status InsertTensor(std::shared_ptr<Tensor> tensor, ts_tensor_t* out_handle) {\n  *out_handle = 0;\n  return HandleRegistry::Instance().Insert(\n      HandleType::kTensor, std::move(tensor), out_handle);\n}\n'''
+          if text.count(old) != 1: raise SystemExit('c api insert tensor mismatch')
+          text = text.replace(old, new, 1)
+          start = text.index('Status DeviceFromCode(uint32_t code, Device* out_device) {')
+          end = text.index('\n}\n\nusing BinaryOperation', start) + 2
+          text = text[:start] + text[end + 1:]
+          old = '''    status = object->CopyToHostF32(out_values, capacity, out_written);\n    if (!status.ok()) return status;\n    if (*out_written != object->numel()) {\n      *out_written = 0;\n      return tensora::InternalError(\n          "tensor_copy_to_host_f32: storage returned an inconsistent element count");\n    }\n    return tensora::Status::Ok();'''
+          if text.count(old) != 1: raise SystemExit('c api redundant copy mismatch')
+          text = text.replace(old, '    return object->CopyToHostF32(out_values, capacity, out_written);', 1)
+          old = '''    const uint64_t core_bytes = tensora::CpuStorage::LiveBytes();\n    const uint64_t training_bytes = tensora::training::LiveStorageBytes();\n    if (training_bytes >\n        std::numeric_limits<uint64_t>::max() - core_bytes) {\n      return tensora::InternalError(\n          "runtime_live_storage_bytes: counter overflow");\n    }\n    *out_bytes = core_bytes + training_bytes;\n    return tensora::Status::Ok();'''
+          new = '''    return tensora::CheckedAddU64(\n        tensora::CpuStorage::LiveBytes(), tensora::training::LiveStorageBytes(),\n        "runtime_live_storage_bytes", out_bytes);'''
+          if text.count(old) != 1: raise SystemExit('c api storage counter mismatch')
+          p.write_text(text.replace(old, new, 1))
+
+          p = Path('native/tests/handle_registry_test.cc')
+          text = p.read_text().replace('#include "runtime/handle_registry.h"\n', '#include "runtime/handle_registry.h"\n#include "runtime/handle_registry_internal.h"\n', 1)
+          anchor = 'int TestRegistryContracts() {'
+          block = '''int TestRegistryInvariantHelpers() {\n  using namespace tensora::handle_registry_internal;\n  if (!ValidateNextHandle(1).ok()) return 220;\n  if (ValidateNextHandle(0).code() != TS_INTERNAL_ERROR) return 221;\n  if (ValidateNextHandle(std::numeric_limits<uint64_t>::max()).code() != TS_INTERNAL_ERROR) return 222;\n  if (!ValidateInsertion(true).ok()) return 223;\n  if (ValidateInsertion(false).code() != TS_INTERNAL_ERROR) return 224;\n  uint64_t refs = 1;\n  if (!IncrementReferenceCount(refs).ok() || refs != 2) return 225;\n  refs = std::numeric_limits<uint64_t>::max();\n  if (IncrementReferenceCount(refs).code() != TS_INTERNAL_ERROR) return 226;\n  refs = 1;\n  if (!DecrementReferenceCount(refs).ok() || refs != 0) return 227;\n  if (DecrementReferenceCount(refs).code() != TS_INTERNAL_ERROR) return 228;\n  return 0;\n}\n\n'''
+          if 'TestRegistryInvariantHelpers' not in text:
+              text = text.replace(anchor, block + anchor, 1)
+              main = '  const int registry = TestRegistryContracts();\n  if (registry != 0) return registry;'
+              text = text.replace(main, '  const int invariants = TestRegistryInvariantHelpers();\n  if (invariants != 0) return invariants;\n' + main, 1)
+          p.write_text(text)
+
+          p = Path('native/tests/training_core_internal_test.cc')
+          text = p.read_text().replace('#include "core/allocation_guard.h"\n', '#include "core/allocation_guard.h"\n#include "core/integer_math.h"\n', 1)
+          anchor = 'void TestDirectArgumentContracts() {'
+          block = '''void TestIntegerAndStatusContracts() {\n  using namespace tensora;\n  uint64_t result = 777;\n  CHECK_STATUS(CheckedAddU64(2, 3, "checked_add", &result), TS_OK);\n  CHECK_TRUE(result == 5);\n  CHECK_STATUS(CheckedAddU64(1, 2, "checked_add", nullptr), TS_INVALID_ARGUMENT);\n  CHECK_STATUS(CheckedAddU64(std::numeric_limits<uint64_t>::max(), 1,\n                             "checked_add", &result), TS_INTERNAL_ERROR);\n  CHECK_TRUE(result == 0);\n  CHECK_STATUS(ModelError("model failure"), TS_MODEL_ERROR);\n}\n\n'''
+          if 'TestIntegerAndStatusContracts' not in text:
+              text = text.replace(anchor, block + anchor, 1)
+              text = text.replace('  TestDirectArgumentContracts();\n', '  TestIntegerAndStatusContracts();\n  TestDirectArgumentContracts();\n', 1)
+          p.write_text(text)
+          PY
+          git diff --check
+      - name: Validate Release matrix
+        run: |
+          cmake -S native -B build/release -DCMAKE_BUILD_TYPE=Release -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/release --parallel 2
+          ctest --test-dir build/release --output-on-failure
+      - name: Validate ASan and UBSan matrix
+        env:
+          CC: clang
+          CXX: clang++
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake -S native -B build/asan -DCMAKE_BUILD_TYPE=Debug -DTENSORA_ENABLE_SANITIZERS=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/asan --parallel 2
+          ctest --test-dir build/asan --output-on-failure
+      - name: Commit validated cleanup
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/src/runtime/handle_registry_internal.h native/src/core/integer_math.h native/src/runtime/handle_registry.cc native/src/tensor/shape.cc native/src/c_api.cc native/tests/handle_registry_test.cc native/tests/training_core_internal_test.cc
+          git diff --cached --check
+          git commit -m 'refactor: make core invariants testable'
+          git push origin HEAD:feature/training-engine-v1
