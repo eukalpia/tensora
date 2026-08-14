@@ -169,11 +169,23 @@ inline Status MakeCpuTensor(const ShapeInfo& shape,
   if (values.size() != static_cast<size_t>(shape.numel)) {
     return InternalError("autograd: gradient value count does not match shape");
   }
+
+  ShapeInfo materialized_shape;
+  const int64_t* dimensions =
+      shape.dimensions.empty() ? nullptr : shape.dimensions.data();
+  Status status =
+      ValidateShape(dimensions, shape.dimensions.size(), &materialized_shape);
+  if (!status.ok() || materialized_shape.numel != shape.numel) {
+    return InternalError(
+        "autograd: could not canonicalize materialized gradient shape");
+  }
+
   std::shared_ptr<CpuStorage> storage;
-  Status status = CpuStorage::FromData(values.data(), shape.numel, &storage);
+  status = CpuStorage::FromData(values.data(), shape.numel, &storage);
   if (!status.ok()) return status;
   try {
-    *out = std::make_shared<Tensor>(shape, std::move(storage));
+    *out = std::make_shared<Tensor>(std::move(materialized_shape),
+                                    std::move(storage));
     return Status::Ok();
   } catch (const std::bad_alloc&) {
     return OutOfMemory("autograd: tensor allocation failed");

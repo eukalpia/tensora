@@ -516,8 +516,7 @@ ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
           "tensor_copy_to_host_f32: output values pointer is null");
     }
 
-    status = object->storage()->CopyToHostF32(
-        out_values, capacity, out_written);
+    status = object->CopyToHostF32(out_values, capacity, out_written);
     if (!status.ok()) return status;
     if (*out_written != object->numel()) {
       *out_written = 0;

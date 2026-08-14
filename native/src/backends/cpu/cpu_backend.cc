@@ -19,8 +19,24 @@ Status MakeTensor(ShapeInfo shape,
   if (out == nullptr) {
     return InvalidArgument("cpu backend: output tensor pointer is null");
   }
+  if (!storage) {
+    return InvalidArgument("cpu backend: materialized tensor storage is null");
+  }
+
+  ShapeInfo materialized_shape;
+  const int64_t* dimensions =
+      shape.dimensions.empty() ? nullptr : shape.dimensions.data();
+  Status status =
+      ValidateShape(dimensions, shape.dimensions.size(), &materialized_shape);
+  if (!status.ok() || materialized_shape.numel != shape.numel ||
+      storage->numel() != shape.numel) {
+    return InternalError(
+        "cpu backend: materialized tensor shape/storage contract is invalid");
+  }
+
   try {
-    *out = std::make_shared<Tensor>(std::move(shape), std::move(storage));
+    *out = std::make_shared<Tensor>(std::move(materialized_shape),
+                                    std::move(storage));
     return Status::Ok();
   } catch (const std::bad_alloc&) {
     return OutOfMemory("cpu backend: tensor object allocation failed");
