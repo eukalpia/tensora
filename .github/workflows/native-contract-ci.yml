@@ -31,7 +31,29 @@ jobs:
         working-directory: packages/tensora
         run: dart pub get
 
+      - name: Format contract tests
+        run: >-
+          dart format
+          packages/tensora/integration_test/native_contract_completion_test.dart
+          packages/tensora/integration_test/native_contract_fixture_test.dart
+
+      - name: Verify contract test formatting
+        id: format_check
+        run: git diff --exit-code -- packages/tensora/integration_test/native_contract_completion_test.dart packages/tensora/integration_test/native_contract_fixture_test.dart
+
+      - name: Upload canonical formatted contract tests
+        if: failure() && steps.format_check.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-formatted-contract-tests
+          path: |
+            packages/tensora/integration_test/native_contract_completion_test.dart
+            packages/tensora/integration_test/native_contract_fixture_test.dart
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Run native contract suite
+        if: success()
         run: bash tools/collect_contract_coverage.sh
 
       - name: Upload contract coverage
@@ -39,6 +61,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-contract-coverage
-          path: packages/tensora/coverage/native-contract.info
+          path: |
+            packages/tensora/coverage/native-contract.info
+            packages/tensora/coverage/native-contract-completion.info
           if-no-files-found: warn
           retention-days: 7
