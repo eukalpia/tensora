@@ -1,0 +1,40 @@
+name: Source Snapshot
+
+on:
+  push:
+    branches:
+      - work/source-snapshot-20260814
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Package repository source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Create source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=build \
+            --exclude='**/.dart_tool' \
+            --exclude='**/coverage' \
+            -czf /tmp/tensora-source.tar.gz .
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-source
+          path: /tmp/tensora-source.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
