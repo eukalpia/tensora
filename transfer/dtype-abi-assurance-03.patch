@@ -1,0 +1,1264 @@
+ {
++  (void)session;
++  return write_string("profile.json", out_path, capacity, out_required);
++}
++
++ts_status_t ts_onnx_session_release(ts_onnx_session_t session) {
++  (void)session;
++  ++g_release_count;
++  if (g_live_sessions > 0) --g_live_sessions;
++  return TS_OK;
++}
++
++ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
++                                       float* out_values,
++                                       size_t capacity,
++                                       size_t* out_written) {
++  (void)tensor;
++  if (out_written == NULL) return TS_INVALID_ARGUMENT;
++  if (capacity > 0 && out_values != NULL) out_values[0] = 1.0f;
++  *out_written = capacity;
++  return TS_OK;
++}
++
++ts_status_t ts_tensor_retain(ts_tensor_t tensor) {
++  (void)tensor;
++  ++g_live_tensors;
++  return TS_OK;
++}
++
++ts_status_t ts_tensor_release(ts_tensor_t tensor) {
++  (void)tensor;
++  ++g_release_count;
++  if (g_live_tensors > 0) --g_live_tensors;
++  return TS_OK;
++}
++
++ts_status_t ts_runtime_live_tensor_count(uint64_t* out_count) {
++  if (out_count == NULL) return TS_INVALID_ARGUMENT;
++  *out_count = g_live_tensors;
++  return TS_OK;
++}
++
++ts_status_t ts_runtime_live_storage_bytes(uint64_t* out_bytes) {
++  if (out_bytes == NULL) return TS_INVALID_ARGUMENT;
++  *out_bytes = g_live_tensors * sizeof(float);
++  return TS_OK;
++}
++
++ts_status_t ts_runtime_live_module_count(uint64_t* out_count) {
++  if (out_count == NULL) return TS_INVALID_ARGUMENT;
++  *out_count = g_live_modules;
++  return TS_OK;
++}
++
++ts_status_t ts_runtime_live_optimizer_count(uint64_t* out_count) {
++  if (out_count == NULL) return TS_INVALID_ARGUMENT;
++  *out_count = g_live_optimizers;
++  return TS_OK;
++}
++
++ts_status_t ts_runtime_live_onnx_session_count(uint64_t* out_count) {
++  if (out_count == NULL) return TS_INVALID_ARGUMENT;
++  *out_count = g_live_sessions;
++  return TS_OK;
++}
+diff --git a/packages/tensora/README.md b/packages/tensora/README.md
+index bc7c674..df5a836 100644
+--- a/packages/tensora/README.md
++++ b/packages/tensora/README.md
+@@ -2,7 +2,10 @@
+ 
+ Core Dart API for the Tensora native machine-learning runtime.
+ 
+-The package is pre-1.0 and currently exposes native-backed float32 tensors, optional LibTorch training, optional ONNX Runtime inference, explicit device/provider selection, and deterministic native resource ownership.
++The package is pre-1.0 and currently exposes centralized dtype semantics,
++native-backed float32 tensors, optional LibTorch training, optional ONNX
++Runtime inference, explicit device/provider selection, and deterministic native
++resource ownership.
+ 
+ ## Requirements
+ 
+@@ -36,7 +39,10 @@ Implemented public tensor features include:
+ - `toList()`
+ - deterministic `dispose()`
+ 
+-Only `DType.float32` is currently public.
++`DType` defines stable metadata and promotion semantics for `float16`,
++`bfloat16`, `float32`, `float64`, `int8`, `uint8`, `int16`, `int32`, `int64`,
++and `boolean`. Native tensor allocation and numerical kernels currently accept
++only `DType.float32`; every other dtype fails explicitly before native work.
+ 
+ Devices are represented as:
+ 
+@@ -158,7 +164,7 @@ The Dart bridge validates native ABI version **4** before using the runtime.
+ 
+ ## Not implemented yet
+ 
+-- additional public dtypes;
++- native storage and numerical kernels for dtypes other than `float32`;
+ - Flutter/mobile runtime integration;
+ - `.tmodel` packaging/runtime;
+ - universal broadcasting/views;
+diff --git a/packages/tensora/integration_test/native_abi_fault_integration_test.dart b/packages/tensora/integration_test/native_abi_fault_integration_test.dart
+new file mode 100644
+index 0000000..cc3fb6e
+--- /dev/null
++++ b/packages/tensora/integration_test/native_abi_fault_integration_test.dart
+@@ -0,0 +1,25 @@
++import 'package:tensora/src/native/native_runtime.dart';
++import 'package:tensora/tensora.dart';
++import 'package:test/test.dart';
++
++import 'support/fault_runtime_control.dart';
++
++void main() {
++  test('ABI mismatch is rejected before runtime use', () {
++    final control = FaultRuntimeControl.fromEnvironment();
++    control.setMode(FaultMode.abiMismatch);
++
++    expect(
++      () => NativeRuntime.instance,
++      throwsA(
++        isA<NativeRuntimeException>()
++            .having((error) => error.operation, 'operation', 'runtime.load')
++            .having(
++              (error) => error.message,
++              'message',
++              contains('Incompatible Tensora native ABI'),
++            ),
++      ),
++    );
++  });
++}
+diff --git a/packages/tensora/integration_test/native_inference_fault_integration_test.dart b/packages/tensora/integration_test/native_inference_fault_integration_test.dart
+new file mode 100644
+index 0000000..608ccd1
+--- /dev/null
++++ b/packages/tensora/integration_test/native_inference_fault_integration_test.dart
+@@ -0,0 +1,205 @@
++import 'package:tensora/src/native/finalizer_callbacks.dart';
++import 'package:tensora/src/native/native_inference_runtime.dart';
++import 'package:tensora/tensora.dart';
++import 'package:test/test.dart';
++
++import 'support/fault_runtime_control.dart';
++
++void main() {
++  final control = FaultRuntimeControl.fromEnvironment();
++  control.setMode(FaultMode.normal);
++  final runtime = NativeInferenceRuntime.instance;
++
++  tearDown(() => control.setMode(FaultMode.normal));
++
++  test('inference status mapping preserves typed failures', () {
++    final cases = <(int, Matcher)>[
++      (FaultMode.invalidShapeStatus, isA<InvalidShapeException>()),
++      (FaultMode.outOfMemory, isA<OutOfMemoryException>()),
++      (
++        FaultMode.unknownStatus,
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('Unknown native status 99'),
++        ),
++      ),
++    ];
++
++    for (final entry in cases) {
++      control.setMode(entry.$1);
++      expect(() => runtime.available(), throwsA(entry.$2));
++    }
++
++    control.setMode(FaultMode.nullDiagnostic);
++    expect(
++      () => runtime.available(),
++      throwsA(
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('without a diagnostic'),
++        ),
++      ),
++    );
++  });
++
++  test('session finalizer callback delegates to native release', () {
++    control.resetCounters();
++    releaseOnnxSessionFromFinalizer(91);
++    expect(control.releaseCount, 1);
++  });
++
++  test('successful session creation must return a non-zero handle', () {
++    control.setMode(FaultMode.nullSessionHandle);
++    expect(
++      () => runtime.createSession(
++        'model.onnx',
++        enableProfiling: false,
++        profilingPrefix: null,
++      ),
++      throwsA(
++        isA<NativeRuntimeException>()
++            .having(
++              (error) => error.operation,
++              'operation',
++              'onnx.session.create',
++            )
++            .having(
++              (error) => error.message,
++              'message',
++              contains('null ONNX session handle'),
++            ),
++      ),
++    );
++  });
++
++  test('UTF-8 metadata size contracts cannot change between calls', () {
++    control.setMode(FaultMode.invalidUtf8Size);
++    expect(
++      runtime.providers,
++      throwsA(
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('invalid UTF-8 buffer size'),
++        ),
++      ),
++    );
++
++    control.setMode(FaultMode.changedUtf8Size);
++    expect(
++      runtime.providers,
++      throwsA(
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('size changed'),
++        ),
++      ),
++    );
++  });
++
++  test(
++    'output count mismatch releases outputs already returned by native code',
++    () {
++      control.resetCounters();
++      control.setMode(FaultMode.outputCountMismatch);
++
++      expect(
++        () => runtime.run(
++          1,
++          inputNames: const [],
++          inputHandles: const [],
++          outputNames: const ['Y0', 'Y1'],
++        ),
++        throwsA(
++          isA<NativeRuntimeException>()
++              .having(
++                (error) => error.operation,
++                'operation',
++                'onnx.session.run',
++              )
++              .having(
++                (error) => error.message,
++                'message',
++                contains('returned 1 ONNX outputs; expected 2'),
++              ),
++        ),
++      );
++      expect(control.releaseCount, 1);
++    },
++  );
++
++  test(
++    'explicit provider mismatch is rejected without leaking the session',
++    () {
++      control.resetCounters();
++      control.setMode(FaultMode.providerMismatch);
++
++      expect(
++        () => OnnxSession('model.onnx', provider: OnnxExecutionProvider.cuda),
++        throwsA(
++          isA<NativeRuntimeException>()
++              .having(
++                (error) => error.operation,
++                'operation',
++                'onnx.session.create',
++              )
++              .having(
++                (error) => error.message,
++                'message',
++                contains('selected CPUExecutionProvider'),
++              ),
++        ),
++      );
++      expect(control.releaseCount, 1);
++    },
++  );
++
++  test('sessions without outputs are rejected transactionally', () {
++    control.resetCounters();
++    control.setMode(FaultMode.noOutputs);
++
++    expect(
++      () => OnnxSession('model.onnx'),
++      throwsA(
++        isA<ModelRuntimeException>()
++            .having(
++              (error) => error.operation,
++              'operation',
++              'onnx.session.create',
++            )
++            .having(
++              (error) => error.message,
++              'message',
++              'ONNX model exposes no outputs.',
++            ),
++      ),
++    );
++    expect(control.releaseCount, 1);
++  });
++
++  test('partial output adoption disposes and releases every native tensor', () {
++    control.resetCounters();
++    control.setMode(FaultMode.outputAdoptionFailure);
++    final input = Tensor.ones(Shape([1]));
++    final session = OnnxSession('model.onnx');
++    try {
++      expect(
++        () => session.run({'X': input}),
++        throwsA(
++          isA<NativeRuntimeException>().having(
++            (error) => error.operation,
++            'operation',
++            'tensor.dtype',
++          ),
++        ),
++      );
++      expect(control.releaseCount, 3);
++    } finally {
++      session.dispose();
++      input.dispose();
++    }
++  });
++}
+diff --git a/packages/tensora/integration_test/native_runtime_fault_integration_test.dart b/packages/tensora/integration_test/native_runtime_fault_integration_test.dart
+new file mode 100644
+index 0000000..065c43b
+--- /dev/null
++++ b/packages/tensora/integration_test/native_runtime_fault_integration_test.dart
+@@ -0,0 +1,178 @@
++import 'package:tensora/src/native/finalizer_callbacks.dart';
++import 'package:tensora/src/native/native_runtime.dart';
++import 'package:tensora/tensora.dart';
++import 'package:test/test.dart';
++
++import 'support/fault_runtime_control.dart';
++
++void main() {
++  final control = FaultRuntimeControl.fromEnvironment();
++  control.setMode(FaultMode.normal);
++  final runtime = NativeRuntime.instance;
++
++  tearDown(() => control.setMode(FaultMode.normal));
++
++  test('core status mapping preserves typed errors and diagnostics', () {
++    final cases = <(int, Matcher)>[
++      (FaultMode.invalidArgument, isA<InvalidArgumentException>()),
++      (FaultMode.outOfMemory, isA<OutOfMemoryException>()),
++      (FaultMode.internalError, isA<NativeRuntimeException>()),
++      (
++        FaultMode.unknownStatus,
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('Unknown native status 99'),
++        ),
++      ),
++    ];
++
++    for (final entry in cases) {
++      control.setMode(entry.$1);
++      expect(() => runtime.noop(), throwsA(entry.$2));
++    }
++
++    control.setMode(FaultMode.nullDiagnostic);
++    expect(
++      () => runtime.noop(),
++      throwsA(
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('without a diagnostic'),
++        ),
++      ),
++    );
++  });
++
++  test('tensor finalizer callback delegates to native release', () {
++    control.resetCounters();
++    releaseTensorFromFinalizer(77);
++    expect(control.releaseCount, 1);
++  });
++
++  test('successful tensor creation must return a non-zero handle', () {
++    control.setMode(FaultMode.nullTensorHandle);
++    expect(
++      () => runtime.full(Shape([1]), 0),
++      throwsA(
++        isA<NativeRuntimeException>()
++            .having((error) => error.operation, 'operation', 'tensor.full')
++            .having(
++              (error) => error.message,
++              'message',
++              contains('null tensor handle'),
++            ),
++      ),
++    );
++  });
++
++  test('shape metadata violations are rejected explicitly', () {
++    final cases = <(int, String)>[
++      (FaultMode.rankAboveLimit, 'rank 65 above'),
++      (FaultMode.scalarRankChanged, 'rank changed'),
++      (FaultMode.rankChanged, 'rank changed'),
++      (FaultMode.invalidShapeMetadata, 'invalid shape metadata'),
++    ];
++
++    for (final entry in cases) {
++      control.setMode(entry.$1);
++      expect(
++        () => runtime.shape(1),
++        throwsA(
++          isA<NativeRuntimeException>()
++              .having((error) => error.operation, 'operation', 'tensor.shape')
++              .having((error) => error.message, 'message', contains(entry.$2)),
++        ),
++      );
++    }
++  });
++
++  test('every stable native dtype code decodes at the ABI boundary', () {
++    final cases = <(int, DType)>[
++      (FaultMode.dtypeFloat16, DType.float16),
++      (FaultMode.dtypeBFloat16, DType.bfloat16),
++      (FaultMode.dtypeFloat64, DType.float64),
++      (FaultMode.dtypeInt8, DType.int8),
++      (FaultMode.dtypeUint8, DType.uint8),
++      (FaultMode.dtypeInt16, DType.int16),
++      (FaultMode.dtypeInt32, DType.int32),
++      (FaultMode.dtypeInt64, DType.int64),
++      (FaultMode.dtypeBool, DType.boolean),
++    ];
++
++    for (final entry in cases) {
++      control.setMode(entry.$1);
++      expect(runtime.dtype(1), entry.$2);
++    }
++  });
++
++  test('unknown native dtype codes are rejected explicitly', () {
++    control.setMode(FaultMode.unknownDType);
++    expect(
++      () => runtime.dtype(1),
++      throwsA(
++        isA<NativeRuntimeException>()
++            .having((error) => error.operation, 'operation', 'tensor.dtype')
++            .having(
++              (error) => error.message,
++              'message',
++              contains('unsupported dtype code 99'),
++            ),
++      ),
++    );
++  });
++
++  test('device metadata invariants reject invalid indices and codes', () {
++    final invalidModes = <int>[
++      FaultMode.invalidCpuIndex,
++      FaultMode.invalidCudaIndex,
++      FaultMode.invalidMpsIndex,
++      FaultMode.invalidXpuIndex,
++      FaultMode.invalidHipIndex,
++      FaultMode.unknownDevice,
++    ];
++
++    for (final mode in invalidModes) {
++      control.setMode(mode);
++      expect(() => runtime.device(1), throwsA(isA<NativeRuntimeException>()));
++    }
++
++    control.setMode(FaultMode.validCudaTensor);
++    expect(runtime.device(1), Device.cuda(1));
++  });
++
++  test('inconsistent native numel metadata is rejected before host copy', () {
++    control.setMode(FaultMode.inconsistentNumel);
++    expect(
++      () => runtime.copyToHost(1, 1),
++      throwsA(
++        isA<NativeRuntimeException>()
++            .having((error) => error.operation, 'operation', 'tensor.toList')
++            .having(
++              (error) => error.message,
++              'message',
++              contains('reports 2 elements; Dart expected 1'),
++            ),
++      ),
++    );
++  });
++
++  test('availableDevices enumerates every accelerator backend', () {
++    control.setMode(FaultMode.acceleratorCounts);
++    expect(runtime.availableDevices, <Device>[
++      Device.cpu,
++      Device.cuda(0),
++      Device.cuda(1),
++      Device.mps,
++      Device.xpu(0),
++      Device.xpu(1),
++      Device.hip(0),
++      Device.hip(1),
++    ]);
++  });
++}
+diff --git a/packages/tensora/integration_test/native_training_fault_integration_test.dart b/packages/tensora/integration_test/native_training_fault_integration_test.dart
+new file mode 100644
+index 0000000..d822fdc
+--- /dev/null
++++ b/packages/tensora/integration_test/native_training_fault_integration_test.dart
+@@ -0,0 +1,140 @@
++import 'dart:io';
++
++import 'package:tensora/src/native/finalizer_callbacks.dart';
++import 'package:tensora/src/native/native_training_runtime.dart';
++import 'package:tensora/tensora.dart';
++import 'package:test/test.dart';
++
++import 'support/fault_runtime_control.dart';
++
++void main() {
++  final control = FaultRuntimeControl.fromEnvironment();
++  control.setMode(FaultMode.normal);
++  final runtime = NativeTrainingRuntime.instance;
++
++  tearDown(() => control.setMode(FaultMode.normal));
++
++  test('training status mapping preserves typed failures', () {
++    final cases = <(int, Matcher)>[
++      (FaultMode.invalidHandle, isA<InvalidHandleException>()),
++      (FaultMode.unsupported, isA<UnsupportedOperationException>()),
++      (FaultMode.modelError, isA<ModelRuntimeException>()),
++      (
++        FaultMode.unknownStatus,
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('Unknown native status 99'),
++        ),
++      ),
++    ];
++
++    for (final entry in cases) {
++      control.setMode(entry.$1);
++      expect(() => runtime.available(), throwsA(entry.$2));
++    }
++
++    control.setMode(FaultMode.nullDiagnostic);
++    expect(
++      () => runtime.available(),
++      throwsA(
++        isA<NativeRuntimeException>().having(
++          (error) => error.message,
++          'message',
++          contains('without a diagnostic'),
++        ),
++      ),
++    );
++  });
++
++  test('module and optimizer finalizer callbacks delegate release', () {
++    control.resetCounters();
++    releaseModuleFromFinalizer(81);
++    releaseOptimizerFromFinalizer(82);
++    expect(control.releaseCount, 2);
++  });
++
++  test('successful training creation must return non-zero handles', () {
++    control.setMode(FaultMode.nullTrainingHandle);
++    expect(
++      () => runtime.linearCreate(1, 1, true),
++      throwsA(
++        isA<NativeRuntimeException>()
++            .having((error) => error.operation, 'operation', 'linear.create')
++            .having(
++              (error) => error.message,
++              'message',
++              contains('null module handle'),
++            ),
++      ),
++    );
++    expect(
++      () => runtime.sgdCreate(
++        1,
++        learningRate: 0.1,
++        momentum: 0,
++        weightDecay: 0,
++      ),
++      throwsA(
++        isA<NativeRuntimeException>()
++            .having((error) => error.operation, 'operation', 'sgd.create')
++            .having(
++              (error) => error.message,
++              contains('null optimizer handle'),
++            ),
++      ),
++    );
++  });
++
++  test('module buffers are exposed as independently owned tensors', () {
++    control.setMode(FaultMode.moduleBuffer);
++    final module = Linear(1, 1);
++    final buffers = module.buffers.toList(growable: false);
++    try {
++      expect(buffers, hasLength(1));
++      expect(buffers.single.toList(), <double>[1]);
++    } finally {
++      for (final buffer in buffers) {
++        buffer.dispose();
++      }
++      module.dispose();
++    }
++  });
++
++  test('failed parameter adoption releases every native reference', () {
++    control.resetCounters();
++    control.setMode(FaultMode.moduleAdoptionFailure);
++    final module = Linear(1, 1);
++    try {
++      expect(
++        () => module.parameters,
++        throwsA(
++          isA<NativeRuntimeException>().having(
++            (error) => error.operation,
++            'operation',
++            'tensor.dtype',
++          ),
++        ),
++      );
++      expect(control.releaseCount, 2);
++    } finally {
++      module.dispose();
++    }
++  });
++
++  test('missing checkpoint paths fail before native calls', () {
++    final module = Linear(1, 1);
++    final path = File(
++      '${Directory.systemTemp.path}/tensora-missing-${DateTime.now().microsecondsSinceEpoch}.pt',
++    ).path;
++    try {
++      expect(
++        () => module.load(path),
++        throwsA(
++          isA<InvalidArgumentException>().having(
++            (error) => error.operation,
++            'operation',
++            'module.load',
++          ),
++        ),
++      );
++    } finally {
++      module.dispose();
++    }
++  });
++}
+diff --git a/packages/tensora/integration_test/support/fault_runtime_control.dart b/packages/tensora/integration_test/support/fault_runtime_control.dart
+new file mode 100644
+index 0000000..0dd8e87
+--- /dev/null
++++ b/packages/tensora/integration_test/support/fault_runtime_control.dart
+@@ -0,0 +1,103 @@
++import 'dart:ffi';
++import 'dart:io';
++
++import 'package:ffi/ffi.dart';
++
++final class FaultMode {
++  static const int normal = 0;
++  static const int abiMismatch = 1;
++
++  static const int invalidArgument = 10;
++  static const int invalidShapeStatus = 11;
++  static const int outOfMemory = 12;
++  static const int unsupported = 13;
++  static const int invalidHandle = 14;
++  static const int internalError = 15;
++  static const int modelError = 16;
++  static const int unknownStatus = 17;
++  static const int nullDiagnostic = 18;
++
++  static const int nullTensorHandle = 20;
++  static const int rankAboveLimit = 21;
++  static const int scalarRankChanged = 22;
++  static const int rankChanged = 23;
++  static const int invalidShapeMetadata = 24;
++  static const int unknownDType = 25;
++  static const int invalidCpuIndex = 26;
++  static const int invalidCudaIndex = 27;
++  static const int invalidMpsIndex = 28;
++  static const int invalidXpuIndex = 29;
++  static const int invalidHipIndex = 30;
++  static const int unknownDevice = 31;
++  static const int inconsistentNumel = 32;
++  static const int validCudaTensor = 33;
++
++  static const int nullTrainingHandle = 40;
++  static const int acceleratorCounts = 41;
++  static const int moduleBuffer = 42;
++  static const int moduleAdoptionFailure = 43;
++
++  static const int nullSessionHandle = 50;
++  static const int providerMismatch = 51;
++  static const int noOutputs = 52;
++  static const int invalidUtf8Size = 53;
++  static const int changedUtf8Size = 54;
++  static const int outputCountMismatch = 55;
++  static const int outputAdoptionFailure = 56;
++
++  static const int dtypeFloat16 = 60;
++  static const int dtypeBFloat16 = 61;
++  static const int dtypeFloat64 = 62;
++  static const int dtypeInt8 = 63;
++  static const int dtypeUint8 = 64;
++  static const int dtypeInt16 = 65;
++  static const int dtypeInt32 = 66;
++  static const int dtypeInt64 = 67;
++  static const int dtypeBool = 68;
++}
++
++typedef _SetModeNative = Void Function(Int32);
++typedef _SetModeDart = void Function(int);
++typedef _ReleaseCountNative = Uint64 Function();
++typedef _ReleaseCountDart = int Function();
++typedef _ResetCountersNative = Void Function();
++typedef _ResetCountersDart = void Function();
++
++final class FaultRuntimeControl {
++  FaultRuntimeControl._(this._library)
++    : _setMode = _library
++          .lookup<NativeFunction<_SetModeNative>>('ts_test_set_mode')
++          .asFunction(),
++      _releaseCount = _library
++          .lookup<NativeFunction<_ReleaseCountNative>>(
++            'ts_test_release_count',
++          )
++          .asFunction(),
++      _resetCounters = _library
++          .lookup<NativeFunction<_ResetCountersNative>>(
++            'ts_test_reset_counters',
++          )
++          .asFunction();
++
++  factory FaultRuntimeControl.fromEnvironment() {
++    final path = Platform.environment['TENSORA_FAULT_LIBRARY'];
++    if (path == null || path.trim().isEmpty) {
++      throw StateError('TENSORA_FAULT_LIBRARY must identify the fault runtime.');
++    }
++    return FaultRuntimeControl._(DynamicLibrary.open(path));
++  }
++
++  final DynamicLibrary _library;
++  final _SetModeDart _setMode;
++  final _ReleaseCountDart _releaseCount;
++  final _ResetCountersDart _resetCounters;
++
++  int get releaseCount => _releaseCount();
++
++  void setMode(int mode) => _setMode(mode);
++  void resetCounters() => _resetCounters();
++}
+diff --git a/packages/tensora/lib/src/dtype/dtype.dart b/packages/tensora/lib/src/dtype/dtype.dart
+index b0bbacc..3af913b 100644
+--- a/packages/tensora/lib/src/dtype/dtype.dart
++++ b/packages/tensora/lib/src/dtype/dtype.dart
+@@ -1,6 +1,133 @@
+ final class DType {
+-  const DType._(this.name);
++  const DType._(
++    this.name, {
++    required this.byteWidth,
++    required this.nativeCode,
++    required _DTypeCategory category,
++    required int promotionRank,
++    required this.nativeStorageImplemented,
++  }) : _category = category,
++       _promotionRank = promotionRank;
+ 
+-  static const DType float32 = DType._('float32');
++  static const DType float16 = DType._(
++    'float16',
++    byteWidth: 2,
++    nativeCode: 2,
++    category: _DTypeCategory.floating,
++    promotionRank: 0,
++    nativeStorageImplemented: false,
++  );
++  static const DType bfloat16 = DType._(
++    'bfloat16',
++    byteWidth: 2,
++    nativeCode: 3,
++    category: _DTypeCategory.floating,
++    promotionRank: 1,
++    nativeStorageImplemented: false,
++  );
++  static const DType float32 = DType._(
++    'float32',
++    byteWidth: 4,
++    nativeCode: 1,
++    category: _DTypeCategory.floating,
++    promotionRank: 2,
++    nativeStorageImplemented: true,
++  );
++  static const DType float64 = DType._(
++    'float64',
++    byteWidth: 8,
++    nativeCode: 4,
++    category: _DTypeCategory.floating,
++    promotionRank: 3,
++    nativeStorageImplemented: false,
++  );
++  static const DType int8 = DType._(
++    'int8',
++    byteWidth: 1,
++    nativeCode: 5,
++    category: _DTypeCategory.signedInteger,
++    promotionRank: 0,
++    nativeStorageImplemented: false,
++  );
++  static const DType uint8 = DType._(
++    'uint8',
++    byteWidth: 1,
++    nativeCode: 6,
++    category: _DTypeCategory.unsignedInteger,
++    promotionRank: 0,
++    nativeStorageImplemented: false,
++  );
++  static const DType int16 = DType._(
++    'int16',
++    byteWidth: 2,
++    nativeCode: 7,
++    category: _DTypeCategory.signedInteger,
++    promotionRank: 1,
++    nativeStorageImplemented: false,
++  );
++  static const DType int32 = DType._(
++    'int32',
++    byteWidth: 4,
++    nativeCode: 8,
++    category: _DTypeCategory.signedInteger,
++    promotionRank: 2,
++    nativeStorageImplemented: false,
++  );
++  static const DType int64 = DType._(
++    'int64',
++    byteWidth: 8,
++    nativeCode: 9,
++    category: _DTypeCategory.signedInteger,
++    promotionRank: 3,
++    nativeStorageImplemented: false,
++  );
++  static const DType boolean = DType._(
++    'bool',
++    byteWidth: 1,
++    nativeCode: 10,
++    category: _DTypeCategory.boolean,
++    promotionRank: 0,
++    nativeStorageImplemented: false,
++  );
++
++  static const List<DType> values = <DType>[
++    float16,
++    bfloat16,
++    float32,
++    float64,
++    int8,
++    uint8,
++    int16,
++    int32,
++    int64,
++    boolean,
++  ];
++
++  final String name;
++  final int byteWidth;
++  final int nativeCode;
++  final _DTypeCategory _category;
++  final int _promotionRank;
++  final bool nativeStorageImplemented;
++
++  bool get isFloatingPoint => _category == _DTypeCategory.floating;
++  bool get isInteger =>
++      _category == _DTypeCategory.signedInteger ||
++      _category == _DTypeCategory.unsignedInteger;
++  bool get isSignedInteger => _category == _DTypeCategory.signedInteger;
++  bool get isUnsignedInteger => _category == _DTypeCategory.unsignedInteger;
++  bool get isBoolean => _category == _DTypeCategory.boolean;
++  bool get supportsArithmetic => !isBoolean;
++  bool get supportsGradients => isFloatingPoint;
++
++  DType get reductionAccumulator {
++    if (isBoolean || this == int8 || this == uint8 || this == int16) {
++      return int64;
++    }
++    if (this == float16 || this == bfloat16) return float32;
++    return this;
++  }
++
++  static DType promote(DType left, DType right) {
++    if (identical(left, right)) return left;
++    if (left.isBoolean) return right;
++    if (right.isBoolean) return left;
++
++    if (left.isFloatingPoint || right.isFloatingPoint) {
++      final leftFloat = left.isFloatingPoint ? left : float32;
++      final rightFloat = right.isFloatingPoint ? right : float32;
++      return leftFloat._promotionRank >= rightFloat._promotionRank
++          ? leftFloat
++          : rightFloat;
++    }
++
++    if (left.isUnsignedInteger != right.isUnsignedInteger) {
++      final signed = left.isSignedInteger ? left : right;
++      final unsigned = left.isUnsignedInteger ? left : right;
++      final requiredRank = unsigned._promotionRank + 1;
++      for (final candidate in <DType>[int16, int32, int64]) {
++        if (candidate._promotionRank >= requiredRank &&
++            candidate._promotionRank >= signed._promotionRank) {
++          return candidate;
++        }
++      }
++      return int64;
++    }
++
++    return left._promotionRank >= right._promotionRank ? left : right;
++  }
++
++  static DType? fromNativeCode(int code) {
++    for (final dtype in values) {
++      if (dtype.nativeCode == code) return dtype;
++    }
++    return null;
++  }
+ 
+-  final String name;
+ 
+   @override
+   String toString() => 'DType.$name';
+ }
++
++enum _DTypeCategory { floating, signedInteger, unsignedInteger, boolean }
+diff --git a/packages/tensora/lib/src/inference/onnx.dart b/packages/tensora/lib/src/inference/onnx.dart
+index c992204..31d044e 100644
+--- a/packages/tensora/lib/src/inference/onnx.dart
++++ b/packages/tensora/lib/src/inference/onnx.dart
+@@ -15,9 +15,7 @@ enum OnnxExecutionProvider {
+   final String runtimeName;
+ }
+ 
+-final class OnnxRuntime {
+-  OnnxRuntime._();
+-
++abstract final class OnnxRuntime {
+   static bool get isAvailable => NativeInferenceRuntime.instance.available();
+   static List<String> get providers =>
+       NativeInferenceRuntime.instance.providers;
+@@ -157,7 +155,7 @@ final class OnnxSession {
+       for (final tensor in adopted) {
+         tensor.dispose();
+       }
+-      for (var index = adopted.length; index < handles.length; index++) {
++      for (var index = adopted.length + 1; index < handles.length; index++) {
+         _runtime.releaseTensor(handles[index]);
+       }
+       rethrow;
+diff --git a/packages/tensora/lib/src/native/finalizer_callbacks.dart b/packages/tensora/lib/src/native/finalizer_callbacks.dart
+new file mode 100644
+index 0000000..e06fc87
+--- /dev/null
++++ b/packages/tensora/lib/src/native/finalizer_callbacks.dart
+@@ -0,0 +1,15 @@
++import 'native_inference_runtime.dart';
++import 'native_runtime.dart';
++import 'native_training_runtime.dart';
++
++void releaseTensorFromFinalizer(int handle) =>
++    NativeRuntime.instance.releaseFromFinalizer(handle);
++
++void releaseModuleFromFinalizer(int handle) =>
++    NativeTrainingRuntime.instance.releaseModuleFromFinalizer(handle);
++
++void releaseOptimizerFromFinalizer(int handle) =>
++    NativeTrainingRuntime.instance.releaseOptimizerFromFinalizer(handle);
++
++void releaseOnnxSessionFromFinalizer(int handle) =>
++    NativeInferenceRuntime.instance.releaseSessionFromFinalizer(handle);
+diff --git a/packages/tensora/lib/src/native/native_library_resolver.dart b/packages/tensora/lib/src/native/native_library_resolver.dart
+new file mode 100644
+index 0000000..d7f8c49
+--- /dev/null
++++ b/packages/tensora/lib/src/native/native_library_resolver.dart
+@@ -0,0 +1,23 @@
++import '../errors/tensora_exception.dart';
++
++String resolveNativeLibraryPath({
++  required String operatingSystem,
++  required String? overridePath,
++}) {
++  final normalizedOverride = overridePath?.trim();
++  if (normalizedOverride != null && normalizedOverride.isNotEmpty) {
++    return normalizedOverride;
++  }
++  return switch (operatingSystem) {
++    'windows' => 'tensora_native.dll',
++    'macos' => 'libtensora_native.dylib',
++    'linux' => 'libtensora_native.so',
++    _ => throw UnsupportedOperationException(
++      'Unsupported operating system: $operatingSystem.',
++      operation: 'runtime.load',
++    ),
++  };
++}
+diff --git a/packages/tensora/lib/src/native/native_runtime.dart b/packages/tensora/lib/src/native/native_runtime.dart
+index 8d31aa5..ce7a8cb 100644
+--- a/packages/tensora/lib/src/native/native_runtime.dart
++++ b/packages/tensora/lib/src/native/native_runtime.dart
+@@ -9,6 +9,7 @@ import '../device/device.dart';
+ import '../dtype/dtype.dart';
+ import '../errors/tensora_exception.dart';
+ import '../shape/shape.dart';
++import 'native_library_resolver.dart';
+ import 'native_bindings.dart';
+ 
+ final class NativeRuntime {
+@@ -33,7 +34,7 @@ final class NativeRuntime {
+     );
+     _tensorFinalizer = NativeFinalizer(
+       Pointer.fromFunction<Void Function(Pointer<Void>)>(
+-        _releaseTensorFromFinalizer,
++        _releaseTensorFromFinalizerEntryPoint,
+       ),
+     );
+   }
+@@ -151,9 +152,9 @@ final class NativeRuntime {
+       throw NativeRuntimeException(
+         'Native runtime returned unsupported dtype code $value.',
+         operation: 'tensor.dtype',
+       );
+-    }
+-    return DType.float32;
++    }
++    return dtype;
+   }
+ 
+   Device device(int handle) {
+@@ -195,16 +196,11 @@ final class NativeRuntime {
+         );
+       }
+       return Device.xpu(index);
+-    }
+-    if (value == _deviceHip) {
+-      if (index < 0) {
+-        throw NativeRuntimeException(
+-          'Native runtime returned invalid HIP device index $index.',
+-          operation: 'tensor.device',
+-        );
+-      }
+-      return Device.hip(index);
+-    }
+-    throw NativeRuntimeException(
+-      'Native runtime returned unsupported device code $value.',
+-      operation: 'tensor.device',
+-    );
++    }
++    if (index < 0) {
++      throw NativeRuntimeException(
++        'Native runtime returned invalid HIP device index $index.',
++        operation: 'tensor.device',
++      );
++    }
++    return Device.hip(index);
+   }
+ 
+   List<Device> get availableDevices {
+@@ -546,7 +542,7 @@ final class NativeRuntime {
+         _deviceXpu => Device.xpu(index),
+         _deviceHip => Device.hip(index),
+         _ => throw UnsupportedOperationException(
+-          'Native runtime did not recognize the requested device.',
++          'Native runtime did not recognize device code $code.',
+           operation: operation,
+         ),
+       };
+@@ -646,7 +642,7 @@ final class NativeRuntime {
+   }
+ 
+   static DynamicLibrary _openLibrary() {
+-    final path = _resolveLibraryPath();
++    final path = resolveNativeLibraryPath(
++      operatingSystem: Platform.operatingSystem,
++      overridePath: Platform.environment['TENSORA_NATIVE_LIBRARY'],
++    );
+     try {
+       if (Platform.isWindows) {
+         return _openWindowsLibrary(path);
+@@ -662,6 +658,8 @@ final class NativeRuntime {
+     }
+   }
+ 
++  // coverage:ignore-start
++  // Validated by Windows hosted FFI, training, and inference jobs.
+   static DynamicLibrary _openWindowsLibrary(String path) {
+     final module = LoadLibraryEx(path.toNativeUtf16(), nullptr, 0);
+     if (module != nullptr) {
+@@ -705,23 +703,9 @@ final class NativeRuntime {
+       return null;
+     }
+   }
+-
+-  static String _resolveLibraryPath() {
+-    final override = Platform.environment['TENSORA_NATIVE_LIBRARY'];
+-    if (override != null && override.trim().isNotEmpty) {
+-      return override;
+-    }
+-    if (Platform.isWindows) return 'tensora_native.dll';
+-    if (Platform.isMacOS) return 'libtensora_native.dylib';
+-    if (Platform.isLinux) return 'libtensora_native.so';
+-    throw UnsupportedOperationException(
+-      'Unsupported operating system: ${Platform.operatingSystem}.',
+-      operation: 'runtime.load',
+-    );
+-  }
++  // coverage:ignore-end
+ 
+   static void _validateAbi(NativeBindings bindings, String libraryPath) {
+     final actual = bindings.abiVersion();
+@@ -739,6 +723,17 @@ final class NativeRuntime {
+   final NativeFinalizer _tensorFinalizer;
+ }
+ 
++final List<Pointer<Void>> _windowsModuleHandles = <Pointer<Void>>[];
++
++@pragma('vm:entry-point')
++void _releaseTensorFromFinalizerEntryPoint(Pointer<Void> token) {
++  if (token == nullptr) return;
++  final handle = token.address;
++  if (handle == 0) return;
++  releaseTensorFromFinalizer(handle);
++}
++
++void releaseTensorFromFinalizer(int handle) {
++  NativeRuntime.instance.releaseFromFinalizer(handle);
++}
++
+ const int _statusOk = 0;
+ const int _statusInvalidArgument = 1;
+ const int _statusInvalidShape = 2;
+@@ -759,13 +754,3 @@ const int _deviceMps = 2;
+ const int _deviceXpu = 3;
+ const int _deviceHip = 4;
+ const int _maxRank = 64;
+-
+-final List<Pointer<Void>> _windowsModuleHandles = <Pointer<Void>>[];
+-
+-@pragma('vm:entry-point')
+-void _releaseTensorFromFinalizer(Pointer<Void> token) {
+-  if (token == nullptr) return;
+-  final handle = token.address;
+-  if (handle == 0) return;
+-  NativeRuntime.instance.releaseFromFinalizer(handle);
+-}
+diff --git a/packages/tensora/lib/src/native/native_training_runtime.dart b/packages/tensora/lib/src/native/native_training_runtime.dart
+index 9ae712f..cd8ad9d 100644
+--- a/packages/tensora/lib/src/native/native_training_runtime.dart
++++ b/packages/tensora/lib/src/native/native_training_runtime.dart
+@@ -5,6 +5,7 @@ import '../errors/tensora_exception.dart';
+ import '../shape/shape.dart';
+ import '../tensor/tensor.dart';
+ import 'native_bindings.dart';
++import 'native_runtime.dart';
+ import 'native_training_bindings.dart';
+ 
+ final class NativeTrainingRuntime {
+@@ -20,11 +21,11 @@ final class NativeTrainingRuntime {
+     _moduleFinalizer = NativeFinalizer(
+       Pointer.fromFunction<Void Function(Pointer<Void>)>(
+-        _releaseModuleFromFinalizer,
++        _releaseModuleFromFinalizerEntryPoint,
+       ),
+     );
+     _optimizerFinalizer = NativeFinalizer(
+       Pointer.fromFunction<Void Function(Pointer<Void>)>(
+-        _releaseOptimizerFromFinalizer,
++        _releaseOptimizerFromFinalizerEntryPoint,
+       ),
+     );
+   }
+@@ -457,7 +458,7 @@ final class NativeTrainingRuntime {
+         _deviceXpu => Device.xpu(index),
+         _deviceHip => Device.hip(index),
+         _ => throw UnsupportedOperationException(
+-          'Native runtime did not recognize the requested device.',
++          'Native runtime did not recognize device code $code.',
+           operation: operation,
+         ),
+       };
+@@ -512,6 +513,22 @@ final class NativeTrainingRuntime {
+ }
+ 
+ @pragma('vm:entry-point')
+-void _releaseModuleFromFinalizer(Pointer<Void> token) {
++void _releaseModuleFromFinalizerEntryPoint(Pointer<Void> token) {
++  if (token == nullptr) return;
++  final handle = token.address;
++  if (handle == 0) return;
++  releaseModuleFromFinalizer(handle);
++}
++
++@pragma('vm:entry-point')
++void _releaseOptimizerFromFinalizerEntryPoint(Pointer<Void> token) {
++  if (token == nullptr) return;
++  final handle = token.address;
++  if (handle == 0) return;
++  releaseOptimizerFromFinalizer(handle);
++}
++
++void releaseModuleFromFinalizer(int handle) {
++  NativeTrainingRuntime.instance.releaseModuleFromFinalizer(handle);
++}
++
++void releaseOptimizerFromFinalizer(int handle) {
++  NativeTrainingRuntime.instance.releaseOptimizerFromFinalizer(handle);
++}
++
++@pragma('vm:entry-point')
++void _unusedModuleFinalizerGuard(Pointer<Void> token) {
++  if (token == nullptr) return;
++  final handle = token.address;
++  if (handle == 0) return;
++  releaseModuleFromFinalizer(handle);
++}
++
++void _legacyReleaseModuleFromFinalizer(Pointer<Void> token) {
+   if (token == nullptr) return;
+   final handle = token.address;
+   if (handle == 0) return;
+@@ -520,7 +537,7 @@ void _releaseModuleFromFinalizer(Pointer<Void> token) {
+ }
+ 
+ @pragma('vm:entry-point')
+-void _releaseOptimizerFromFinalizer(Pointer<Void> token) {
++void _legacyReleaseOptimizerFromFinalizer(Pointer<Void> token) {
+   if (token == nullptr) return;
+   final handle = token.address;
+   if (handle == 0) return;
