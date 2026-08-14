@@ -251,9 +251,10 @@ final class Tensor {
   }
 
   static void _validateCreation(DType dtype) {
-    switch (dtype) {
-      DType.float32 => null,
+    final supported = switch (dtype) {
+      DType.float32 => true,
     };
+    assert(supported);
   }
 
   void _ensureLive(String operation) {
