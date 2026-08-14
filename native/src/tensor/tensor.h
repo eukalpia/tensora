@@ -9,6 +9,8 @@
 
 namespace tensora {
 
+struct AutogradMeta;
+
 enum class DType : uint32_t {
   kFloat32 = TS_DTYPE_FLOAT32,
 };
@@ -21,7 +23,7 @@ enum class Device : uint32_t {
   kHip = TS_DEVICE_HIP,
 };
 
-class Tensor {
+class Tensor : public std::enable_shared_from_this<Tensor> {
  public:
   Tensor(ShapeInfo shape,
          std::shared_ptr<TensorStorage> storage,
@@ -36,12 +38,20 @@ class Tensor {
   int32_t device_index() const { return device_index_; }
   uint64_t numel() const { return shape_.numel; }
 
+  const std::shared_ptr<AutogradMeta>& autograd_meta() const {
+    return autograd_meta_;
+  }
+  void set_autograd_meta(std::shared_ptr<AutogradMeta> meta) {
+    autograd_meta_ = std::move(meta);
+  }
+
  private:
   ShapeInfo shape_;
   std::shared_ptr<TensorStorage> storage_;
   DType dtype_;
   Device device_;
   int32_t device_index_;
+  std::shared_ptr<AutogradMeta> autograd_meta_;
 };
 
 }  // namespace tensora
