@@ -164,3 +164,50 @@ jobs:
           path: build/diagnostics
           if-no-files-found: error
           retention-days: 14
+
+  dart-core-training:
+    name: Dart training / core-only runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/dart-core/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Configure core-only runtime
+        run: >-
+          cmake -S native -B build/dart-core
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_WITH_TORCH=OFF
+          -DTENSORA_WITH_ONNXRUNTIME=OFF
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build core-only runtime
+        run: cmake --build build/dart-core --parallel
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Verify Dart formatting
+        working-directory: packages/tensora
+        run: dart format --output=none --set-exit-if-changed lib integration_test
+
+      - name: Analyze Dart training surface
+        working-directory: packages/tensora
+        run: dart analyze --fatal-infos --fatal-warnings lib integration_test
+
+      - name: Run Dart autonomous training suite
+        working-directory: packages/tensora
+        run: |
+          dart test integration_test/training_integration_test.dart --reporter expanded
+          dart test integration_test/training_edge_integration_test.dart --reporter expanded
+          dart test integration_test/native_training_runtime_edge_test.dart --reporter expanded
