@@ -1,0 +1,55 @@
+name: Tensor Alias CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tensor-alias-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  alias-state:
+    name: Alias state / Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure core-only runtime
+        run: >-
+          cmake -S native -B build/alias
+          -DCMAKE_BUILD_TYPE=Debug
+          -DTENSORA_WITH_TORCH=OFF
+          -DTENSORA_WITH_ONNXRUNTIME=OFF
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build core-only runtime
+        run: cmake --build build/alias --parallel
+
+      - name: Compile alias-state proof
+        run: >-
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror
+          native/tests/tensor_alias_state_test.cc
+          -Inative/include -Inative/src
+          -Lbuild/alias
+          -Wl,-rpath,$PWD/build/alias
+          -ltensora_native
+          -o build/tensor_alias_state_test
+
+      - name: Run alias-state proof
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/alias
+        run: ./build/tensor_alias_state_test
