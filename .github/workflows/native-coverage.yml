@@ -61,8 +61,10 @@ jobs:
             --filter 'native/src/' \
             --txt build/native-coverage-report/summary.txt \
             --html-details build/native-coverage-report/index.html \
-            --xml-pretty build/native-coverage-report/coverage.xml \
-            --json-pretty build/native-coverage-report/coverage.json \
+            --xml build/native-coverage-report/coverage.xml \
+            --xml-pretty \
+            --json build/native-coverage-report/coverage.json \
+            --json-pretty \
             --print-summary \
             --fail-under-line 100
 
