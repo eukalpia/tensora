@@ -37,18 +37,19 @@ jobs:
             | sha256sum --check --strict
           git apply --check /tmp/dtype-abi-assurance.patch
 
-      - name: Publish one clean commit
+      - name: Publish code and tests to staging
         shell: bash
         run: |
           set -euo pipefail
           base_sha="3bf88f5014fb46fe2167434c0093ad9031e173ea"
-          target_ref="refs/heads/feature/dtype-abi-assurance"
+          target_ref="refs/heads/work/dtype-abi-published-20260814"
           git config user.name "Tensora Maintainer"
           git config user.email "120781817+eukalpia@users.noreply.github.com"
           git reset --hard "$base_sha"
           git apply /tmp/dtype-abi-assurance.patch
+          git checkout "$base_sha" -- .github/workflows/high-assurance-ci.yml
           git add --all
           git diff --cached --check
-          git commit -m "Establish dtype semantics and 99.9% ABI assurance"
+          git commit -m "Establish dtype semantics and ABI fault contracts"
           git push origin "HEAD:${target_ref}" \
             --force-with-lease="${target_ref}:${base_sha}"
