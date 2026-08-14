@@ -6,8 +6,9 @@ String nativeLibraryNameForOperatingSystem(String operatingSystem) =>
       'linux' => 'libtensora_native.so',
       'macos' => 'libtensora_native.dylib',
       'windows' => 'tensora_native.dll',
-      _ => throw UnsupportedOperationException(
-        'Native runtime discovery supports Linux, macOS, and Windows.',
-        operation: 'runtime.load',
-      ),
+      _ =>
+        throw UnsupportedOperationException(
+          'Native runtime discovery supports Linux, macOS, and Windows.',
+          operation: 'runtime.load',
+        ),
     };
