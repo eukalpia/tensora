@@ -59,6 +59,7 @@ jobs:
           gcovr \
             --root "$GITHUB_WORKSPACE" \
             --filter 'native/src/' \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
             --txt build/native-coverage-report/summary.txt \
             --html-details build/native-coverage-report/index.html \
             --xml build/native-coverage-report/coverage.xml \
