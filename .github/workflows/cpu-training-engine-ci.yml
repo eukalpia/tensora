@@ -51,27 +51,31 @@ jobs:
           cmake --build build/cpu-training --parallel \
             2>&1 | tee build/diagnostics/build-${{ matrix.build_type }}.log
 
-      - name: Compile CPU training proof
+      - name: Compile CPU training proofs
         shell: bash
         run: |
           set -o pipefail
-          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
-            native/tests/cpu_training_engine_test.cc \
-            -Inative/include \
-            -Lbuild/cpu-training \
-            -Wl,-rpath,$PWD/build/cpu-training \
-            -ltensora_native \
-            -o build/cpu_training_engine_test \
-            2>&1 | tee build/diagnostics/compile-proof-${{ matrix.build_type }}.log
+          for source in cpu_training_engine_test autograd_finite_difference_test; do
+            c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+              native/tests/${source}.cc \
+              -Inative/include \
+              -Lbuild/cpu-training \
+              -Wl,-rpath,$PWD/build/cpu-training \
+              -ltensora_native \
+              -o build/${source} \
+              2>&1 | tee build/diagnostics/compile-${source}-${{ matrix.build_type }}.log
+          done
 
-      - name: Run CPU training proof
+      - name: Run CPU training proofs
         shell: bash
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/cpu-training
         run: |
           set -o pipefail
           ./build/cpu_training_engine_test \
-            2>&1 | tee build/diagnostics/proof-${{ matrix.build_type }}.log
+            2>&1 | tee build/diagnostics/proof-training-${{ matrix.build_type }}.log
+          ./build/autograd_finite_difference_test \
+            2>&1 | tee build/diagnostics/proof-gradients-${{ matrix.build_type }}.log
 
       - name: Preserve CPU training diagnostics
         if: always()
@@ -115,25 +119,27 @@ jobs:
           cmake --build build/cpu-training-sanitized --parallel \
             2>&1 | tee build/diagnostics/build-sanitized.log
 
-      - name: Compile sanitized CPU training proof
+      - name: Compile sanitized CPU training proofs
         shell: bash
         env:
           CC: clang
           CXX: clang++
         run: |
           set -o pipefail
-          clang++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
-            -fsanitize=address,undefined -fno-omit-frame-pointer \
-            native/tests/cpu_training_engine_test.cc \
-            -Inative/include \
-            -Lbuild/cpu-training-sanitized \
-            -Wl,-rpath,$PWD/build/cpu-training-sanitized \
-            -ltensora_native \
-            -fsanitize=address,undefined \
-            -o build/cpu_training_engine_test_sanitized \
-            2>&1 | tee build/diagnostics/compile-proof-sanitized.log
+          for source in cpu_training_engine_test autograd_finite_difference_test; do
+            clang++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+              -fsanitize=address,undefined -fno-omit-frame-pointer \
+              native/tests/${source}.cc \
+              -Inative/include \
+              -Lbuild/cpu-training-sanitized \
+              -Wl,-rpath,$PWD/build/cpu-training-sanitized \
+              -ltensora_native \
+              -fsanitize=address,undefined \
+              -o build/${source}_sanitized \
+              2>&1 | tee build/diagnostics/compile-${source}-sanitized.log
+          done
 
-      - name: Run sanitized CPU training proof
+      - name: Run sanitized CPU training proofs
         shell: bash
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
@@ -142,7 +148,9 @@ jobs:
         run: |
           set -o pipefail
           ./build/cpu_training_engine_test_sanitized \
-            2>&1 | tee build/diagnostics/proof-sanitized.log
+            2>&1 | tee build/diagnostics/proof-training-sanitized.log
+          ./build/autograd_finite_difference_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-gradients-sanitized.log
 
       - name: Preserve sanitized training diagnostics
         if: always()
