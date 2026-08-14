@@ -15,6 +15,7 @@ Status HandleRegistry::Insert(HandleType type,
   if (out_handle == nullptr) {
     return InvalidArgument("handle registry: output handle pointer is null");
   }
+  *out_handle = 0;
   if (!object) {
     return InvalidArgument("handle registry: cannot register null object");
   }
