@@ -300,6 +300,7 @@ int main(void) {
 
   if (ts_abi_version() != TS_ABI_VERSION) return 1;
   if (ts_noop() != TS_OK) return 2;
+  if (ts_last_error_message() == NULL) return 201;
   if (TS_DEVICE_CPU == TS_DEVICE_CUDA) return 3;
   if (ts_training_available(&training_available) != TS_OK) return 4;
 #if defined(TENSORA_WITH_TORCH)
@@ -331,6 +332,8 @@ int main(void) {
   if (ts_tensor_device_index(tensor, &device_index) != TS_OK ||
       device_index != 0)
     return 19;
+  if (ts_tensor_device_index(tensor, NULL) != TS_INVALID_ARGUMENT)
+    return 202;
   if (ts_tensor_copy_to_host_f32(tensor, values, 4, &written) != TS_OK)
     return 20;
   if (written != 4) return 21;
@@ -362,6 +365,9 @@ int main(void) {
   if (test_disabled_inference_contract(tensor) != 0)
     return test_disabled_inference_contract(tensor);
 
+  if (ts_tensor_to_device(tensor, TS_DEVICE_CPU, 0, NULL) !=
+      TS_INVALID_ARGUMENT)
+    return 203;
   if (ts_tensor_to_device(tensor, TS_DEVICE_CPU, 0, &copied) != TS_OK)
     return 31;
   if (copied == 0) return 32;
@@ -390,6 +396,10 @@ int main(void) {
 #if defined(TENSORA_WITH_TORCH)
   if (ts_linear_create(1, 1, 1, &module) != TS_OK) return 42;
   if (module == 0) return 43;
+  if (ts_module_parameter_at(module, 0, NULL) != TS_INVALID_ARGUMENT)
+    return 204;
+  if (ts_module_buffer_at(module, 0, NULL) != TS_INVALID_ARGUMENT)
+    return 205;
   if (ts_sgd_create(module, 0.1, 0.0, 0.0, &optimizer) != TS_OK) return 44;
   if (optimizer == 0) return 45;
   if (ts_optimizer_release(optimizer) != TS_OK) return 46;

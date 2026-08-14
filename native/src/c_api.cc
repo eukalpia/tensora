@@ -450,10 +450,6 @@ ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
     std::shared_ptr<tensora::Tensor> object;
     tensora::Status status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
-    if (object->dtype() != tensora::DType::kFloat32) {
-      return tensora::Unsupported(
-          "tensor_copy_to_host_f32: tensor dtype is not float32");
-    }
     if (capacity < object->numel()) {
       return tensora::InvalidArgument(
           "tensor_copy_to_host_f32: output capacity is smaller than tensor");
