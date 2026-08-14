@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "autograd/autograd.h"
 #include "backends/cpu/cpu_backend.h"
 #include "core/status.h"
 #include "tensor/shape.h"
@@ -127,6 +128,166 @@ void TestDirectArgumentContracts() {
   CHECK_STATUS(ModuleRelease(module), TS_OK);
 }
 
+void TestAutogradInternalContracts() {
+  using namespace tensora;
+  using namespace tensora::autograd;
+
+  const auto vector = MakeTensor({1.0f, -2.0f}, {2});
+  const auto other = MakeTensor({3.0f, 4.0f}, {2});
+  const auto scalar = MakeTensor({1.0f}, {});
+  const auto matrix = MakeTensor({1.0f, 2.0f, 3.0f, 4.0f}, {2, 2});
+
+  const std::vector<float>* const_values = nullptr;
+  std::vector<float>* mutable_values = nullptr;
+  CHECK_STATUS(CpuValues(*vector, "test", nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(MutableCpuValues(*vector, "test", nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(CpuValues(*vector, "test", &const_values), TS_OK);
+  CHECK_TRUE(const_values != nullptr && const_values->size() == 2);
+  CHECK_STATUS(MutableCpuValues(*vector, "test", &mutable_values), TS_OK);
+  CHECK_TRUE(mutable_values != nullptr && mutable_values->size() == 2);
+
+  std::vector<float> logical;
+  CHECK_STATUS(ReadLogicalCpuValues(*vector, "test", nullptr),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(ReadLogicalCpuValues(*vector, "test", &logical), TS_OK);
+  CHECK_TRUE(logical == std::vector<float>({1.0f, -2.0f}));
+
+  std::shared_ptr<Tensor> output;
+  CHECK_STATUS(MakeCpuTensor(vector->shape(), {1.0f}, &output),
+               TS_INTERNAL_ERROR);
+  CHECK_STATUS(MakeCpuTensor(vector->shape(), {1.0f, 2.0f}, nullptr),
+               TS_INVALID_ARGUMENT);
+  CHECK_STATUS(MakeCpuFull(vector->shape(), 1.0f, nullptr), TS_INVALID_ARGUMENT);
+
+  std::shared_ptr<Tensor> leaf;
+  CHECK_STATUS(CloneAsLeaf(*vector, true, &leaf), TS_OK);
+  CHECK_TRUE(leaf != nullptr && RequiresGrad(*leaf));
+
+  Tensor unmanaged(vector->shape(), vector->storage());
+  CHECK_STATUS(Share(unmanaged, &output), TS_INTERNAL_ERROR);
+  CHECK_STATUS(Share(*leaf, nullptr), TS_INVALID_ARGUMENT);
+
+  CHECK_STATUS(AttachNode(nullptr, Operation::kIdentity, {}),
+               TS_INVALID_ARGUMENT);
+  const auto detached_result = MakeTensor({5.0f, 6.0f}, {2});
+  CHECK_STATUS(AttachNode(detached_result, Operation::kAdd, {vector, other}),
+               TS_OK);
+  CHECK_TRUE(!RequiresGrad(*detached_result));
+
+  CHECK_STATUS(Accumulate(nullptr, *vector), TS_INVALID_ARGUMENT);
+  std::shared_ptr<Tensor> accumulation;
+  CHECK_STATUS(Accumulate(&accumulation, *vector), TS_OK);
+  CHECK_STATUS(Accumulate(&accumulation, *other), TS_OK);
+  std::vector<float> accumulated_values;
+  CHECK_STATUS(ReadLogicalCpuValues(*accumulation, "test", &accumulated_values),
+               TS_OK);
+  CHECK_TRUE(accumulated_values == std::vector<float>({4.0f, 2.0f}));
+  CHECK_STATUS(AddInPlace(*accumulation, *scalar), TS_INTERNAL_ERROR);
+
+  GradNode corrupt_versions;
+  corrupt_versions.operation = Operation::kIdentity;
+  corrupt_versions.parents = {leaf};
+  CHECK_STATUS(ValidateSavedVersions(corrupt_versions), TS_INTERNAL_ERROR);
+  corrupt_versions.parent_versions = {Version(*leaf)};
+  CHECK_STATUS(ValidateSavedVersions(corrupt_versions), TS_OK);
+  IncrementVersion(*leaf);
+  CHECK_STATUS(ValidateSavedVersions(corrupt_versions), TS_INVALID_ARGUMENT);
+
+  ShapeInfo wrong_shape;
+  const int64_t wrong_dims[1] = {3};
+  CHECK_STATUS(ValidateShape(wrong_dims, 1, &wrong_shape), TS_OK);
+  CHECK_STATUS(CloneWithShape(*vector, wrong_shape, &output), TS_INTERNAL_ERROR);
+  CHECK_STATUS(TransposeGradient(*vector, &output), TS_INTERNAL_ERROR);
+
+  std::vector<GradientContribution> contributions;
+  CHECK_STATUS(ApplyNode(corrupt_versions, *vector, nullptr), TS_INVALID_ARGUMENT);
+
+  std::shared_ptr<Tensor> left_leaf;
+  std::shared_ptr<Tensor> right_leaf;
+  CHECK_STATUS(CloneAsLeaf(*vector, true, &left_leaf), TS_OK);
+  CHECK_STATUS(CloneAsLeaf(*other, true, &right_leaf), TS_OK);
+
+  GradNode multiply_bad;
+  multiply_bad.operation = Operation::kMultiply;
+  multiply_bad.parents = {left_leaf};
+  multiply_bad.parent_versions = {Version(*left_leaf)};
+  CHECK_STATUS(ApplyNode(multiply_bad, *vector, &contributions),
+               TS_INTERNAL_ERROR);
+
+  GradNode sum_bad;
+  sum_bad.operation = Operation::kSum;
+  sum_bad.parents = {left_leaf};
+  sum_bad.parent_versions = {Version(*left_leaf)};
+  CHECK_STATUS(ApplyNode(sum_bad, *vector, &contributions), TS_INTERNAL_ERROR);
+
+  GradNode matmul_bad_count;
+  matmul_bad_count.operation = Operation::kMatmul;
+  matmul_bad_count.parents = {left_leaf};
+  matmul_bad_count.parent_versions = {Version(*left_leaf)};
+  CHECK_STATUS(ApplyNode(matmul_bad_count, *vector, &contributions),
+               TS_INTERNAL_ERROR);
+
+  GradNode matmul_bad_rank;
+  matmul_bad_rank.operation = Operation::kMatmul;
+  matmul_bad_rank.parents = {left_leaf, right_leaf};
+  matmul_bad_rank.parent_versions = {Version(*left_leaf), Version(*right_leaf)};
+  CHECK_STATUS(ApplyNode(matmul_bad_rank, *scalar, &contributions),
+               TS_INTERNAL_ERROR);
+
+  GradNode activation_bad;
+  activation_bad.operation = Operation::kRelu;
+  activation_bad.parents = {left_leaf};
+  activation_bad.parent_versions = {Version(*left_leaf)};
+  CHECK_STATUS(ApplyNode(activation_bad, *scalar, &contributions),
+               TS_INTERNAL_ERROR);
+
+  GradNode mse_bad;
+  mse_bad.operation = Operation::kMse;
+  mse_bad.parents = {left_leaf};
+  mse_bad.parent_versions = {Version(*left_leaf)};
+  CHECK_STATUS(ApplyNode(mse_bad, *scalar, &contributions), TS_INTERNAL_ERROR);
+
+  GradNode cross_entropy_bad;
+  cross_entropy_bad.operation = Operation::kCrossEntropy;
+  cross_entropy_bad.parents = {left_leaf};
+  cross_entropy_bad.parent_versions = {Version(*left_leaf)};
+  CHECK_STATUS(ApplyNode(cross_entropy_bad, *scalar, &contributions),
+               TS_INTERNAL_ERROR);
+
+  GradNode bias_bad;
+  bias_bad.operation = Operation::kBiasAdd;
+  bias_bad.parents = {left_leaf};
+  bias_bad.parent_versions = {Version(*left_leaf)};
+  CHECK_STATUS(ApplyNode(bias_bad, *vector, &contributions), TS_INTERNAL_ERROR);
+
+  GradNode unknown;
+  unknown.operation = static_cast<Operation>(255);
+  unknown.parents = {};
+  unknown.parent_versions = {};
+  CHECK_STATUS(ApplyNode(unknown, *scalar, &contributions), TS_INTERNAL_ERROR);
+
+  std::unordered_set<Tensor*> visited;
+  std::vector<std::shared_ptr<Tensor>> topology;
+  BuildTopology(nullptr, &visited, &topology);
+  BuildTopology(left_leaf, nullptr, &topology);
+  BuildTopology(left_leaf, &visited, nullptr);
+  BuildTopology(left_leaf, &visited, &topology);
+  BuildTopology(left_leaf, &visited, &topology);
+  CHECK_TRUE(topology.size() == 1);
+
+  CHECK_STATUS(Backward(*vector), TS_INVALID_SHAPE);
+  CHECK_STATUS(Backward(*scalar), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(GradientSnapshot(*vector, nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(GradientSnapshot(*vector, &output), TS_INVALID_ARGUMENT);
+
+  auto empty_meta = std::make_shared<AutogradMeta>();
+  empty_meta->requires_grad = true;
+  vector->set_autograd_meta(empty_meta);
+  CHECK_STATUS(GradientSnapshot(*vector, &output), TS_INVALID_ARGUMENT);
+  ClearGradient(*other);
+  ClearGradient(*vector);
+}
+
 void WriteBytes(const std::filesystem::path& path,
                 const std::vector<unsigned char>& bytes) {
   std::ofstream stream(path, std::ios::binary | std::ios::trunc);
@@ -206,6 +367,7 @@ void TestCheckpointCorruptionContracts() {
 
 int main() {
   TestDirectArgumentContracts();
+  TestAutogradInternalContracts();
   TestCheckpointCorruptionContracts();
 
   if (failures != 0) {
