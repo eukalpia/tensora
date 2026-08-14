@@ -262,7 +262,7 @@ int CheckDirectTorchBackend() {
     return 146;
   if (!ExpectStatus(backend.Matmul(*other, *rhs, &result), TS_OK,
                     "TorchBackend matmul") ||
-      !result || result->shape().dimensions != other_shape.dimensions)
+      !result || result->shape().dimensions != matrix_shape.dimensions)
     return 147;
 
   return 0;
