@@ -200,7 +200,9 @@ final class OnnxSession {
       for (final tensor in adopted) {
         tensor.dispose();
       }
-      for (var index = adopted.length; index < handles.length; index++) {
+      // Tensor adoption already rolls back the handle whose metadata failed.
+      // Release only native outputs that were never handed to Tensor adoption.
+      for (var index = adopted.length + 1; index < handles.length; index++) {
         NativeRuntime.instance.releaseFromFinalizer(handles[index]);
       }
       rethrow;
