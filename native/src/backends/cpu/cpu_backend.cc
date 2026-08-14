@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 
+#include "autograd/autograd.h"
+
 namespace tensora {
 namespace {
 
@@ -84,7 +86,9 @@ Status CpuBackend::Reshape(const Tensor& tensor,
   const auto& values = input_storage->values();
   status = CpuStorage::FromData(values.data(), tensor.numel(), &storage);
   if (!status.ok()) return status;
-  return MakeTensor(shape, std::move(storage), out);
+  status = MakeTensor(shape, std::move(storage), out);
+  if (!status.ok()) return status;
+  return autograd::RecordUnary(autograd::Operation::kReshape, tensor, *out);
 }
 
 Status CpuBackend::Transpose2D(const Tensor& tensor,
@@ -119,7 +123,9 @@ Status CpuBackend::Transpose2D(const Tensor& tensor,
     }
   }
 
-  return MakeTensor(std::move(output_shape), std::move(storage), out);
+  status = MakeTensor(std::move(output_shape), std::move(storage), out);
+  if (!status.ok()) return status;
+  return autograd::RecordUnary(autograd::Operation::kTranspose2D, tensor, *out);
 }
 
 Status CpuBackend::Add(const Tensor& left,
@@ -152,7 +158,9 @@ Status CpuBackend::Add(const Tensor& left,
     result[i] = a[i] + b[i];
   }
 
-  return MakeTensor(left.shape(), std::move(storage), out);
+  status = MakeTensor(left.shape(), std::move(storage), out);
+  if (!status.ok()) return status;
+  return autograd::RecordBinary(autograd::Operation::kAdd, left, right, *out);
 }
 
 Status CpuBackend::Multiply(const Tensor& left,
@@ -185,7 +193,10 @@ Status CpuBackend::Multiply(const Tensor& left,
     result[i] = a[i] * b[i];
   }
 
-  return MakeTensor(left.shape(), std::move(storage), out);
+  status = MakeTensor(left.shape(), std::move(storage), out);
+  if (!status.ok()) return status;
+  return autograd::RecordBinary(autograd::Operation::kMultiply, left, right,
+                                *out);
 }
 
 Status CpuBackend::Sum(const Tensor& tensor,
@@ -209,7 +220,9 @@ Status CpuBackend::Sum(const Tensor& tensor,
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(1, value, &storage);
   if (!status.ok()) return status;
-  return MakeTensor(std::move(scalar_shape), std::move(storage), out);
+  status = MakeTensor(std::move(scalar_shape), std::move(storage), out);
+  if (!status.ok()) return status;
+  return autograd::RecordUnary(autograd::Operation::kSum, tensor, *out);
 }
 
 Status CpuBackend::Matmul(const Tensor& left,
@@ -263,7 +276,10 @@ Status CpuBackend::Matmul(const Tensor& left,
     }
   }
 
-  return MakeTensor(std::move(output_shape), std::move(storage), out);
+  status = MakeTensor(std::move(output_shape), std::move(storage), out);
+  if (!status.ok()) return status;
+  return autograd::RecordBinary(autograd::Operation::kMatmul, left, right,
+                                *out);
 }
 
 }  // namespace tensora
