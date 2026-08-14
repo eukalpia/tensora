@@ -176,8 +176,13 @@ if(TENSORA_BUILD_TESTS)
 
   add_executable(tensora_handle_registry_tests
     tests/handle_registry_test.cc
+    src/backends/cpu/cpu_backend.cc
     src/core/status.cc
+    src/memory/cpu_storage.cc
+    src/runtime/dispatcher.cc
     src/runtime/handle_registry.cc
+    src/tensor/shape.cc
+    src/tensor/tensor.cc
   )
   target_compile_features(tensora_handle_registry_tests PRIVATE cxx_std_20)
   target_include_directories(tensora_handle_registry_tests PRIVATE
