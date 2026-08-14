@@ -1,8 +1,12 @@
 #include "backends/cpu/cpu_backend.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "autograd/autograd.h"
 
@@ -23,6 +27,23 @@ Status MakeTensor(ShapeInfo shape,
   }
 }
 
+Status MakeView(ShapeInfo shape,
+                const Tensor& source,
+                std::shared_ptr<Tensor>* out) {
+  if (out == nullptr) {
+    return InvalidArgument("cpu backend: output tensor pointer is null");
+  }
+  *out = nullptr;
+  try {
+    *out = std::make_shared<Tensor>(
+        std::move(shape), source.storage(), source.dtype(), source.device(),
+        source.device_index(), source.storage_offset(), source.version_counter());
+    return Status::Ok();
+  } catch (const std::bad_alloc&) {
+    return OutOfMemory("cpu backend: tensor view allocation failed");
+  }
+}
+
 Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
   if (tensor.device() != Device::kCpu || tensor.device_index() != 0) {
     return Unsupported(std::string(operation) + ": CPU backend requires cpu:0");
@@ -33,19 +54,28 @@ Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
   return Status::Ok();
 }
 
-Status CpuStorageFor(const Tensor& tensor,
+Status LogicalValues(const Tensor& tensor,
                      const char* operation,
-                     std::shared_ptr<CpuStorage>* out) {
+                     std::vector<float>* out) {
   if (out == nullptr) {
     return InvalidArgument(std::string(operation) +
-                           ": output storage pointer is null");
+                           ": output values pointer is null");
   }
-  auto storage = std::dynamic_pointer_cast<CpuStorage>(tensor.storage());
-  if (!storage) {
-    return Unsupported(std::string(operation) +
-                       ": tensor is not backed by CPU storage");
+  Status status = EnsureCpuFloat32(tensor, operation);
+  if (!status.ok()) return status;
+  try {
+    out->assign(static_cast<size_t>(tensor.numel()), 0.0f);
+  } catch (const std::bad_alloc&) {
+    return OutOfMemory(std::string(operation) +
+                       ": logical value buffer allocation failed");
   }
-  *out = std::move(storage);
+  size_t written = 0;
+  status = tensor.CopyToHostF32(out->data(), out->size(), &written);
+  if (!status.ok()) return status;
+  if (written != out->size()) {
+    return InternalError(std::string(operation) +
+                         ": logical copy returned inconsistent size");
+  }
   return Status::Ok();
 }
 
@@ -78,15 +108,17 @@ Status CpuBackend::Reshape(const Tensor& tensor,
     return InvalidShape("reshape: target shape must preserve element count");
   }
 
-  std::shared_ptr<CpuStorage> input_storage;
-  status = CpuStorageFor(tensor, "reshape", &input_storage);
-  if (!status.ok()) return status;
-
-  std::shared_ptr<CpuStorage> storage;
-  const auto& values = input_storage->values();
-  status = CpuStorage::FromData(values.data(), tensor.numel(), &storage);
-  if (!status.ok()) return status;
-  status = MakeTensor(shape, std::move(storage), out);
+  if (tensor.is_contiguous()) {
+    status = MakeView(shape, tensor, out);
+  } else {
+    std::vector<float> values;
+    status = LogicalValues(tensor, "reshape", &values);
+    if (!status.ok()) return status;
+    std::shared_ptr<CpuStorage> storage;
+    status = CpuStorage::FromData(values.data(), tensor.numel(), &storage);
+    if (!status.ok()) return status;
+    status = MakeTensor(shape, std::move(storage), out);
+  }
   if (!status.ok()) return status;
   return autograd::RecordUnary(autograd::Operation::kReshape, tensor, *out);
 }
@@ -99,31 +131,10 @@ Status CpuBackend::Transpose2D(const Tensor& tensor,
     return InvalidShape("transpose: Milestone 1 requires a rank-2 tensor");
   }
 
-  std::shared_ptr<CpuStorage> input_storage;
-  status = CpuStorageFor(tensor, "transpose", &input_storage);
-  if (!status.ok()) return status;
-
-  const int64_t rows = tensor.shape().dimensions[0];
-  const int64_t cols = tensor.shape().dimensions[1];
-  const int64_t output_dims[2] = {cols, rows};
-  ShapeInfo output_shape;
-  status = ValidateShape(output_dims, 2, &output_shape);
-  if (!status.ok()) return status;
-
-  std::shared_ptr<CpuStorage> storage;
-  status = CpuStorage::Filled(output_shape.numel, 0.0f, &storage);
-  if (!status.ok()) return status;
-
-  const auto& input = input_storage->values();
-  auto& output = storage->mutable_values();
-  for (int64_t row = 0; row < rows; ++row) {
-    for (int64_t col = 0; col < cols; ++col) {
-      output[static_cast<size_t>(col * rows + row)] =
-          input[static_cast<size_t>(row * cols + col)];
-    }
-  }
-
-  status = MakeTensor(std::move(output_shape), std::move(storage), out);
+  ShapeInfo output_shape = tensor.shape();
+  std::swap(output_shape.dimensions[0], output_shape.dimensions[1]);
+  std::swap(output_shape.strides[0], output_shape.strides[1]);
+  status = MakeView(std::move(output_shape), tensor, out);
   if (!status.ok()) return status;
   return autograd::RecordUnary(autograd::Operation::kTranspose2D, tensor, *out);
 }
@@ -140,22 +151,19 @@ Status CpuBackend::Add(const Tensor& left,
         "add: Milestone 1 elementwise operations require equal shapes");
   }
 
-  std::shared_ptr<CpuStorage> left_storage;
-  std::shared_ptr<CpuStorage> right_storage;
-  status = CpuStorageFor(left, "add", &left_storage);
+  std::vector<float> left_values;
+  std::vector<float> right_values;
+  status = LogicalValues(left, "add", &left_values);
   if (!status.ok()) return status;
-  status = CpuStorageFor(right, "add", &right_storage);
+  status = LogicalValues(right, "add", &right_values);
   if (!status.ok()) return status;
 
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(left.numel(), 0.0f, &storage);
   if (!status.ok()) return status;
-
-  const auto& a = left_storage->values();
-  const auto& b = right_storage->values();
   auto& result = storage->mutable_values();
-  for (size_t i = 0; i < result.size(); ++i) {
-    result[i] = a[i] + b[i];
+  for (size_t index = 0; index < result.size(); ++index) {
+    result[index] = left_values[index] + right_values[index];
   }
 
   status = MakeTensor(left.shape(), std::move(storage), out);
@@ -175,22 +183,19 @@ Status CpuBackend::Multiply(const Tensor& left,
         "multiply: Milestone 1 elementwise operations require equal shapes");
   }
 
-  std::shared_ptr<CpuStorage> left_storage;
-  std::shared_ptr<CpuStorage> right_storage;
-  status = CpuStorageFor(left, "multiply", &left_storage);
+  std::vector<float> left_values;
+  std::vector<float> right_values;
+  status = LogicalValues(left, "multiply", &left_values);
   if (!status.ok()) return status;
-  status = CpuStorageFor(right, "multiply", &right_storage);
+  status = LogicalValues(right, "multiply", &right_values);
   if (!status.ok()) return status;
 
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(left.numel(), 0.0f, &storage);
   if (!status.ok()) return status;
-
-  const auto& a = left_storage->values();
-  const auto& b = right_storage->values();
   auto& result = storage->mutable_values();
-  for (size_t i = 0; i < result.size(); ++i) {
-    result[i] = a[i] * b[i];
+  for (size_t index = 0; index < result.size(); ++index) {
+    result[index] = left_values[index] * right_values[index];
   }
 
   status = MakeTensor(left.shape(), std::move(storage), out);
@@ -204,8 +209,8 @@ Status CpuBackend::Sum(const Tensor& tensor,
   Status status = EnsureCpuFloat32(tensor, "sum");
   if (!status.ok()) return status;
 
-  std::shared_ptr<CpuStorage> input_storage;
-  status = CpuStorageFor(tensor, "sum", &input_storage);
+  std::vector<float> input;
+  status = LogicalValues(tensor, "sum", &input);
   if (!status.ok()) return status;
 
   ShapeInfo scalar_shape;
@@ -213,9 +218,7 @@ Status CpuBackend::Sum(const Tensor& tensor,
   if (!status.ok()) return status;
 
   float value = 0.0f;
-  for (float item : input_storage->values()) {
-    value += item;
-  }
+  for (float item : input) value += item;
 
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(1, value, &storage);
@@ -246,11 +249,11 @@ Status CpuBackend::Matmul(const Tensor& left,
     return InvalidShape("matmul: inner dimensions must match");
   }
 
-  std::shared_ptr<CpuStorage> left_storage;
-  std::shared_ptr<CpuStorage> right_storage;
-  status = CpuStorageFor(left, "matmul", &left_storage);
+  std::vector<float> left_values;
+  std::vector<float> right_values;
+  status = LogicalValues(left, "matmul", &left_values);
   if (!status.ok()) return status;
-  status = CpuStorageFor(right, "matmul", &right_storage);
+  status = LogicalValues(right, "matmul", &right_values);
   if (!status.ok()) return status;
 
   const int64_t output_dims[2] = {m, n};
@@ -261,17 +264,15 @@ Status CpuBackend::Matmul(const Tensor& left,
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(output_shape.numel, 0.0f, &storage);
   if (!status.ok()) return status;
-
-  const auto& a = left_storage->values();
-  const auto& b = right_storage->values();
-  auto& c = storage->mutable_values();
+  auto& output = storage->mutable_values();
 
   for (int64_t row = 0; row < m; ++row) {
     for (int64_t inner = 0; inner < k; ++inner) {
-      const float a_value = a[static_cast<size_t>(row * k + inner)];
+      const float left_value =
+          left_values[static_cast<size_t>(row * k + inner)];
       for (int64_t col = 0; col < n; ++col) {
-        c[static_cast<size_t>(row * n + col)] +=
-            a_value * b[static_cast<size_t>(inner * n + col)];
+        output[static_cast<size_t>(row * n + col)] +=
+            left_value * right_values[static_cast<size_t>(inner * n + col)];
       }
     }
   }
