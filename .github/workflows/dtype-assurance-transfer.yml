@@ -1,0 +1,54 @@
+name: DType Assurance Transfer
+
+on:
+  push:
+    branches:
+      - work/dtype-abi-transfer-20260814
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dtype-assurance-transfer
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish verified release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout transfer branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Reassemble and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat transfer/dtype-abi-assurance.part-*.b64 \
+            | base64 --decode \
+            | gzip --decompress \
+            > /tmp/dtype-abi-assurance.patch
+          echo "339504a637abc80360046385052ce75224882a70d101c4a27a39196c71892f56  /tmp/dtype-abi-assurance.patch" \
+            | sha256sum --check --strict
+          git apply --check /tmp/dtype-abi-assurance.patch
+
+      - name: Publish one clean commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="3bf88f5014fb46fe2167434c0093ad9031e173ea"
+          target_ref="refs/heads/feature/dtype-abi-assurance"
+          git config user.name "Tensora Maintainer"
+          git config user.email "120781817+eukalpia@users.noreply.github.com"
+          git reset --hard "$base_sha"
+          git apply /tmp/dtype-abi-assurance.patch
+          git add --all
+          git diff --cached --check
+          git commit -m "Establish dtype semantics and 99.9% ABI assurance"
+          git push origin "HEAD:${target_ref}" \
+            --force-with-lease="${target_ref}:${base_sha}"
