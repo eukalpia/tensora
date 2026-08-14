@@ -1,0 +1,143 @@
+name: Core Training Proof Integration
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-training-proof-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-commit:
+    if: "${{ github.event.head_commit.message == 'ci: validate core training proof integration' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/training-engine-v1
+          fetch-depth: 0
+
+      - name: Integrate core proofs into CTest
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: guarded replacement expected exactly once')
+              file.write_text(text.replace(old, new, 1))
+
+          view = Path('native/tests/tensor_view_test.cc')
+          text = view.read_text()
+          marker = 'void test_alias_mutation_is_detected_before_backward_publication() {'
+          if text.count(marker) != 1:
+              raise SystemExit('tensor_view_test: alias mutation function mismatch')
+          text = text.replace(marker, '#if !defined(TENSORA_WITH_TORCH)\n' + marker, 1)
+          end_marker = '''  CHECK_STATUS(ts_module_release(module), TS_OK);\n}\n\n}  // namespace'''
+          end_replacement = '''  CHECK_STATUS(ts_module_release(module), TS_OK);\n}\n#endif\n\n}  // namespace'''
+          if text.count(end_marker) != 1:
+              raise SystemExit('tensor_view_test: alias mutation function terminator mismatch')
+          text = text.replace(end_marker, end_replacement, 1)
+          call = '  test_alias_mutation_is_detected_before_backward_publication();\n'
+          if text.count(call) != 1:
+              raise SystemExit('tensor_view_test: alias mutation invocation mismatch')
+          text = text.replace(call, '#if !defined(TENSORA_WITH_TORCH)\n' + call + '#endif\n', 1)
+          view.write_text(text)
+
+          cmake = Path('native/CMakeLists.txt')
+          text = cmake.read_text()
+
+          old = '''  add_executable(tensora_tensor_view_tests tests/tensor_view_test.cc)\n  target_include_directories(tensora_tensor_view_tests PRIVATE\n    ${CMAKE_CURRENT_SOURCE_DIR}/include\n  )\n  target_link_libraries(tensora_tensor_view_tests PRIVATE tensora_native)\n\n  if(TENSORA_WITH_TORCH)\n'''
+          new = '''  add_executable(tensora_tensor_view_tests tests/tensor_view_test.cc)\n  target_include_directories(tensora_tensor_view_tests PRIVATE\n    ${CMAKE_CURRENT_SOURCE_DIR}/include\n  )\n  target_link_libraries(tensora_tensor_view_tests PRIVATE tensora_native)\n\n  if(NOT TENSORA_WITH_TORCH)\n    add_executable(tensora_training_abi_contract_tests\n      tests/training_abi_contract_test.cc\n    )\n    target_include_directories(tensora_training_abi_contract_tests PRIVATE\n      ${CMAKE_CURRENT_SOURCE_DIR}/include\n    )\n    target_link_libraries(tensora_training_abi_contract_tests PRIVATE tensora_native)\n\n    add_executable(tensora_optimizer_checkpoint_tests\n      tests/optimizer_checkpoint_test.cc\n    )\n    target_include_directories(tensora_optimizer_checkpoint_tests PRIVATE\n      ${CMAKE_CURRENT_SOURCE_DIR}/include\n    )\n    target_link_libraries(tensora_optimizer_checkpoint_tests PRIVATE tensora_native)\n  endif()\n\n  if(TENSORA_WITH_TORCH)\n    target_compile_definitions(tensora_tensor_view_tests PRIVATE TENSORA_WITH_TORCH=1)\n\n'''
+          if text.count(old) != 1:
+              raise SystemExit('CMake target insertion point mismatch')
+          text = text.replace(old, new, 1)
+
+          old = '''    target_compile_options(tensora_tensor_view_tests PRIVATE /W4 /WX /permissive-)\n    if(TENSORA_WITH_TORCH)\n'''
+          new = '''    target_compile_options(tensora_tensor_view_tests PRIVATE /W4 /WX /permissive-)\n    if(NOT TENSORA_WITH_TORCH)\n      target_compile_options(tensora_training_abi_contract_tests PRIVATE /W4 /WX /permissive-)\n      target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE /W4 /WX /permissive-)\n    endif()\n    if(TENSORA_WITH_TORCH)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('CMake MSVC flags insertion point mismatch')
+          text = text.replace(old, new, 1)
+
+          old = '''    target_compile_options(tensora_tensor_view_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n    if(TENSORA_WITH_TORCH)\n'''
+          new = '''    target_compile_options(tensora_tensor_view_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n    if(NOT TENSORA_WITH_TORCH)\n      target_compile_options(tensora_training_abi_contract_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n      target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n    endif()\n    if(TENSORA_WITH_TORCH)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('CMake Unix flags insertion point mismatch')
+          text = text.replace(old, new, 1)
+
+          old = '''    target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})\n    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=address,undefined)\n  endif()\n'''
+          new = '''    target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})\n    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=address,undefined)\n    if(NOT TENSORA_WITH_TORCH)\n      target_compile_options(tensora_training_abi_contract_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})\n      target_link_options(tensora_training_abi_contract_tests PRIVATE -fsanitize=address,undefined)\n      target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})\n      target_link_options(tensora_optimizer_checkpoint_tests PRIVATE -fsanitize=address,undefined)\n    endif()\n  endif()\n'''
+          if text.count(old) != 1:
+              raise SystemExit('CMake sanitizer insertion point mismatch')
+          text = text.replace(old, new, 1)
+
+          old = '''    target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})\n    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=thread)\n  endif()\n'''
+          new = '''    target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})\n    target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=thread)\n    if(NOT TENSORA_WITH_TORCH)\n      target_compile_options(tensora_training_abi_contract_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})\n      target_link_options(tensora_training_abi_contract_tests PRIVATE -fsanitize=thread)\n      target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})\n      target_link_options(tensora_optimizer_checkpoint_tests PRIVATE -fsanitize=thread)\n    endif()\n  endif()\n'''
+          if text.count(old) != 1:
+              raise SystemExit('CMake TSan insertion point mismatch')
+          text = text.replace(old, new, 1)
+
+          old = '''  add_test(NAME tensora_tensor_view_tests COMMAND tensora_tensor_view_tests)\n  if(TENSORA_WITH_TORCH)\n'''
+          new = '''  add_test(NAME tensora_tensor_view_tests COMMAND tensora_tensor_view_tests)\n  if(NOT TENSORA_WITH_TORCH)\n    add_test(NAME tensora_training_abi_contract_tests COMMAND tensora_training_abi_contract_tests)\n    add_test(NAME tensora_optimizer_checkpoint_tests COMMAND tensora_optimizer_checkpoint_tests)\n  endif()\n  if(TENSORA_WITH_TORCH)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('CMake CTest registration insertion point mismatch')
+          cmake.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+
+      - name: Validate core Release matrix
+        shell: bash
+        run: |
+          cmake -S native -B build/core-release -DCMAKE_BUILD_TYPE=Release -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/core-release --parallel 2
+          ctest --test-dir build/core-release --output-on-failure
+
+      - name: Validate core ASan and UBSan matrix
+        shell: bash
+        env:
+          CC: clang
+          CXX: clang++
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake -S native -B build/core-asan -DCMAKE_BUILD_TYPE=Debug -DTENSORA_ENABLE_SANITIZERS=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/core-asan --parallel 2
+          ctest --test-dir build/core-asan --output-on-failure
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned CPU PyTorch
+        run: python -m pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Validate LibTorch view and backend matrix
+        shell: bash
+        run: |
+          TORCH_PREFIX="$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')"
+          TORCH_LIB="$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')"
+          cmake -S native -B build/torch -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$TORCH_PREFIX" -DTENSORA_WITH_TORCH=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/torch --target tensora_tensor_view_tests tensora_training_device_tests tensora_training_backend_internal_tests --parallel 2
+          export LD_LIBRARY_PATH="$TORCH_LIB:${GITHUB_WORKSPACE}/build/torch:${LD_LIBRARY_PATH:-}"
+          ctest --test-dir build/torch -R '^(tensora_tensor_view_tests|tensora_training_device_tests|tensora_training_backend_internal_tests)$' --output-on-failure
+
+      - name: Commit validated integration
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/CMakeLists.txt native/tests/tensor_view_test.cc
+          git diff --cached --check
+          git commit -m 'test: integrate core training proofs into CTest'
+          git push origin HEAD:feature/training-engine-v1
