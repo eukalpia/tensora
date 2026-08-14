@@ -31,6 +31,21 @@ Status InsertTrainingTensor(std::shared_ptr<Tensor> tensor,
       HandleType::kTensor, std::move(tensor), out_handle);
 }
 
+template <typename Fetch>
+Status FetchAndInsertTrainingTensor(ts_tensor_t* out_tensor,
+                                    const char* operation,
+                                    Fetch&& fetch) {
+  if (out_tensor == nullptr) {
+    return InvalidArgument(std::string(operation) +
+                           ": output handle pointer is null");
+  }
+  *out_tensor = 0;
+  std::shared_ptr<Tensor> result;
+  Status status = fetch(&result);
+  if (!status.ok()) return status;
+  return InsertTrainingTensor(std::move(result), out_tensor);
+}
+
 template <typename Unary>
 Status RunTrainingUnary(ts_tensor_t tensor,
                         ts_tensor_t* out_tensor,
@@ -258,16 +273,11 @@ ts_status_t ts_module_parameter_at(ts_module_t module,
                                    size_t index,
                                    ts_tensor_t* out_tensor) {
   return tensora::AbiGuard("module_parameter_at", [&] {
-    if (out_tensor == nullptr) {
-      return tensora::InvalidArgument(
-          "module_parameter_at: output handle pointer is null");
-    }
-    *out_tensor = 0;
-    std::shared_ptr<tensora::Tensor> result;
-    tensora::Status status =
-        tensora::training::ModuleParameterAt(module, index, &result);
-    if (!status.ok()) return status;
-    return tensora::InsertTrainingTensor(std::move(result), out_tensor);
+    return tensora::FetchAndInsertTrainingTensor(
+        out_tensor, "module_parameter_at",
+        [&](std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::ModuleParameterAt(module, index, out);
+        });
   });
 }
 
@@ -281,16 +291,11 @@ ts_status_t ts_module_buffer_at(ts_module_t module,
                                 size_t index,
                                 ts_tensor_t* out_tensor) {
   return tensora::AbiGuard("module_buffer_at", [&] {
-    if (out_tensor == nullptr) {
-      return tensora::InvalidArgument(
-          "module_buffer_at: output handle pointer is null");
-    }
-    *out_tensor = 0;
-    std::shared_ptr<tensora::Tensor> result;
-    tensora::Status status =
-        tensora::training::ModuleBufferAt(module, index, &result);
-    if (!status.ok()) return status;
-    return tensora::InsertTrainingTensor(std::move(result), out_tensor);
+    return tensora::FetchAndInsertTrainingTensor(
+        out_tensor, "module_buffer_at",
+        [&](std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::ModuleBufferAt(module, index, out);
+        });
   });
 }
 
