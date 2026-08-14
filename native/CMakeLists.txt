@@ -210,6 +210,19 @@ if(TENSORA_BUILD_TESTS)
     target_compile_definitions(tensora_c_abi_tests PRIVATE TENSORA_WITH_ONNXRUNTIME=1)
   endif()
 
+  add_library(tensora_ffi_contract_fixture SHARED
+    tests/ffi_contract_fixture.c
+  )
+  target_compile_definitions(tensora_ffi_contract_fixture
+    PRIVATE TENSORA_NATIVE_BUILD=1
+  )
+  target_include_directories(tensora_ffi_contract_fixture PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  set_target_properties(tensora_ffi_contract_fixture PROPERTIES
+    OUTPUT_NAME tensora_fault_runtime
+  )
+
   if(TENSORA_WITH_TORCH)
     add_executable(tensora_training_tests tests/training_test.cc)
     target_include_directories(tensora_training_tests PRIVATE
@@ -242,6 +255,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_handle_registry_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_device_codec_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_c_abi_tests PRIVATE /W4 /WX)
+    target_compile_options(tensora_ffi_contract_fixture PRIVATE /W4 /WX)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE /W4 /WX /permissive-)
       target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0 /wd4267 /wd4702)
@@ -254,6 +268,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_handle_registry_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_device_codec_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_c_abi_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(tensora_ffi_contract_fixture PRIVATE -Wall -Wextra -Wpedantic -Werror)
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
       target_compile_options(tensora_training_device_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -272,6 +287,8 @@ if(TENSORA_BUILD_TESTS)
     target_link_options(tensora_device_codec_tests PRIVATE -fsanitize=address,undefined)
     target_compile_options(tensora_c_abi_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
     target_link_options(tensora_c_abi_tests PRIVATE -fsanitize=address,undefined)
+    target_compile_options(tensora_ffi_contract_fixture PRIVATE ${TENSORA_SANITIZER_FLAGS})
+    target_link_options(tensora_ffi_contract_fixture PRIVATE -fsanitize=address,undefined)
   endif()
 
   if(TENSORA_ENABLE_THREAD_SANITIZER)
@@ -283,6 +300,8 @@ if(TENSORA_BUILD_TESTS)
     target_link_options(tensora_device_codec_tests PRIVATE -fsanitize=thread)
     target_compile_options(tensora_c_abi_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
     target_link_options(tensora_c_abi_tests PRIVATE -fsanitize=thread)
+    target_compile_options(tensora_ffi_contract_fixture PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
+    target_link_options(tensora_ffi_contract_fixture PRIVATE -fsanitize=thread)
   endif()
 
   add_test(NAME tensora_native_tests COMMAND tensora_native_tests)

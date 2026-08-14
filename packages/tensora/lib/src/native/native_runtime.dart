@@ -8,6 +8,7 @@ import '../dtype/dtype.dart';
 import '../errors/tensora_exception.dart';
 import '../shape/shape.dart';
 import 'native_bindings.dart';
+import 'native_library_resolver.dart';
 
 typedef _LoadLibraryExWNative =
     Pointer<Void> Function(
@@ -45,6 +46,9 @@ final class NativeRuntime {
   // LoadLibraryEx owns one module reference. Keep it for the process lifetime so
   // Windows cannot unload the dependency graph before the Dart DynamicLibrary.
   static final List<Pointer<Void>> _windowsPreloadedModules = <Pointer<Void>>[];
+
+  /// Number of Win32 module references retained for process-lifetime safety.
+  static int get retainedWindowsModuleCount => _windowsPreloadedModules.length;
 
   static NativeRuntime get instance => _instance ??= _load();
 
@@ -114,21 +118,10 @@ final class NativeRuntime {
   }
   // coverage:ignore-end
 
-  static String _resolveLibraryPath() {
-    final override = Platform.environment['TENSORA_NATIVE_LIBRARY'];
-    if (override != null && override.trim().isNotEmpty) {
-      return override;
-    }
-
-    if (Platform.isLinux) return 'libtensora_native.so';
-    if (Platform.isMacOS) return 'libtensora_native.dylib';
-    if (Platform.isWindows) return 'tensora_native.dll';
-
-    throw UnsupportedOperationException(
-      'Native runtime discovery supports Linux, macOS, and Windows.',
-      operation: 'runtime.load',
-    );
-  }
+  static String _resolveLibraryPath() => NativeLibraryResolver.resolve(
+    environment: Platform.environment,
+    operatingSystem: Platform.operatingSystem,
+  );
 
   int createFromList(List<num> values, Shape shape) {
     final data = calloc<Float>(values.length);
@@ -270,6 +263,15 @@ final class NativeRuntime {
       _check(_bindings.tensorDType(handle, value), 'tensor.dtype');
       return switch (value.value) {
         1 => DType.float32,
+        2 => DType.float16,
+        3 => DType.bfloat16,
+        4 => DType.float64,
+        5 => DType.int8,
+        6 => DType.uint8,
+        7 => DType.int16,
+        8 => DType.int32,
+        9 => DType.int64,
+        10 => DType.boolean,
         final code =>
           throw NativeRuntimeException(
             'Native runtime returned unknown dtype code $code.',
@@ -424,8 +426,7 @@ final class NativeRuntime {
     if (device.isCuda) return 2;
     if (device.isMps) return 3;
     if (device.isXpu) return 4;
-    if (device.isHip) return 5;
-    throw UnsupportedError('Unknown Tensora device $device.');
+    return 5;
   }
 
   int _newHandle(String operation, int Function(Pointer<Uint64> out) call) {

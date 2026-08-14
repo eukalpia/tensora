@@ -1,4 +1,5 @@
 import '../errors/tensora_exception.dart';
+import '../native/finalizer_callbacks.dart';
 import '../native/native_inference_runtime.dart';
 import '../native/native_runtime.dart';
 import '../tensor/native_adoption.dart';
@@ -44,14 +45,12 @@ enum OnnxExecutionProvider {
   }
 }
 
-final Finalizer<int> _onnxSessionFinalizer = Finalizer<int>((handle) {
-  NativeInferenceRuntime.instance.releaseFromFinalizer(handle);
-});
+final Finalizer<int> _onnxSessionFinalizer = Finalizer<int>(
+  releaseOnnxSessionFromFinalizer,
+);
 
 /// ONNX Runtime capability and provider diagnostics.
-final class OnnxRuntime {
-  OnnxRuntime._();
-
+abstract final class OnnxRuntime {
   /// Whether the loaded native library contains the ONNX Runtime backend.
   static bool get available => NativeInferenceRuntime.instance.available();
 
@@ -200,7 +199,7 @@ final class OnnxSession {
       for (final tensor in adopted) {
         tensor.dispose();
       }
-      for (var index = adopted.length; index < handles.length; index++) {
+      for (var index = adopted.length + 1; index < handles.length; index++) {
         NativeRuntime.instance.releaseFromFinalizer(handles[index]);
       }
       rethrow;

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:tensora/src/native/native_runtime.dart';
 import 'package:tensora/tensora.dart';
 import 'package:test/test.dart';
@@ -17,6 +19,14 @@ void main() {
       expect(runtime.copyToHost(handle, 1), [7.5]);
     } finally {
       runtime.release(handle);
+    }
+  });
+
+  test('Windows module retention matches the platform contract', () {
+    if (Platform.isWindows) {
+      expect(NativeRuntime.retainedWindowsModuleCount, greaterThan(0));
+    } else {
+      expect(NativeRuntime.retainedWindowsModuleCount, 0);
     }
   });
 

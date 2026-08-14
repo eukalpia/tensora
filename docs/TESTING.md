@@ -126,6 +126,19 @@ The training soak workflow repeatedly creates/trains/checkpoints/releases traini
 
 The high-assurance workflow groups additional stress and regression gates that are intentionally more expensive than the main per-platform smoke matrix.
 
+It merges isolated core, training, inference, loader, lifecycle, and C ABI fault
+reports and requires at least **99.9% Dart library line coverage**. The fault
+runtime is a test-only implementation of the public C ABI that returns
+deterministic malformed metadata, error statuses, null handles, changing UTF-8
+capacities, and partial output/parameter sets. These cases verify typed error
+translation and exact rollback ownership without weakening the production
+runtime.
+
+Coverage exclusions are allowlisted to the Win32 loader implementation that is
+executed by Windows FFI, training, and inference jobs but cannot execute on the
+Linux coverage host. CI fails if another source file introduces an exclusion or
+if the existing exclusion budget grows.
+
 ## 4. Real hardware qualification
 
 Hardware claims require actual device/provider execution.
