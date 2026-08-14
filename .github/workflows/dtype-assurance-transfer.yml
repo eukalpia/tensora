@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Create verified release-candidate object
+    name: Publish verified workflow blob
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -37,72 +37,28 @@ jobs:
             | sha256sum --check --strict
           git apply --check /tmp/dtype-abi-assurance.patch
 
-      - name: Create exact final Git objects
+      - name: Publish verified workflow bytes as a normal blob
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           base_sha="3bf88f5014fb46fe2167434c0093ad9031e173ea"
           staging_sha="d76c9572d49e18b929202bc32b502a0366eca6f0"
+          target_ref="refs/heads/work/dtype-abi-published-20260814"
+
+          git config user.name "Tensora Maintainer"
+          git config user.email "120781817+eukalpia@users.noreply.github.com"
 
           git reset --hard "$base_sha"
           git apply /tmp/dtype-abi-assurance.patch
-          git diff --check
-
-          expected_workflow_sha="9cb8f6af449cdd86fd6e5b199fa007309470583f4aa2d6a0b0eb92752c1221f9"
-          echo "${expected_workflow_sha}  .github/workflows/high-assurance-ci.yml" \
+          echo "9cb8f6af449cdd86fd6e5b199fa007309470583f4aa2d6a0b0eb92752c1221f9  .github/workflows/high-assurance-ci.yml" \
             | sha256sum --check --strict
+          cp .github/workflows/high-assurance-ci.yml /tmp/final-high-assurance-ci.yml
 
-          workflow_content="$(base64 -w0 .github/workflows/high-assurance-ci.yml)"
-          workflow_blob="$({
-            jq -n --arg content "$workflow_content" \
-              '{content: $content, encoding: "base64"}'
-          } | gh api \
-              --method POST \
-              "repos/${GITHUB_REPOSITORY}/git/blobs" \
-              --input - \
-              --jq '.sha')"
-
-          staging_tree="$(git rev-parse "${staging_sha}^{tree}")"
-          final_tree="$({
-            jq -n \
-              --arg base_tree "$staging_tree" \
-              --arg workflow_blob "$workflow_blob" \
-              '{
-                base_tree: $base_tree,
-                tree: [{
-                  path: ".github/workflows/high-assurance-ci.yml",
-                  mode: "100644",
-                  type: "blob",
-                  sha: $workflow_blob
-                }]
-              }'
-          } | gh api \
-              --method POST \
-              "repos/${GITHUB_REPOSITORY}/git/trees" \
-              --input - \
-              --jq '.sha')"
-
-          final_commit="$({
-            jq -n \
-              --arg message "Establish dtype semantics and 99.9% ABI assurance" \
-              --arg tree "$final_tree" \
-              --arg parent "$base_sha" \
-              '{message: $message, tree: $tree, parents: [$parent]}'
-          } | gh api \
-              --method POST \
-              "repos/${GITHUB_REPOSITORY}/git/commits" \
-              --input - \
-              --jq '.sha')"
-
-          printf '%s\n' "$final_commit" | tee /tmp/final-commit-sha.txt
-          echo "FINAL_COMMIT_SHA=${final_commit}" >> "$GITHUB_ENV"
-
-      - name: Upload final commit reference
-        uses: actions/upload-artifact@v4
-        with:
-          name: dtype-abi-final-commit
-          path: /tmp/final-commit-sha.txt
-          if-no-files-found: error
-          retention-days: 1
+          git checkout -B dtype-abi-staging "$staging_sha"
+          mkdir -p transfer
+          cp /tmp/final-high-assurance-ci.yml transfer/final-high-assurance-ci.yml
+          git add transfer/final-high-assurance-ci.yml
+          git diff --cached --check
+          git commit -m "Stage verified High Assurance workflow blob"
+          git push origin "HEAD:${target_ref}" \
+            --force-with-lease="${target_ref}:${staging_sha}"
