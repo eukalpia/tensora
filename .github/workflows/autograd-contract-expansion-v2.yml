@@ -1,0 +1,83 @@
+name: Autograd Contract Expansion V2
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: "${{ github.event.head_commit.message == 'ci: validate autograd contract expansion v2' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/training-engine-v1
+          fetch-depth: 0
+
+      - name: Expand internal autograd contracts
+        shell: bash
+        env:
+          CLASS_B64: ICByZXR1cm4gdGVuc29yOwp9CgpjbGFzcyBGYWtlQ3B1U3RvcmFnZSBmaW5hbCA6IHB1YmxpYyB0ZW5zb3JhOjpUZW5zb3JTdG9yYWdlIHsKIHB1YmxpYzoKICBleHBsaWNpdCBGYWtlQ3B1U3RvcmFnZSh1aW50NjRfdCBieXRlX3NpemUpIDogYnl0ZV9zaXplXyhieXRlX3NpemUpIHt9CgogIHRlbnNvcmE6OlN0b3JhZ2VLaW5kIGtpbmQoKSBjb25zdCBvdmVycmlkZSB7CiAgICByZXR1cm4gdGVuc29yYTo6U3RvcmFnZUtpbmQ6OmtDcHU7CiAgfQoKICB0ZW5zb3JhOjpTdGF0dXMgQ29weVRvSG9zdEYzMihmbG9hdCosIHNpemVfdCwgc2l6ZV90KiBvdXRfd3JpdHRlbikgY29uc3Qgb3ZlcnJpZGUgewogICAgaWYgKG91dF93cml0dGVuICE9IG51bGxwdHIpICpvdXRfd3JpdHRlbiA9IDA7CiAgICByZXR1cm4gdGVuc29yYTo6U3RhdHVzOjpPaygpOwogIH0KCiAgdWludDY0X3QgYnl0ZV9zaXplKCkgY29uc3Qgb3ZlcnJpZGUgeyByZXR1cm4gYnl0ZV9zaXplXzsgfQoKIHByaXZhdGU6CiAgdWludDY0X3QgYnl0ZV9zaXplXzsKfTsKCnZvaWQgVGVzdERpcmVjdEFyZ3VtZW50Q29udHJhY3RzKCkgew==
+          FUNCTION_B64: dm9pZCBUZXN0QXV0b2dyYWRSZWFjaGFibGVFZGdlQ29udHJhY3RzKCkgewogIHVzaW5nIG5hbWVzcGFjZSB0ZW5zb3JhOwogIHVzaW5nIG5hbWVzcGFjZSB0ZW5zb3JhOjphdXRvZ3JhZDsKCiAgY29uc3QgYXV0byB2ZWN0b3IgPSBNYWtlVGVuc29yKHsxLjBmLCAyLjBmfSwgezJ9KTsKICBUZW5zb3IgY3VkYV9saWtlKHZlY3Rvci0+c2hhcGUoKSwgdmVjdG9yLT5zdG9yYWdlKCksIERUeXBlOjprRmxvYXQzMiwKICAgICAgICAgICAgICAgICAgIERldmljZTo6a0N1ZGEsIDApOwogIENIRUNLX1NUQVRVUyhFbnN1cmVDcHVGbG9hdDMyKGN1ZGFfbGlrZSwgImF1dG9ncmFkX2VkZ2UiKSwgVFNfVU5TVVBQT1JURUQpOwogIFRlbnNvciBiYWRfZHR5cGUodmVjdG9yLT5zaGFwZSgpLCB2ZWN0b3ItPnN0b3JhZ2UoKSwgc3RhdGljX2Nhc3Q8RFR5cGU+KDk5OSksCiAgICAgICAgICAgICAgICAgICBEZXZpY2U6OmtDcHUsIDApOwogIENIRUNLX1NUQVRVUyhFbnN1cmVDcHVGbG9hdDMyKGJhZF9kdHlwZSwgImF1dG9ncmFkX2VkZ2UiKSwgVFNfVU5TVVBQT1JURUQpOwoKICBjb25zdCBhdXRvIG1hdHJpeCA9IE1ha2VUZW5zb3IoezEsIDIsIDMsIDQsIDUsIDZ9LCB7MiwgM30pOwogIENwdUJhY2tlbmQgYmFja2VuZDsKICBzdGQ6OnNoYXJlZF9wdHI8VGVuc29yPiB0cmFuc3Bvc2VkOwogIENIRUNLX1NUQVRVUyhiYWNrZW5kLlRyYW5zcG9zZTJEKCptYXRyaXgsICZ0cmFuc3Bvc2VkKSwgVFNfT0spOwogIGNvbnN0IHN0ZDo6dmVjdG9yPGZsb2F0PiogY29uc3RfdmFsdWVzID0gbnVsbHB0cjsKICBzdGQ6OnZlY3RvcjxmbG9hdD4qIG11dGFibGVfdmFsdWVzID0gbnVsbHB0cjsKICBDSEVDS19TVEFUVVMoQ3B1VmFsdWVzKCp0cmFuc3Bvc2VkLCAiYXV0b2dyYWRfZWRnZSIsICZjb25zdF92YWx1ZXMpLAogICAgICAgICAgICAgICBUU19JTlZBTElEX0FSR1VNRU5UKTsKICBDSEVDS19TVEFUVVMoTXV0YWJsZUNwdVZhbHVlcygqdHJhbnNwb3NlZCwgImF1dG9ncmFkX2VkZ2UiLCAmbXV0YWJsZV92YWx1ZXMpLAogICAgICAgICAgICAgICBUU19JTlZBTElEX0FSR1VNRU5UKTsKCiAgU2hhcGVJbmZvIG9uZV9zaGFwZTsKICBjb25zdCBpbnQ2NF90IG9uZV9kaW1bMV0gPSB7MX07CiAgQ0hFQ0tfU1RBVFVTKFZhbGlkYXRlU2hhcGUob25lX2RpbSwgMSwgJm9uZV9zaGFwZSksIFRTX09LKTsKICBUZW5zb3IgcGFydGlhbChvbmVfc2hhcGUsIHZlY3Rvci0+c3RvcmFnZSgpKTsKICBDSEVDS19TVEFUVVMoQ3B1VmFsdWVzKHBhcnRpYWwsICJhdXRvZ3JhZF9lZGdlIiwgJmNvbnN0X3ZhbHVlcyksCiAgICAgICAgICAgICAgIFRTX0lOVkFMSURfQVJHVU1FTlQpOwogIENIRUNLX1NUQVRVUyhNdXRhYmxlQ3B1VmFsdWVzKHBhcnRpYWwsICJhdXRvZ3JhZF9lZGdlIiwgJm11dGFibGVfdmFsdWVzKSwKICAgICAgICAgICAgICAgVFNfSU5WQUxJRF9BUkdVTUVOVCk7CgogIGNvbnN0IGF1dG8gZmFrZV9zdG9yYWdlID0gc3RkOjptYWtlX3NoYXJlZDxGYWtlQ3B1U3RvcmFnZT4ob25lX3NoYXBlLmJ5dGVfc2l6ZSk7CiAgVGVuc29yIGZha2VfdGVuc29yKG9uZV9zaGFwZSwgZmFrZV9zdG9yYWdlKTsKICBDSEVDS19TVEFUVVMoQ3B1VmFsdWVzKGZha2VfdGVuc29yLCAiYXV0b2dyYWRfZWRnZSIsICZjb25zdF92YWx1ZXMpLAogICAgICAgICAgICAgICBUU19VTlNVUFBPUlRFRCk7CiAgQ0hFQ0tfU1RBVFVTKE11dGFibGVDcHVWYWx1ZXMoZmFrZV90ZW5zb3IsICJhdXRvZ3JhZF9lZGdlIiwgJm11dGFibGVfdmFsdWVzKSwKICAgICAgICAgICAgICAgVFNfVU5TVVBQT1JURUQpOwoKICBTaGFwZUluZm8gY29ycnVwdF9zaGFwZTsKICBjb3JydXB0X3NoYXBlLmRpbWVuc2lvbnMgPSB7Mn07CiAgY29ycnVwdF9zaGFwZS5zdHJpZGVzID0gezF9OwogIGNvcnJ1cHRfc2hhcGUubnVtZWwgPSAzOwogIGNvcnJ1cHRfc2hhcGUuYnl0ZV9zaXplID0gMyAqIHNpemVvZihmbG9hdCk7CiAgc3RkOjpzaGFyZWRfcHRyPFRlbnNvcj4gb3V0cHV0OwogIENIRUNLX1NUQVRVUyhNYWtlQ3B1VGVuc29yKGNvcnJ1cHRfc2hhcGUsIHsxLCAyLCAzfSwgJm91dHB1dCksCiAgICAgICAgICAgICAgIFRTX0lOVEVSTkFMX0VSUk9SKTsKCiAgc3RkOjpzaGFyZWRfcHRyPFRlbnNvcj4gbGVmdDsKICBzdGQ6OnNoYXJlZF9wdHI8VGVuc29yPiByaWdodDsKICBDSEVDS19TVEFUVVMoQ2xvbmVBc0xlYWYoKnZlY3RvciwgdHJ1ZSwgJmxlZnQpLCBUU19PSyk7CiAgY29uc3QgYXV0byBvdGhlciA9IE1ha2VUZW5zb3IoezMuMGYsIDQuMGZ9LCB7Mn0pOwogIENIRUNLX1NUQVRVUyhDbG9uZUFzTGVhZigqb3RoZXIsIHRydWUsICZyaWdodCksIFRTX09LKTsKICBjb25zdCBhdXRvIHVwc3RyZWFtID0gTWFrZVRlbnNvcih7NS4wZiwgNi4wZn0sIHsyfSk7CiAgY29uc3QgYXV0byBzY2FsYXIgPSBNYWtlVGVuc29yKHsxLjBmfSwge30pOwogIHN0ZDo6dmVjdG9yPEdyYWRpZW50Q29udHJpYnV0aW9uPiBjb250cmlidXRpb25zOwoKICBHcmFkTm9kZSBpZGVudGl0eXtPcGVyYXRpb246OmtJZGVudGl0eSwge2xlZnR9LCB7VmVyc2lvbigqbGVmdCl9fTsKICBDSEVDS19TVEFUVVMoQXBwbHlOb2RlKGlkZW50aXR5LCAqdXBzdHJlYW0sICZjb250cmlidXRpb25zKSwgVFNfT0spOwogIENIRUNLX1RSVUUoY29udHJpYnV0aW9ucy5zaXplKCkgPT0gMSk7CgogIEdyYWROb2RlIG11bHRpcGx5e09wZXJhdGlvbjo6a011bHRpcGx5LAogICAgICAgICAgICAgICAgICAgIHtsZWZ0LCByaWdodH0sCiAgICAgICAgICAgICAgICAgICAge1ZlcnNpb24oKmxlZnQpLCBWZXJzaW9uKCpyaWdodCl9fTsKICBDSEVDS19TVEFUVVMoQXBwbHlOb2RlKG11bHRpcGx5LCAqc2NhbGFyLCAmY29udHJpYnV0aW9ucyksIFRTX0lOVEVSTkFMX0VSUk9SKTsKCiAgR3JhZE5vZGUgbXNle09wZXJhdGlvbjo6a01zZSwKICAgICAgICAgICAgICAge2xlZnQsIHJpZ2h0fSwKICAgICAgICAgICAgICAge1ZlcnNpb24oKmxlZnQpLCBWZXJzaW9uKCpyaWdodCl9fTsKICBDSEVDS19TVEFUVVMoQXBwbHlOb2RlKG1zZSwgKnNjYWxhciwgJmNvbnRyaWJ1dGlvbnMpLCBUU19PSyk7CiAgQ0hFQ0tfVFJVRShjb250cmlidXRpb25zLnNpemUoKSA9PSAyKTsKCiAgY29uc3QgYXV0byBsb2dpdHNfYmFzZSA9IE1ha2VUZW5zb3IoezEsIDIsIDMsIDR9LCB7MiwgMn0pOwogIGNvbnN0IGF1dG8gdGFyZ2V0X2Jhc2UgPSBNYWtlVGVuc29yKHsxLCAwLCAwLCAxfSwgezIsIDJ9KTsKICBzdGQ6OnNoYXJlZF9wdHI8VGVuc29yPiBsb2dpdHM7CiAgc3RkOjpzaGFyZWRfcHRyPFRlbnNvcj4gdGFyZ2V0OwogIENIRUNLX1NUQVRVUyhDbG9uZUFzTGVhZigqbG9naXRzX2Jhc2UsIHRydWUsICZsb2dpdHMpLCBUU19PSyk7CiAgQ0hFQ0tfU1RBVFVTKENsb25lQXNMZWFmKCp0YXJnZXRfYmFzZSwgdHJ1ZSwgJnRhcmdldCksIFRTX09LKTsKICBHcmFkTm9kZSBjcm9zc19lbnRyb3B5e09wZXJhdGlvbjo6a0Nyb3NzRW50cm9weSwKICAgICAgICAgICAgICAgICAgICAgICAgIHtsb2dpdHMsIHRhcmdldH0sCiAgICAgICAgICAgICAgICAgICAgICAgICB7VmVyc2lvbigqbG9naXRzKSwgVmVyc2lvbigqdGFyZ2V0KX19OwogIENIRUNLX1NUQVRVUyhBcHBseU5vZGUoY3Jvc3NfZW50cm9weSwgKnNjYWxhciwgJmNvbnRyaWJ1dGlvbnMpLCBUU19PSyk7CiAgQ0hFQ0tfVFJVRShjb250cmlidXRpb25zLnNpemUoKSA9PSAyKTsKCiAgY29uc3QgYXV0byBiYWRfdGFyZ2V0X2Jhc2UgPSBNYWtlVGVuc29yKHsxLCAwfSwgezJ9KTsKICBzdGQ6OnNoYXJlZF9wdHI8VGVuc29yPiBiYWRfdGFyZ2V0OwogIENIRUNLX1NUQVRVUyhDbG9uZUFzTGVhZigqYmFkX3RhcmdldF9iYXNlLCB0cnVlLCAmYmFkX3RhcmdldCksIFRTX09LKTsKICBHcmFkTm9kZSBjcm9zc19lbnRyb3B5X3NoYXBle09wZXJhdGlvbjo6a0Nyb3NzRW50cm9weSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHtsb2dpdHMsIGJhZF90YXJnZXR9LAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAge1ZlcnNpb24oKmxvZ2l0cyksIFZlcnNpb24oKmJhZF90YXJnZXQpfX07CiAgQ0hFQ0tfU1RBVFVTKEFwcGx5Tm9kZShjcm9zc19lbnRyb3B5X3NoYXBlLCAqc2NhbGFyLCAmY29udHJpYnV0aW9ucyksCiAgICAgICAgICAgICAgIFRTX0lOVEVSTkFMX0VSUk9SKTsKCiAgR3JhZE5vZGUgYmlhc19yYW5re09wZXJhdGlvbjo6a0JpYXNBZGQsCiAgICAgICAgICAgICAgICAgICAgIHtsZWZ0LCByaWdodH0sCiAgICAgICAgICAgICAgICAgICAgIHtWZXJzaW9uKCpsZWZ0KSwgVmVyc2lvbigqcmlnaHQpfX07CiAgQ0hFQ0tfU1RBVFVTKEFwcGx5Tm9kZShiaWFzX3JhbmssICp1cHN0cmVhbSwgJmNvbnRyaWJ1dGlvbnMpLAogICAgICAgICAgICAgICBUU19JTlRFUk5BTF9FUlJPUik7CgogIGNvbnN0IGF1dG8gbWF0cml4X2Jhc2UgPSBNYWtlVGVuc29yKHsxLCAyLCAzLCA0fSwgezIsIDJ9KTsKICBzdGQ6OnNoYXJlZF9wdHI8VGVuc29yPiBtYXRyaXhfbGVhZjsKICBDSEVDS19TVEFUVVMoQ2xvbmVBc0xlYWYoKm1hdHJpeF9iYXNlLCB0cnVlLCAmbWF0cml4X2xlYWYpLCBUU19PSyk7CiAgY29uc3QgYXV0byB3cm9uZ19iaWFzX2Jhc2UgPSBNYWtlVGVuc29yKHsxLCAyLCAzfSwgezN9KTsKICBzdGQ6OnNoYXJlZF9wdHI8VGVuc29yPiB3cm9uZ19iaWFzOwogIENIRUNLX1NUQVRVUyhDbG9uZUFzTGVhZigqd3JvbmdfYmlhc19iYXNlLCB0cnVlLCAmd3JvbmdfYmlhcyksIFRTX09LKTsKICBjb25zdCBhdXRvIG1hdHJpeF91cHN0cmVhbSA9IE1ha2VUZW5zb3IoezEsIDEsIDEsIDF9LCB7MiwgMn0pOwogIEdyYWROb2RlIGJpYXNfd2lkdGh7T3BlcmF0aW9uOjprQmlhc0FkZCwKICAgICAgICAgICAgICAgICAgICAgIHttYXRyaXhfbGVhZiwgd3JvbmdfYmlhc30sCiAgICAgICAgICAgICAgICAgICAgICB7VmVyc2lvbigqbWF0cml4X2xlYWYpLCBWZXJzaW9uKCp3cm9uZ19iaWFzKX19OwogIENIRUNLX1NUQVRVUyhBcHBseU5vZGUoYmlhc193aWR0aCwgKm1hdHJpeF91cHN0cmVhbSwgJmNvbnRyaWJ1dGlvbnMpLAogICAgICAgICAgICAgICBUU19JTlRFUk5BTF9FUlJPUik7CgogIGNvbnN0IGF1dG8gYmlhc19iYXNlID0gTWFrZVRlbnNvcih7MSwgMn0sIHsyfSk7CiAgc3RkOjpzaGFyZWRfcHRyPFRlbnNvcj4gYmlhczsKICBDSEVDS19TVEFUVVMoQ2xvbmVBc0xlYWYoKmJpYXNfYmFzZSwgdHJ1ZSwgJmJpYXMpLCBUU19PSyk7CiAgR3JhZE5vZGUgYmlhc19ncmFkaWVudF9zaGFwZXtPcGVyYXRpb246OmtCaWFzQWRkLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAge21hdHJpeF9sZWFmLCBiaWFzfSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHtWZXJzaW9uKCptYXRyaXhfbGVhZiksIFZlcnNpb24oKmJpYXMpfX07CiAgQ0hFQ0tfU1RBVFVTKEFwcGx5Tm9kZShiaWFzX2dyYWRpZW50X3NoYXBlLCAqdXBzdHJlYW0sICZjb250cmlidXRpb25zKSwKICAgICAgICAgICAgICAgVFNfSU5URVJOQUxfRVJST1IpOwp9Cgo=
+        run: |
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          path = Path('native/tests/training_core_internal_test.cc')
+          text = path.read_text()
+          include_anchor = '#include "core/status.h"\n'
+          if text.count(include_anchor) != 1:
+              raise SystemExit('include anchor mismatch')
+          text = text.replace(include_anchor,
+                              include_anchor + '#include "memory/tensor_storage.h"\n', 1)
+          class_anchor = '  return tensor;\n}\n\nvoid TestDirectArgumentContracts() {'
+          class_block = base64.b64decode(os.environ['CLASS_B64']).decode()
+          if text.count(class_anchor) != 1:
+              raise SystemExit('class anchor mismatch')
+          text = text.replace(class_anchor, class_block, 1)
+          function_anchor = 'void WriteBytes(const std::filesystem::path& path,\n'
+          function = base64.b64decode(os.environ['FUNCTION_B64']).decode()
+          if text.count(function_anchor) != 1:
+              raise SystemExit('function insertion anchor mismatch')
+          text = text.replace(function_anchor, function + function_anchor, 1)
+          main_anchor = '  TestAutogradInternalContracts();\n  TestCheckpointCorruptionContracts();'
+          main_replacement = '  TestAutogradInternalContracts();\n  TestAutogradReachableEdgeContracts();\n  TestCheckpointCorruptionContracts();'
+          if text.count(main_anchor) != 1:
+              raise SystemExit('main anchor mismatch')
+          path.write_text(text.replace(main_anchor, main_replacement, 1))
+          PY
+          git diff --check
+
+      - name: Validate Release matrix
+        run: |
+          cmake -S native -B build/release -DCMAKE_BUILD_TYPE=Release -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/release --parallel 2
+          ctest --test-dir build/release --output-on-failure
+
+      - name: Validate ASan and UBSan matrix
+        env:
+          CC: clang
+          CXX: clang++
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake -S native -B build/asan -DCMAKE_BUILD_TYPE=Debug -DTENSORA_ENABLE_SANITIZERS=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/asan --parallel 2
+          ctest --test-dir build/asan --output-on-failure
+
+      - name: Commit validated contracts
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/tests/training_core_internal_test.cc
+          git diff --cached --check
+          git commit -m 'test: expand autograd edge contracts'
+          git push origin HEAD:feature/training-engine-v1
