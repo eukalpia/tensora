@@ -15,6 +15,7 @@
 
 #include "autograd/autograd.h"
 #include "backends/backend.h"
+#include "core/allocation_guard.h"
 #include "memory/cpu_storage.h"
 #include "runtime/dispatcher.h"
 #include "runtime/handle_registry.h"
@@ -290,7 +291,7 @@ Status CreateOptimizer(uint64_t module,
   status = LookupModule(module, &module_state);
   if (!status.ok()) return status;
 
-  try {
+  return AllocationGuard(operation, [&]() -> Status {
     auto state = std::make_shared<OptimizerState>();
     state->kind = kind;
     state->module = module_state;
@@ -315,9 +316,7 @@ Status CreateOptimizer(uint64_t module,
 
     return HandleRegistry::Instance().Insert(
         HandleType::kOptimizer, std::move(state), out_optimizer);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory(std::string(operation) + ": allocation failed");
-  }
+  });
 }
 
 template <typename T>
@@ -598,20 +597,20 @@ Status LinearCreate(int64_t in_features,
   status = ValidateShape(weight_dims, 2, &weight_shape);
   if (!status.ok()) return status;
 
-  const float bound = 1.0f / std::sqrt(static_cast<float>(in_features));
-  std::vector<float> weight_values(static_cast<size_t>(weight_shape.numel));
-  std::vector<float> bias_values;
-  {
-    std::lock_guard<std::mutex> lock(RngMutex());
-    std::uniform_real_distribution<float> distribution(-bound, bound);
-    for (float& value : weight_values) value = distribution(Rng());
-    if (use_bias) {
-      bias_values.resize(static_cast<size_t>(out_features));
-      for (float& value : bias_values) value = distribution(Rng());
+  return AllocationGuard("linear_create", [&]() -> Status {
+    const float bound = 1.0f / std::sqrt(static_cast<float>(in_features));
+    std::vector<float> weight_values(static_cast<size_t>(weight_shape.numel));
+    std::vector<float> bias_values;
+    {
+      std::lock_guard<std::mutex> lock(RngMutex());
+      std::uniform_real_distribution<float> distribution(-bound, bound);
+      for (float& value : weight_values) value = distribution(Rng());
+      if (use_bias) {
+        bias_values.resize(static_cast<size_t>(out_features));
+        for (float& value : bias_values) value = distribution(Rng());
+      }
     }
-  }
 
-  try {
     auto state = std::make_shared<LinearState>();
     state->in_features = in_features;
     state->out_features = out_features;
@@ -632,9 +631,7 @@ Status LinearCreate(int64_t in_features,
 
     return HandleRegistry::Instance().Insert(
         HandleType::kModule, std::move(state), out_module);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("linear_create: allocation failed");
-  }
+  });
 }
 
 Status ModuleForward(uint64_t module,
