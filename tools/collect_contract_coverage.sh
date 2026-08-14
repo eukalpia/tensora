@@ -4,6 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture="$root_dir/build/libtensora_contract_fixture.so"
 
+mkdir -p "$root_dir/build"
+
 cc -std=c11 -fPIC -shared -Wall -Wextra -Werror \
   -DTENSORA_NATIVE_BUILD \
   -I "$root_dir/native/include" \
