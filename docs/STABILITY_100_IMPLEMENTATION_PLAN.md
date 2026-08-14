@@ -134,6 +134,12 @@ Implement in this order, each as a complete vertical slice with tests before imp
 
 No dtype/operator is exported as supported until its Dart API, C ABI, native implementation, error paths, lifetime behavior, CPU correctness, accelerator parity where claimed, and documentation are complete.
 
+## Current progress
+
+The hard merged Dart coverage gate has been proven RED against the original integration baseline and the adversarial native-contract suite raised merged coverage from `843/932 = 90.4506%` to `913/932 = 97.9614%` while exposing a real ONNX output-adoption double-release attempt. That ownership defect is fixed and covered by a permanent fast native-contract CI gate.
+
+The remaining Dart coverage work has been consolidated around deterministic finalizer callbacks, a shared device codec, testable platform library-name resolution, accelerator staging ownership, module tensor collection, and ONNX partial-adoption rollback. No ordinary reachable production line is being hidden solely to raise the metric.
+
 ## Final verification
 
 The final SHA is acceptable only when the coverage artifacts, exact-head CI matrix, compatibility documentation, and runtime support claims all refer to the same revision and there are no known leaks, sanitizer defects, silent fallbacks, unsupported claims, or production placeholders.
