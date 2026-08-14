@@ -32,31 +32,55 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Configure Tensora without LibTorch
-        run: >-
-          cmake -S native -B build/cpu-training
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DTENSORA_WITH_TORCH=OFF
-          -DTENSORA_WITH_ONNXRUNTIME=OFF
-          -DTENSORA_BUILD_TESTS=ON
-          -DTENSORA_BUILD_BENCHMARKS=OFF
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/diagnostics
+          cmake -S native -B build/cpu-training \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            2>&1 | tee build/diagnostics/configure-${{ matrix.build_type }}.log
 
       - name: Build Tensora core
-        run: cmake --build build/cpu-training --parallel
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build/cpu-training --parallel \
+            2>&1 | tee build/diagnostics/build-${{ matrix.build_type }}.log
 
       - name: Compile CPU training proof
-        run: >-
-          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror
-          native/tests/cpu_training_engine_test.cc
-          -Inative/include
-          -Lbuild/cpu-training
-          -Wl,-rpath,$PWD/build/cpu-training
-          -ltensora_native
-          -o build/cpu_training_engine_test
+        shell: bash
+        run: |
+          set -o pipefail
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            native/tests/cpu_training_engine_test.cc \
+            -Inative/include \
+            -Lbuild/cpu-training \
+            -Wl,-rpath,$PWD/build/cpu-training \
+            -ltensora_native \
+            -o build/cpu_training_engine_test \
+            2>&1 | tee build/diagnostics/compile-proof-${{ matrix.build_type }}.log
 
       - name: Run CPU training proof
+        shell: bash
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/cpu-training
-        run: ./build/cpu_training_engine_test
+        run: |
+          set -o pipefail
+          ./build/cpu_training_engine_test \
+            2>&1 | tee build/diagnostics/proof-${{ matrix.build_type }}.log
+
+      - name: Preserve CPU training diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-training-${{ matrix.build_type }}-diagnostics
+          path: build/diagnostics
+          if-no-files-found: error
+          retention-days: 14
 
   core-only-training-sanitizers:
     name: Core-only training / ASan + UBSan
@@ -68,39 +92,63 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Configure sanitized Tensora core
+        shell: bash
         env:
           CC: clang
           CXX: clang++
-        run: >-
-          cmake -S native -B build/cpu-training-sanitized
-          -DCMAKE_BUILD_TYPE=Debug
-          -DTENSORA_WITH_TORCH=OFF
-          -DTENSORA_WITH_ONNXRUNTIME=OFF
-          -DTENSORA_ENABLE_SANITIZERS=ON
-          -DTENSORA_BUILD_TESTS=ON
-          -DTENSORA_BUILD_BENCHMARKS=OFF
+        run: |
+          set -o pipefail
+          mkdir -p build/diagnostics
+          cmake -S native -B build/cpu-training-sanitized \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DTENSORA_ENABLE_SANITIZERS=ON \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            2>&1 | tee build/diagnostics/configure-sanitized.log
 
       - name: Build sanitized Tensora core
-        run: cmake --build build/cpu-training-sanitized --parallel
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build/cpu-training-sanitized --parallel \
+            2>&1 | tee build/diagnostics/build-sanitized.log
 
       - name: Compile sanitized CPU training proof
+        shell: bash
         env:
           CC: clang
           CXX: clang++
-        run: >-
-          clang++ -std=c++20 -Wall -Wextra -Wpedantic -Werror
-          -fsanitize=address,undefined -fno-omit-frame-pointer
-          native/tests/cpu_training_engine_test.cc
-          -Inative/include
-          -Lbuild/cpu-training-sanitized
-          -Wl,-rpath,$PWD/build/cpu-training-sanitized
-          -ltensora_native
-          -fsanitize=address,undefined
-          -o build/cpu_training_engine_test_sanitized
+        run: |
+          set -o pipefail
+          clang++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            native/tests/cpu_training_engine_test.cc \
+            -Inative/include \
+            -Lbuild/cpu-training-sanitized \
+            -Wl,-rpath,$PWD/build/cpu-training-sanitized \
+            -ltensora_native \
+            -fsanitize=address,undefined \
+            -o build/cpu_training_engine_test_sanitized \
+            2>&1 | tee build/diagnostics/compile-proof-sanitized.log
 
       - name: Run sanitized CPU training proof
+        shell: bash
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/cpu-training-sanitized
-        run: ./build/cpu_training_engine_test_sanitized
+        run: |
+          set -o pipefail
+          ./build/cpu_training_engine_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-sanitized.log
+
+      - name: Preserve sanitized training diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-training-sanitized-diagnostics
+          path: build/diagnostics
+          if-no-files-found: error
+          retention-days: 14
