@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -45,7 +46,6 @@ namespace tensora {
 struct AutogradMeta {
   bool requires_grad = false;
   bool is_leaf = true;
-  uint64_t version = 0;
   std::shared_ptr<Tensor> gradient;
   std::shared_ptr<autograd::GradNode> grad_fn;
   mutable std::mutex mutex;
@@ -77,6 +77,9 @@ inline Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
   return Status::Ok();
 }
 
+// Direct storage access is intentionally limited to canonical tensors. This is
+// used by parameter/checkpoint mutation code; graph evaluation uses logical
+// reads so that non-contiguous views preserve tensor order.
 inline Status CpuValues(const Tensor& tensor,
                         const char* operation,
                         const std::vector<float>** out) {
@@ -84,12 +87,21 @@ inline Status CpuValues(const Tensor& tensor,
     return InvalidArgument(std::string(operation) +
                            ": output values pointer is null");
   }
+  *out = nullptr;
   Status status = EnsureCpuFloat32(tensor, operation);
   if (!status.ok()) return status;
+  if (!tensor.is_contiguous() || tensor.storage_offset() != 0) {
+    return InvalidArgument(std::string(operation) +
+                           ": direct storage access requires a contiguous tensor");
+  }
   auto storage = std::dynamic_pointer_cast<CpuStorage>(tensor.storage());
   if (!storage) {
     return Unsupported(std::string(operation) +
                        ": tensor is not backed by CPU storage");
+  }
+  if (storage->numel() != tensor.numel()) {
+    return InvalidArgument(std::string(operation) +
+                           ": direct access requires full logical storage extent");
   }
   *out = &storage->values();
   return Status::Ok();
@@ -102,14 +114,48 @@ inline Status MutableCpuValues(Tensor& tensor,
     return InvalidArgument(std::string(operation) +
                            ": output values pointer is null");
   }
+  *out = nullptr;
   Status status = EnsureCpuFloat32(tensor, operation);
   if (!status.ok()) return status;
+  if (!tensor.is_contiguous() || tensor.storage_offset() != 0) {
+    return InvalidArgument(std::string(operation) +
+                           ": mutable storage access requires a contiguous tensor");
+  }
   auto storage = std::dynamic_pointer_cast<CpuStorage>(tensor.storage());
   if (!storage) {
     return Unsupported(std::string(operation) +
                        ": tensor is not backed by CPU storage");
   }
+  if (storage->numel() != tensor.numel()) {
+    return InvalidArgument(std::string(operation) +
+                           ": mutable access to aliased sub-storage is not supported");
+  }
   *out = &storage->mutable_values();
+  return Status::Ok();
+}
+
+inline Status ReadLogicalCpuValues(const Tensor& tensor,
+                                   const char* operation,
+                                   std::vector<float>* out) {
+  if (out == nullptr) {
+    return InvalidArgument(std::string(operation) +
+                           ": logical values output pointer is null");
+  }
+  Status status = EnsureCpuFloat32(tensor, operation);
+  if (!status.ok()) return status;
+  try {
+    out->assign(static_cast<size_t>(tensor.numel()), 0.0f);
+  } catch (const std::bad_alloc&) {
+    return OutOfMemory(std::string(operation) +
+                       ": logical value allocation failed");
+  }
+  size_t written = 0;
+  status = tensor.CopyToHostF32(out->data(), out->size(), &written);
+  if (!status.ok()) return status;
+  if (written != out->size()) {
+    return InternalError(std::string(operation) +
+                         ": logical copy returned inconsistent size");
+  }
   return Status::Ok();
 }
 
@@ -154,10 +200,10 @@ inline Status MakeCpuFull(const ShapeInfo& shape,
 
 inline Status CloneDetached(const Tensor& source,
                             std::shared_ptr<Tensor>* out) {
-  const std::vector<float>* values = nullptr;
-  Status status = CpuValues(source, "autograd_clone", &values);
+  std::vector<float> values;
+  Status status = ReadLogicalCpuValues(source, "autograd_clone", &values);
   if (!status.ok()) return status;
-  return MakeCpuTensor(source.shape(), *values, out);
+  return MakeCpuTensor(source.shape(), values, out);
 }
 
 inline std::shared_ptr<AutogradMeta> Meta(const Tensor& tensor) {
@@ -171,22 +217,9 @@ inline bool RequiresGrad(const Tensor& tensor) {
   return meta->requires_grad;
 }
 
-inline uint64_t Version(const Tensor& tensor) {
-  const auto meta = Meta(tensor);
-  if (!meta) return 0;
-  std::lock_guard<std::mutex> lock(meta->mutex);
-  return meta->version;
-}
+inline uint64_t Version(const Tensor& tensor) { return tensor.version(); }
 
-inline void IncrementVersion(Tensor& tensor) {
-  auto meta = tensor.autograd_meta();
-  if (!meta) {
-    meta = std::make_shared<AutogradMeta>();
-    tensor.set_autograd_meta(meta);
-  }
-  std::lock_guard<std::mutex> lock(meta->mutex);
-  ++meta->version;
-}
+inline void IncrementVersion(Tensor& tensor) { tensor.increment_version(); }
 
 inline Status CloneAsLeaf(const Tensor& source,
                           bool requires_grad,
@@ -284,14 +317,18 @@ inline Status AddInPlace(Tensor& destination, const Tensor& source) {
   if (!SameShape(destination.shape(), source.shape())) {
     return InternalError("autograd: gradient accumulation shape mismatch");
   }
-  std::vector<float>* dst = nullptr;
-  const std::vector<float>* src = nullptr;
-  Status status = MutableCpuValues(destination, "autograd_accumulate", &dst);
+  std::vector<float>* destination_values = nullptr;
+  Status status =
+      MutableCpuValues(destination, "autograd_accumulate", &destination_values);
   if (!status.ok()) return status;
-  status = CpuValues(source, "autograd_accumulate", &src);
+  std::vector<float> source_values;
+  status = ReadLogicalCpuValues(source, "autograd_accumulate", &source_values);
   if (!status.ok()) return status;
-  for (size_t index = 0; index < dst->size(); ++index) {
-    (*dst)[index] += (*src)[index];
+  if (destination_values->size() != source_values.size()) {
+    return InternalError("autograd: gradient accumulation size mismatch");
+  }
+  for (size_t index = 0; index < destination_values->size(); ++index) {
+    (*destination_values)[index] += source_values[index];
   }
   return Status::Ok();
 }
@@ -313,7 +350,7 @@ inline Status ValidateSavedVersions(const GradNode& node) {
     const auto& parent = node.parents[index];
     if (parent && Version(*parent) != node.parent_versions[index]) {
       return InvalidArgument(
-          "autograd: a saved tensor was modified before backward");
+          "autograd: a saved tensor alias was modified before backward");
     }
   }
   return Status::Ok();
@@ -325,10 +362,10 @@ inline Status CloneWithShape(const Tensor& source,
   if (source.numel() != shape.numel) {
     return InternalError("autograd: reshape gradient element count mismatch");
   }
-  const std::vector<float>* values = nullptr;
-  Status status = CpuValues(source, "autograd_reshape", &values);
+  std::vector<float> values;
+  Status status = ReadLogicalCpuValues(source, "autograd_reshape", &values);
   if (!status.ok()) return status;
-  return MakeCpuTensor(shape, *values, out);
+  return MakeCpuTensor(shape, values, out);
 }
 
 inline Status TransposeGradient(const Tensor& source,
@@ -343,14 +380,14 @@ inline Status TransposeGradient(const Tensor& source,
   Status status = ValidateShape(dims, 2, &shape);
   if (!status.ok()) return status;
 
-  const std::vector<float>* input = nullptr;
-  status = CpuValues(source, "autograd_transpose", &input);
+  std::vector<float> input;
+  status = ReadLogicalCpuValues(source, "autograd_transpose", &input);
   if (!status.ok()) return status;
   std::vector<float> output(static_cast<size_t>(shape.numel), 0.0f);
   for (int64_t row = 0; row < rows; ++row) {
     for (int64_t col = 0; col < cols; ++col) {
       output[static_cast<size_t>(col * rows + row)] =
-          (*input)[static_cast<size_t>(row * cols + col)];
+          input[static_cast<size_t>(row * cols + col)];
     }
   }
   return MakeCpuTensor(shape, output, out);
@@ -366,8 +403,8 @@ inline Status ApplyNode(const GradNode& node,
   Status status = ValidateSavedVersions(node);
   if (!status.ok()) return status;
 
-  const std::vector<float>* grad = nullptr;
-  status = CpuValues(upstream, "autograd_backward", &grad);
+  std::vector<float> grad;
+  status = ReadLogicalCpuValues(upstream, "autograd_backward", &grad);
   if (!status.ok()) return status;
 
   auto emit = [&](const std::shared_ptr<Tensor>& parent,
@@ -414,20 +451,22 @@ inline Status ApplyNode(const GradNode& node,
       if (node.parents.size() != 2) {
         return InternalError("autograd: multiply node parent count mismatch");
       }
-      const std::vector<float>* left = nullptr;
-      const std::vector<float>* right = nullptr;
-      status = CpuValues(*node.parents[0], "autograd_multiply", &left);
+      std::vector<float> left;
+      std::vector<float> right;
+      status =
+          ReadLogicalCpuValues(*node.parents[0], "autograd_multiply", &left);
       if (!status.ok()) return status;
-      status = CpuValues(*node.parents[1], "autograd_multiply", &right);
+      status =
+          ReadLogicalCpuValues(*node.parents[1], "autograd_multiply", &right);
       if (!status.ok()) return status;
-      if (grad->size() != left->size() || grad->size() != right->size()) {
+      if (grad.size() != left.size() || grad.size() != right.size()) {
         return InternalError("autograd: multiply gradient size mismatch");
       }
 
       if (RequiresGrad(*node.parents[0])) {
-        std::vector<float> values(grad->size());
-        for (size_t i = 0; i < values.size(); ++i) {
-          values[i] = (*grad)[i] * (*right)[i];
+        std::vector<float> values(grad.size());
+        for (size_t index = 0; index < values.size(); ++index) {
+          values[index] = grad[index] * right[index];
         }
         std::shared_ptr<Tensor> contribution;
         status = MakeCpuTensor(node.parents[0]->shape(), values, &contribution);
@@ -435,9 +474,9 @@ inline Status ApplyNode(const GradNode& node,
         emit(node.parents[0], std::move(contribution));
       }
       if (RequiresGrad(*node.parents[1])) {
-        std::vector<float> values(grad->size());
-        for (size_t i = 0; i < values.size(); ++i) {
-          values[i] = (*grad)[i] * (*left)[i];
+        std::vector<float> values(grad.size());
+        for (size_t index = 0; index < values.size(); ++index) {
+          values[index] = grad[index] * left[index];
         }
         std::shared_ptr<Tensor> contribution;
         status = MakeCpuTensor(node.parents[1]->shape(), values, &contribution);
@@ -447,12 +486,11 @@ inline Status ApplyNode(const GradNode& node,
       return Status::Ok();
     }
     case Operation::kSum: {
-      if (grad->size() != 1) {
+      if (grad.size() != 1) {
         return InternalError("autograd: sum upstream gradient must be scalar");
       }
       std::shared_ptr<Tensor> contribution;
-      status = MakeCpuFull(node.parents.at(0)->shape(), (*grad)[0],
-                           &contribution);
+      status = MakeCpuFull(node.parents.at(0)->shape(), grad[0], &contribution);
       if (!status.ok()) return status;
       emit(node.parents.at(0), std::move(contribution));
       return Status::Ok();
@@ -471,11 +509,11 @@ inline Status ApplyNode(const GradNode& node,
       const int64_t m = left_tensor.shape().dimensions[0];
       const int64_t k = left_tensor.shape().dimensions[1];
       const int64_t n = right_tensor.shape().dimensions[1];
-      const std::vector<float>* left = nullptr;
-      const std::vector<float>* right = nullptr;
-      status = CpuValues(left_tensor, "autograd_matmul", &left);
+      std::vector<float> left;
+      std::vector<float> right;
+      status = ReadLogicalCpuValues(left_tensor, "autograd_matmul", &left);
       if (!status.ok()) return status;
-      status = CpuValues(right_tensor, "autograd_matmul", &right);
+      status = ReadLogicalCpuValues(right_tensor, "autograd_matmul", &right);
       if (!status.ok()) return status;
 
       if (RequiresGrad(left_tensor)) {
@@ -484,8 +522,8 @@ inline Status ApplyNode(const GradNode& node,
           for (int64_t inner = 0; inner < k; ++inner) {
             float value = 0.0f;
             for (int64_t col = 0; col < n; ++col) {
-              value += (*grad)[static_cast<size_t>(row * n + col)] *
-                       (*right)[static_cast<size_t>(inner * n + col)];
+              value += grad[static_cast<size_t>(row * n + col)] *
+                       right[static_cast<size_t>(inner * n + col)];
             }
             values[static_cast<size_t>(row * k + inner)] = value;
           }
@@ -502,8 +540,8 @@ inline Status ApplyNode(const GradNode& node,
           for (int64_t col = 0; col < n; ++col) {
             float value = 0.0f;
             for (int64_t row = 0; row < m; ++row) {
-              value += (*left)[static_cast<size_t>(row * k + inner)] *
-                       (*grad)[static_cast<size_t>(row * n + col)];
+              value += left[static_cast<size_t>(row * k + inner)] *
+                       grad[static_cast<size_t>(row * n + col)];
             }
             values[static_cast<size_t>(inner * n + col)] = value;
           }
@@ -519,26 +557,25 @@ inline Status ApplyNode(const GradNode& node,
     case Operation::kSigmoid:
     case Operation::kTanh: {
       const Tensor& parent = *node.parents.at(0);
-      const std::vector<float>* input = nullptr;
-      status = CpuValues(parent, "autograd_activation", &input);
+      std::vector<float> input;
+      status = ReadLogicalCpuValues(parent, "autograd_activation", &input);
       if (!status.ok()) return status;
-      if (input->size() != grad->size()) {
+      if (input.size() != grad.size()) {
         return InternalError("autograd: activation gradient size mismatch");
       }
-      std::vector<float> values(grad->size());
+      std::vector<float> values(grad.size());
       for (size_t index = 0; index < values.size(); ++index) {
         float local = 0.0f;
         if (node.operation == Operation::kRelu) {
-          local = (*input)[index] > 0.0f ? 1.0f : 0.0f;
+          local = input[index] > 0.0f ? 1.0f : 0.0f;
         } else if (node.operation == Operation::kSigmoid) {
-          const float sigmoid =
-              1.0f / (1.0f + std::exp(-(*input)[index]));
+          const float sigmoid = 1.0f / (1.0f + std::exp(-input[index]));
           local = sigmoid * (1.0f - sigmoid);
         } else {
-          const float hyperbolic = std::tanh((*input)[index]);
+          const float hyperbolic = std::tanh(input[index]);
           local = 1.0f - hyperbolic * hyperbolic;
         }
-        values[index] = (*grad)[index] * local;
+        values[index] = grad[index] * local;
       }
       std::shared_ptr<Tensor> contribution;
       status = MakeCpuTensor(parent.shape(), values, &contribution);
@@ -547,24 +584,26 @@ inline Status ApplyNode(const GradNode& node,
       return Status::Ok();
     }
     case Operation::kMse: {
-      if (node.parents.size() != 2 || grad->size() != 1) {
+      if (node.parents.size() != 2 || grad.size() != 1) {
         return InternalError("autograd: invalid MSE node metadata");
       }
       const Tensor& prediction = *node.parents[0];
       const Tensor& target = *node.parents[1];
-      const std::vector<float>* prediction_values = nullptr;
-      const std::vector<float>* target_values = nullptr;
-      status = CpuValues(prediction, "autograd_mse", &prediction_values);
+      std::vector<float> prediction_values;
+      std::vector<float> target_values;
+      status =
+          ReadLogicalCpuValues(prediction, "autograd_mse", &prediction_values);
       if (!status.ok()) return status;
-      status = CpuValues(target, "autograd_mse", &target_values);
+      status = ReadLogicalCpuValues(target, "autograd_mse", &target_values);
       if (!status.ok()) return status;
-      const float scale = 2.0f * (*grad)[0] /
-                          static_cast<float>(prediction_values->size());
+      const float scale =
+          2.0f * grad[0] / static_cast<float>(prediction_values.size());
 
       if (RequiresGrad(prediction)) {
-        std::vector<float> values(prediction_values->size());
-        for (size_t i = 0; i < values.size(); ++i) {
-          values[i] = scale * ((*prediction_values)[i] - (*target_values)[i]);
+        std::vector<float> values(prediction_values.size());
+        for (size_t index = 0; index < values.size(); ++index) {
+          values[index] =
+              scale * (prediction_values[index] - target_values[index]);
         }
         std::shared_ptr<Tensor> contribution;
         status = MakeCpuTensor(prediction.shape(), values, &contribution);
@@ -572,9 +611,10 @@ inline Status ApplyNode(const GradNode& node,
         emit(node.parents[0], std::move(contribution));
       }
       if (RequiresGrad(target)) {
-        std::vector<float> values(target_values->size());
-        for (size_t i = 0; i < values.size(); ++i) {
-          values[i] = -scale * ((*prediction_values)[i] - (*target_values)[i]);
+        std::vector<float> values(target_values.size());
+        for (size_t index = 0; index < values.size(); ++index) {
+          values[index] =
+              -scale * (prediction_values[index] - target_values[index]);
         }
         std::shared_ptr<Tensor> contribution;
         status = MakeCpuTensor(target.shape(), values, &contribution);
@@ -584,7 +624,7 @@ inline Status ApplyNode(const GradNode& node,
       return Status::Ok();
     }
     case Operation::kCrossEntropy: {
-      if (node.parents.size() != 2 || grad->size() != 1) {
+      if (node.parents.size() != 2 || grad.size() != 1) {
         return InternalError("autograd: invalid cross entropy metadata");
       }
       const Tensor& logits = *node.parents[0];
@@ -595,34 +635,36 @@ inline Status ApplyNode(const GradNode& node,
       }
       const int64_t batch = logits.shape().dimensions[0];
       const int64_t classes = logits.shape().dimensions[1];
-      const std::vector<float>* logits_values = nullptr;
-      const std::vector<float>* target_values = nullptr;
-      status = CpuValues(logits, "autograd_cross_entropy", &logits_values);
+      std::vector<float> logits_values;
+      std::vector<float> target_values;
+      status = ReadLogicalCpuValues(logits, "autograd_cross_entropy",
+                                    &logits_values);
       if (!status.ok()) return status;
-      status = CpuValues(target, "autograd_cross_entropy", &target_values);
+      status = ReadLogicalCpuValues(target, "autograd_cross_entropy",
+                                    &target_values);
       if (!status.ok()) return status;
-      const float scale = (*grad)[0] / static_cast<float>(batch);
+      const float scale = grad[0] / static_cast<float>(batch);
 
       if (RequiresGrad(logits)) {
-        std::vector<float> values(logits_values->size(), 0.0f);
+        std::vector<float> values(logits_values.size(), 0.0f);
         for (int64_t row = 0; row < batch; ++row) {
-          float max_logit = (*logits_values)[static_cast<size_t>(row * classes)];
+          float max_logit = logits_values[static_cast<size_t>(row * classes)];
           for (int64_t col = 1; col < classes; ++col) {
             max_logit = std::max(
                 max_logit,
-                (*logits_values)[static_cast<size_t>(row * classes + col)]);
+                logits_values[static_cast<size_t>(row * classes + col)]);
           }
           float denominator = 0.0f;
           for (int64_t col = 0; col < classes; ++col) {
             denominator += std::exp(
-                (*logits_values)[static_cast<size_t>(row * classes + col)] -
+                logits_values[static_cast<size_t>(row * classes + col)] -
                 max_logit);
           }
           for (int64_t col = 0; col < classes; ++col) {
             const size_t index = static_cast<size_t>(row * classes + col);
             const float probability =
-                std::exp((*logits_values)[index] - max_logit) / denominator;
-            values[index] = scale * (probability - (*target_values)[index]);
+                std::exp(logits_values[index] - max_logit) / denominator;
+            values[index] = scale * (probability - target_values[index]);
           }
         }
         std::shared_ptr<Tensor> contribution;
@@ -632,25 +674,25 @@ inline Status ApplyNode(const GradNode& node,
       }
 
       if (RequiresGrad(target)) {
-        std::vector<float> values(target_values->size(), 0.0f);
+        std::vector<float> values(target_values.size(), 0.0f);
         for (int64_t row = 0; row < batch; ++row) {
-          float max_logit = (*logits_values)[static_cast<size_t>(row * classes)];
+          float max_logit = logits_values[static_cast<size_t>(row * classes)];
           for (int64_t col = 1; col < classes; ++col) {
             max_logit = std::max(
                 max_logit,
-                (*logits_values)[static_cast<size_t>(row * classes + col)]);
+                logits_values[static_cast<size_t>(row * classes + col)]);
           }
           float denominator = 0.0f;
           for (int64_t col = 0; col < classes; ++col) {
             denominator += std::exp(
-                (*logits_values)[static_cast<size_t>(row * classes + col)] -
+                logits_values[static_cast<size_t>(row * classes + col)] -
                 max_logit);
           }
           const float log_denominator = std::log(denominator) + max_logit;
           for (int64_t col = 0; col < classes; ++col) {
             const size_t index = static_cast<size_t>(row * classes + col);
             values[index] =
-                -scale * ((*logits_values)[index] - log_denominator);
+                -scale * (logits_values[index] - log_denominator);
           }
         }
         std::shared_ptr<Tensor> contribution;
@@ -673,7 +715,7 @@ inline Status ApplyNode(const GradNode& node,
       const int64_t rows = matrix.shape().dimensions[0];
       const int64_t cols = matrix.shape().dimensions[1];
       if (bias.shape().dimensions[0] != cols ||
-          grad->size() != static_cast<size_t>(rows * cols)) {
+          grad.size() != static_cast<size_t>(rows * cols)) {
         return InternalError("autograd: bias-add gradient shape mismatch");
       }
 
@@ -688,7 +730,7 @@ inline Status ApplyNode(const GradNode& node,
         for (int64_t row = 0; row < rows; ++row) {
           for (int64_t col = 0; col < cols; ++col) {
             values[static_cast<size_t>(col)] +=
-                (*grad)[static_cast<size_t>(row * cols + col)];
+                grad[static_cast<size_t>(row * cols + col)];
           }
         }
         std::shared_ptr<Tensor> contribution;
@@ -743,6 +785,23 @@ inline Status Backward(const Tensor& root) {
   std::unordered_set<Tensor*> visited;
   std::vector<std::shared_ptr<Tensor>> topology;
   BuildTopology(root_ptr, &visited, &topology);
+
+  // Validate all aliases before publishing any leaf gradient. A stale view
+  // therefore fails transactionally instead of leaving a partially updated
+  // gradient set behind.
+  for (const auto& value : topology) {
+    const auto meta = value->autograd_meta();
+    if (!meta) continue;
+    std::shared_ptr<GradNode> node;
+    {
+      std::lock_guard<std::mutex> lock(meta->mutex);
+      node = meta->grad_fn;
+    }
+    if (node) {
+      status = ValidateSavedVersions(*node);
+      if (!status.ok()) return status;
+    }
+  }
 
   std::unordered_map<Tensor*, std::shared_ptr<Tensor>> gradients;
   std::shared_ptr<Tensor> root_gradient;
