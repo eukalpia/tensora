@@ -9,6 +9,7 @@
 #include "tensor/shape.h"
 #include "training/torch_backend.h"
 #include "training/torch_storage.h"
+#include "training/training_bridge.h"
 
 namespace {
 
