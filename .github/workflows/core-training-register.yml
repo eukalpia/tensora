@@ -1,0 +1,77 @@
+name: Core Training Register
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: feature/training-engine-v1
+          fetch-depth: 0
+
+      - name: Register target
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('native/CMakeLists.txt')
+          s = p.read_text()
+          if 'tensora_training_core_internal_tests' not in s:
+              target_anchor = '    target_link_libraries(tensora_optimizer_checkpoint_tests PRIVATE tensora_native)\n'
+              target = '''\n    add_executable(tensora_training_core_internal_tests\n      tests/training_core_internal_test.cc\n      src/backends/cpu/cpu_backend.cc\n      src/core/status.cc\n      src/memory/cpu_storage.cc\n      src/runtime/dispatcher.cc\n      src/runtime/handle_registry.cc\n      src/tensor/shape.cc\n      src/tensor/tensor.cc\n      src/training/training_bridge_stub.cc\n    )\n    target_compile_features(tensora_training_core_internal_tests PRIVATE cxx_std_20)\n    target_include_directories(tensora_training_core_internal_tests PRIVATE\n      ${CMAKE_CURRENT_SOURCE_DIR}/include\n      ${CMAKE_CURRENT_SOURCE_DIR}/src\n    )\n    target_link_libraries(tensora_training_core_internal_tests PRIVATE Threads::Threads)\n'''
+              if s.count(target_anchor) != 1:
+                  raise SystemExit('target anchor mismatch')
+              s = s.replace(target_anchor, target_anchor + target, 1)
+
+              pairs = [
+                  ('      target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE /W4 /WX /permissive-)\n', '      target_compile_options(tensora_training_core_internal_tests PRIVATE /W4 /WX /permissive-)\n'),
+                  ('      target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n', '      target_compile_options(tensora_training_core_internal_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n'),
+                  ('      target_link_options(tensora_optimizer_checkpoint_tests PRIVATE -fsanitize=address,undefined)\n', '      target_compile_options(tensora_training_core_internal_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})\n      target_link_options(tensora_training_core_internal_tests PRIVATE -fsanitize=address,undefined)\n'),
+                  ('      target_link_options(tensora_optimizer_checkpoint_tests PRIVATE -fsanitize=thread)\n', '      target_compile_options(tensora_training_core_internal_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})\n      target_link_options(tensora_training_core_internal_tests PRIVATE -fsanitize=thread)\n'),
+                  ('    add_test(NAME tensora_optimizer_checkpoint_tests COMMAND tensora_optimizer_checkpoint_tests)\n', '    add_test(NAME tensora_training_core_internal_tests COMMAND tensora_training_core_internal_tests)\n'),
+              ]
+              for anchor, extra in pairs:
+                  if s.count(anchor) != 1:
+                      raise SystemExit('registration anchor mismatch: ' + anchor.strip())
+                  s = s.replace(anchor, anchor + extra, 1)
+              p.write_text(s)
+          PY
+          git diff --check
+
+      - name: Validate Release
+        run: |
+          cmake -S native -B build/release -DCMAKE_BUILD_TYPE=Release -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/release --parallel 2
+          ctest --test-dir build/release --output-on-failure
+
+      - name: Validate ASan and UBSan
+        env:
+          CC: clang
+          CXX: clang++
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake -S native -B build/asan -DCMAKE_BUILD_TYPE=Debug -DTENSORA_ENABLE_SANITIZERS=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/asan --parallel 2
+          ctest --test-dir build/asan --output-on-failure
+
+      - name: Commit registration
+        shell: bash
+        run: |
+          if git diff --quiet -- native/CMakeLists.txt; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/CMakeLists.txt
+          git diff --cached --check
+          git commit -m 'test: register core training internal contracts'
+          git push origin HEAD:feature/training-engine-v1
