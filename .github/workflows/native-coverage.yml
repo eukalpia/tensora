@@ -1,0 +1,76 @@
+name: Native Coverage
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Native owned-code coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install coverage tooling
+        run: python -m pip install gcovr==8.3
+
+      - name: Configure instrumented core runtime
+        run: >-
+          cmake -S native -B build/native-coverage
+          -DCMAKE_BUILD_TYPE=Debug
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+          -DTENSORA_WITH_TORCH=OFF
+          -DTENSORA_WITH_ONNXRUNTIME=OFF
+          -DCMAKE_C_FLAGS="--coverage -O0 -g"
+          -DCMAKE_CXX_FLAGS="--coverage -O0 -g"
+          -DCMAKE_SHARED_LINKER_FLAGS="--coverage"
+          -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+
+      - name: Build instrumented runtime
+        run: cmake --build build/native-coverage --parallel 2
+
+      - name: Execute native test suite
+        run: >-
+          ctest --test-dir build/native-coverage
+          --build-config Debug
+          --output-on-failure
+
+      - name: Collect owned native coverage
+        run: |
+          set -euo pipefail
+          mkdir -p build/native-coverage-report
+          gcovr \
+            --root "$GITHUB_WORKSPACE" \
+            --filter 'native/src/' \
+            --txt build/native-coverage-report/summary.txt \
+            --html-details build/native-coverage-report/index.html \
+            --xml-pretty build/native-coverage-report/coverage.xml \
+            --json-pretty build/native-coverage-report/coverage.json \
+            --print-summary \
+            --fail-under-line 100
+
+      - name: Upload native coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-native-coverage
+          path: build/native-coverage-report/
+          if-no-files-found: warn
+          retention-days: 7
