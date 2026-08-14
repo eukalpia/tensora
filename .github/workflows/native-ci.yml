@@ -32,10 +32,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Configure native runtime
+      - name: Configure native runtime on Unix
+        if: runner.os != 'Windows'
         run: >-
           cmake -S native -B build/native
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=ON
+
+      - name: Configure native runtime on Windows
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_FLAGS=/wd4702
           -DTENSORA_BUILD_TESTS=ON
           -DTENSORA_BUILD_BENCHMARKS=ON
 
@@ -57,7 +67,33 @@ jobs:
             Tee-Object -FilePath "build/diagnostics/build-${{ matrix.os }}-${{ matrix.build_type }}.log"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Run native tests
+      - name: Run native tests on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set +e
+          ctest --test-dir build/native --build-config ${{ matrix.build_type }} --output-on-failure
+          ctest_status=$?
+          if [ "$ctest_status" -ne 0 ]; then
+            echo "CTest failed; replaying individual native tests for exact exit codes"
+            for executable in \
+              tensora_native_tests \
+              tensora_handle_registry_tests \
+              tensora_device_codec_tests \
+              tensora_c_abi_tests \
+              tensora_cpu_training_tests \
+              tensora_autograd_finite_difference_tests; do
+              if [ -x "build/native/$executable" ]; then
+                "build/native/$executable"
+                code=$?
+                echo "$executable exit_code=$code"
+              fi
+            done
+            exit "$ctest_status"
+          fi
+
+      - name: Run native tests on Windows
+        if: runner.os == 'Windows'
         run: ctest --test-dir build/native --build-config ${{ matrix.build_type }} --output-on-failure
 
       - name: Copy CTest diagnostics on Unix
