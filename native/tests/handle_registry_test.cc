@@ -1,8 +1,15 @@
 #include <cstdint>
+#include <cstring>
 #include <iostream>
+#include <limits>
 #include <memory>
 
+#include "backends/backend.h"
+#include "core/status.h"
+#include "memory/cpu_storage.h"
+#include "runtime/dispatcher.h"
 #include "runtime/handle_registry.h"
+#include "tensor/shape.h"
 #include "tensor/tensor.h"
 
 namespace {
@@ -14,6 +21,153 @@ bool ExpectCode(const tensora::Status& status,
   std::cerr << message << ": expected status " << expected << ", got "
             << status.code() << "\n";
   return false;
+}
+
+int TestCoreContracts() {
+  using tensora::Backend;
+  using tensora::CpuStorage;
+  using tensora::Device;
+  using tensora::Dispatcher;
+  using tensora::ShapeInfo;
+  using tensora::Tensor;
+
+  if (!ExpectCode(tensora::InvalidArgument("invalid"), TS_INVALID_ARGUMENT,
+                  "InvalidArgument status") ||
+      !ExpectCode(tensora::InvalidShape("shape"), TS_INVALID_SHAPE,
+                  "InvalidShape status") ||
+      !ExpectCode(tensora::OutOfMemory("oom"), TS_OUT_OF_MEMORY,
+                  "OutOfMemory status") ||
+      !ExpectCode(tensora::Unsupported("unsupported"), TS_UNSUPPORTED,
+                  "Unsupported status") ||
+      !ExpectCode(tensora::InvalidHandle("handle"), TS_INVALID_HANDLE,
+                  "InvalidHandle status") ||
+      !ExpectCode(tensora::InternalError("internal"), TS_INTERNAL_ERROR,
+                  "InternalError status") ||
+      !ExpectCode(tensora::ModelError("model"), TS_MODEL_ERROR,
+                  "ModelError status")) {
+    return 100;
+  }
+
+  tensora::ClearLastError();
+  if (std::strlen(tensora::LastErrorMessage()) != 0) return 101;
+  tensora::SetLastError(tensora::InternalError("internal"));
+  if (std::strcmp(tensora::LastErrorMessage(), "internal") != 0) return 102;
+  tensora::SetLastError(tensora::Status::Ok());
+  if (std::strlen(tensora::LastErrorMessage()) != 0) return 103;
+
+  ShapeInfo shape;
+  if (!ExpectCode(tensora::ValidateShape(nullptr, 0, nullptr),
+                  TS_INVALID_ARGUMENT, "shape null output"))
+    return 104;
+  if (!ExpectCode(tensora::ValidateShape(nullptr, 9, &shape), TS_INVALID_SHAPE,
+                  "shape excessive rank"))
+    return 105;
+  if (!ExpectCode(tensora::ValidateShape(nullptr, 1, &shape),
+                  TS_INVALID_ARGUMENT, "shape null dimensions"))
+    return 106;
+
+  const int64_t zero_dim[1] = {0};
+  if (!ExpectCode(tensora::ValidateShape(zero_dim, 1, &shape),
+                  TS_INVALID_SHAPE, "shape zero dimension"))
+    return 107;
+  const int64_t negative_dim[1] = {-1};
+  if (!ExpectCode(tensora::ValidateShape(negative_dim, 1, &shape),
+                  TS_INVALID_SHAPE, "shape negative dimension"))
+    return 108;
+  const int64_t numel_overflow[2] = {
+      std::numeric_limits<int64_t>::max(), 2};
+  if (!ExpectCode(tensora::ValidateShape(numel_overflow, 2, &shape),
+                  TS_INVALID_SHAPE, "shape numel overflow"))
+    return 109;
+  const int64_t byte_overflow[1] = {
+      static_cast<int64_t>(std::numeric_limits<size_t>::max() / sizeof(float)) +
+      1};
+  if (!ExpectCode(tensora::ValidateShape(byte_overflow, 1, &shape),
+                  TS_INVALID_SHAPE, "shape byte overflow"))
+    return 110;
+
+  const int64_t dims[2] = {2, 2};
+  if (!tensora::ValidateShape(dims, 2, &shape).ok() || shape.rank() != 2 ||
+      shape.numel != 4 || shape.byte_size != 16 || shape.strides.size() != 2 ||
+      shape.strides[0] != 2 || shape.strides[1] != 1) {
+    return 111;
+  }
+  ShapeInfo same_shape;
+  if (!tensora::ValidateShape(dims, 2, &same_shape).ok() ||
+      !tensora::SameShape(shape, same_shape))
+    return 112;
+  const int64_t flat_dims[1] = {4};
+  ShapeInfo flat_shape;
+  if (!tensora::ValidateShape(flat_dims, 1, &flat_shape).ok() ||
+      tensora::SameShape(shape, flat_shape))
+    return 113;
+
+  const uint64_t baseline_bytes = CpuStorage::LiveBytes();
+  std::shared_ptr<CpuStorage> storage;
+  if (!ExpectCode(CpuStorage::Filled(4, 2.0f, nullptr), TS_INVALID_ARGUMENT,
+                  "CpuStorage filled null output"))
+    return 114;
+  if (!ExpectCode(CpuStorage::FromData(nullptr, 4, &storage),
+                  TS_INVALID_ARGUMENT, "CpuStorage null input"))
+    return 115;
+  const float values[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+  if (!CpuStorage::FromData(values, 4, &storage).ok() || !storage ||
+      CpuStorage::LiveBytes() != baseline_bytes + 16)
+    return 116;
+
+  size_t written = 99;
+  float output[4] = {0, 0, 0, 0};
+  if (!ExpectCode(storage->CopyToHostF32(output, 4, nullptr),
+                  TS_INVALID_ARGUMENT, "CpuStorage null written"))
+    return 117;
+  if (!ExpectCode(storage->CopyToHostF32(output, 3, &written),
+                  TS_INVALID_ARGUMENT, "CpuStorage short output") ||
+      written != 0)
+    return 118;
+  if (!ExpectCode(storage->CopyToHostF32(nullptr, 4, &written),
+                  TS_INVALID_ARGUMENT, "CpuStorage null output") ||
+      written != 0)
+    return 119;
+  if (!storage->CopyToHostF32(output, 4, &written).ok() || written != 4 ||
+      output[0] != 1.0f || output[3] != 4.0f)
+    return 120;
+
+  auto tensor = std::make_shared<Tensor>(shape, storage);
+  const Backend* backend = nullptr;
+  if (!ExpectCode(Dispatcher::For(Device::kCpu, nullptr), TS_INVALID_ARGUMENT,
+                  "Dispatcher null backend"))
+    return 121;
+  if (!Dispatcher::For(Device::kCpu, &backend).ok() || backend == nullptr)
+    return 122;
+  backend = reinterpret_cast<const Backend*>(1);
+  if (!ExpectCode(Dispatcher::For(static_cast<Device>(999), &backend),
+                  TS_UNSUPPORTED, "Dispatcher unknown device") ||
+      backend != nullptr)
+    return 123;
+  if (!ExpectCode(Dispatcher::ForTensor(*tensor, nullptr), TS_INVALID_ARGUMENT,
+                  "Dispatcher tensor null backend"))
+    return 124;
+  if (!Dispatcher::ForTensor(*tensor, &backend).ok() || backend == nullptr)
+    return 125;
+  if (!ExpectCode(Dispatcher::ForTensors(*tensor, *tensor, nullptr),
+                  TS_INVALID_ARGUMENT, "Dispatcher tensors null backend"))
+    return 126;
+
+  auto accelerator_tensor = std::make_shared<Tensor>(
+      shape, storage, tensora::DType::kFloat32, Device::kCuda, 0);
+  if (!ExpectCode(
+          Dispatcher::ForTensors(*tensor, *accelerator_tensor, &backend),
+          TS_INVALID_ARGUMENT, "Dispatcher mismatched devices"))
+    return 127;
+  if (!Dispatcher::ForTensors(*tensor, *tensor, &backend).ok() ||
+      backend == nullptr)
+    return 128;
+
+  accelerator_tensor.reset();
+  tensor.reset();
+  storage.reset();
+  if (CpuStorage::LiveBytes() != baseline_bytes) return 129;
+  return 0;
 }
 
 }  // namespace
@@ -157,5 +311,7 @@ int main() {
     return 23;
   }
 
+  const int core_contracts = TestCoreContracts();
+  if (core_contracts != 0) return core_contracts;
   return 0;
 }
