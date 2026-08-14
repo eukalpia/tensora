@@ -1,0 +1,126 @@
+name: Training Test Architecture Repair
+
+on:
+  push:
+    branches:
+      - feature/training-engine-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: training-test-architecture-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-commit:
+    if: "${{ github.event.head_commit.message == 'ci: validate training test architecture repair' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/training-engine-v1
+          fetch-depth: 0
+
+      - name: Split public and internal training tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          c_abi = Path('native/tests/c_abi_test.c')
+          text = c_abi.read_text()
+          old = '#endif\n  return 0;\n}\n\nstatic int test_disabled_inference_contract'
+          new = '  return 0;\n#endif\n}\n\nstatic int test_disabled_inference_contract'
+          if text.count(old) != 1:
+              raise SystemExit('training C ABI branch terminator mismatch')
+          text = text.replace(old, new, 1)
+          old = '#endif\n  return 0;\n}\n\nint main(void)'
+          new = '  return 0;\n#endif\n}\n\nint main(void)'
+          if text.count(old) != 1:
+              raise SystemExit('inference C ABI branch terminator mismatch')
+          c_abi.write_text(text)
+
+          source_path = Path('native/tests/training_device_test.cc')
+          source = source_path.read_text()
+          expect_start = source.index('bool ExpectStatus')
+          expect_end = source.index('\n}\n\nint CheckCount', expect_start) + 2
+          check_start = source.index('int CheckDirectTorchBackend()')
+          check_end = source.index('\n}\n\n}  // namespace', check_start) + 2
+          expect = source[expect_start:expect_end]
+          check = source[check_start:check_end]
+
+          internal = '''#include <cstdint>\n#include <iostream>\n#include <memory>\n#include <vector>\n\n#include <torch/torch.h>\n\n#include "core/status.h"\n#include "tensor/shape.h"\n#include "training/torch_backend.h"\n#include "training/training_bridge.h"\n#include "training/torch_storage.h"\n\nnamespace {\n\n''' + expect + '\n\n' + check + '''\n\n}  // namespace\n\nint main() {\n  return CheckDirectTorchBackend();\n}\n'''
+          Path('native/tests/training_backend_internal_test.cc').write_text(internal)
+
+          public = '''#include <cstdint>\n\n#include "tensora.h"\n\nnamespace {\n\nint CheckCount(uint32_t device, uint32_t expected_minimum) {\n  uint32_t count = 999;\n  if (ts_runtime_device_count(device, &count) != TS_OK) return 1;\n  if (count < expected_minimum) return 2;\n  return 0;\n}\n\nint CheckAcceleratorTransfer(ts_tensor_t input, uint32_t device) {\n  uint32_t count = 0;\n  if (ts_runtime_device_count(device, &count) != TS_OK) return 1;\n\n  ts_tensor_t output = 123;\n  const ts_status_t status = ts_tensor_to_device(input, device, 0, &output);\n  if (count == 0) {\n    if (status != TS_UNSUPPORTED) return 2;\n    if (output != 0) return 3;\n    return 0;\n  }\n\n  if (status != TS_OK || output == 0) return 4;\n  uint32_t actual_device = 0;\n  int32_t actual_index = -1;\n  if (ts_tensor_device(output, &actual_device) != TS_OK) return 5;\n  if (ts_tensor_device_index(output, &actual_index) != TS_OK) return 6;\n  if (actual_device != device || actual_index != 0) return 7;\n  if (ts_tensor_release(output) != TS_OK) return 8;\n  return 0;\n}\n\n}  // namespace\n\nint main() {\n  if (CheckCount(TS_DEVICE_CPU, 1) != 0) return 1;\n  if (CheckCount(TS_DEVICE_CUDA, 0) != 0) return 2;\n  if (CheckCount(TS_DEVICE_MPS, 0) != 0) return 3;\n  if (CheckCount(TS_DEVICE_XPU, 0) != 0) return 4;\n  if (CheckCount(TS_DEVICE_HIP, 0) != 0) return 5;\n\n  if (ts_runtime_device_count(TS_DEVICE_CPU, nullptr) != TS_INVALID_ARGUMENT)\n    return 6;\n  uint32_t unknown_count = 99;\n  if (ts_runtime_device_count(0xffffffffu, &unknown_count) != TS_UNSUPPORTED)\n    return 7;\n  if (unknown_count != 0) return 8;\n\n  const int64_t dims[1] = {1};\n  const float value[1] = {2.0f};\n  ts_tensor_t input = 0;\n  if (ts_tensor_from_f32(value, 1, dims, 1, &input) != TS_OK || input == 0)\n    return 10;\n\n  ts_tensor_t cpu_copy = 0;\n  if (ts_tensor_to_device(input, TS_DEVICE_CPU, 0, &cpu_copy) != TS_OK ||\n      cpu_copy == 0)\n    return 11;\n  uint32_t cpu_device = 0;\n  if (ts_tensor_device(cpu_copy, &cpu_device) != TS_OK ||\n      cpu_device != TS_DEVICE_CPU)\n    return 12;\n  if (ts_tensor_release(cpu_copy) != TS_OK) return 13;\n\n  if (CheckAcceleratorTransfer(input, TS_DEVICE_CUDA) != 0) return 20;\n  if (CheckAcceleratorTransfer(input, TS_DEVICE_MPS) != 0) return 21;\n  if (CheckAcceleratorTransfer(input, TS_DEVICE_XPU) != 0) return 22;\n  if (CheckAcceleratorTransfer(input, TS_DEVICE_HIP) != 0) return 23;\n\n  if (ts_tensor_release(input) != TS_OK) return 30;\n\n  uint64_t live_tensors = 1;\n  if (ts_runtime_live_tensor_count(&live_tensors) != TS_OK || live_tensors != 0)\n    return 31;\n\n  return 0;\n}\n'''
+          source_path.write_text(public)
+
+          cmake = Path('native/CMakeLists.txt')
+          text = cmake.read_text()
+          old = '''    add_executable(tensora_training_device_tests tests/training_device_test.cc)\n    target_include_directories(tensora_training_device_tests PRIVATE\n      ${CMAKE_CURRENT_SOURCE_DIR}/include\n      ${CMAKE_CURRENT_SOURCE_DIR}/src\n    )\n    target_include_directories(tensora_training_device_tests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})\n    target_link_libraries(tensora_training_device_tests PRIVATE\n      tensora_native\n      ${TORCH_LIBRARIES}\n    )\n'''
+          new = '''    add_executable(tensora_training_device_tests tests/training_device_test.cc)\n    target_include_directories(tensora_training_device_tests PRIVATE\n      ${CMAKE_CURRENT_SOURCE_DIR}/include\n    )\n    target_link_libraries(tensora_training_device_tests PRIVATE tensora_native)\n\n    add_executable(tensora_training_backend_internal_tests\n      tests/training_backend_internal_test.cc\n      src/core/status.cc\n      src/memory/cpu_storage.cc\n      src/tensor/shape.cc\n      src/tensor/tensor.cc\n      src/training/torch_backend.cc\n      src/training/torch_storage.cc\n    )\n    target_compile_features(tensora_training_backend_internal_tests PRIVATE cxx_std_20)\n    target_include_directories(tensora_training_backend_internal_tests PRIVATE\n      ${CMAKE_CURRENT_SOURCE_DIR}/include\n      ${CMAKE_CURRENT_SOURCE_DIR}/src\n    )\n    target_include_directories(tensora_training_backend_internal_tests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})\n    target_link_libraries(tensora_training_backend_internal_tests PRIVATE\n      Threads::Threads\n      ${TORCH_LIBRARIES}\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit('training device CMake block mismatch')
+          text = text.replace(old, new, 1)
+          old = '      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0 /wd4267 /wd4702)\n'
+          new = '      target_compile_options(tensora_training_device_tests PRIVATE /W4 /WX /permissive-)\n      target_compile_options(tensora_training_backend_internal_tests PRIVATE /W4 /WX /permissive- /external:anglebrackets /external:W0 /wd4267 /wd4702)\n'
+          if text.count(old) != 1:
+              raise SystemExit('MSVC training device flags mismatch')
+          text = text.replace(old, new, 1)
+          old = '      target_compile_options(tensora_training_device_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n'
+          new = old + '      target_compile_options(tensora_training_backend_internal_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)\n'
+          if text.count(old) != 1:
+              raise SystemExit('Unix training device flags mismatch')
+          text = text.replace(old, new, 1)
+          old = '    add_test(NAME tensora_training_device_tests COMMAND tensora_training_device_tests)\n'
+          new = old + '    add_test(NAME tensora_training_backend_internal_tests COMMAND tensora_training_backend_internal_tests)\n'
+          if text.count(old) != 1:
+              raise SystemExit('training device CTest registration mismatch')
+          text = text.replace(old, new, 1)
+          cmake.write_text(text)
+          PY
+          git diff --check
+
+      - name: Validate core ABI test
+        shell: bash
+        run: |
+          cmake -S native -B build/core -DCMAKE_BUILD_TYPE=Release -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/core --target tensora_c_abi_tests --parallel 2
+          ctest --test-dir build/core -R '^tensora_c_abi_tests$' --output-on-failure
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned CPU PyTorch
+        run: python -m pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Configure LibTorch test build
+        shell: bash
+        run: |
+          TORCH_PREFIX="$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')"
+          cmake -S native -B build/torch -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$TORCH_PREFIX" -DTENSORA_WITH_TORCH=ON -DTENSORA_BUILD_TESTS=ON -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build split training tests
+        run: cmake --build build/torch --target tensora_c_abi_tests tensora_training_device_tests tensora_training_backend_internal_tests --parallel 2
+
+      - name: Run split training tests
+        shell: bash
+        run: |
+          TORCH_LIB="$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')"
+          export LD_LIBRARY_PATH="$TORCH_LIB:${GITHUB_WORKSPACE}/build/torch:${LD_LIBRARY_PATH:-}"
+          ctest --test-dir build/torch -R '^(tensora_c_abi_tests|tensora_training_device_tests|tensora_training_backend_internal_tests)$' --output-on-failure
+
+      - name: Commit validated repair
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/CMakeLists.txt native/tests/c_abi_test.c native/tests/training_device_test.cc native/tests/training_backend_internal_test.cc
+          git diff --cached --check
+          git commit -m 'test: isolate internal LibTorch backend coverage'
+          git push origin HEAD:feature/training-engine-v1
