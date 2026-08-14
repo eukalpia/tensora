@@ -94,14 +94,14 @@ void test_leaf_state_and_add_accumulation() {
   ts_tensor_t x = require_grad(raw);
   CHECK_STATUS(ts_tensor_release(raw), TS_OK);
 
-  uint8_t requires = 0;
-  CHECK_STATUS(ts_tensor_requires_grad(x, &requires), TS_OK);
-  CHECK_TRUE(requires == 1);
+  uint8_t requires_grad = 0;
+  CHECK_STATUS(ts_tensor_requires_grad(x, &requires_grad), TS_OK);
+  CHECK_TRUE(requires_grad == 1);
 
   ts_tensor_t doubled = 0;
   CHECK_STATUS(ts_tensor_add(x, x, &doubled), TS_OK);
-  CHECK_STATUS(ts_tensor_requires_grad(doubled, &requires), TS_OK);
-  CHECK_TRUE(requires == 1);
+  CHECK_STATUS(ts_tensor_requires_grad(doubled, &requires_grad), TS_OK);
+  CHECK_TRUE(requires_grad == 1);
 
   ts_tensor_t loss = 0;
   CHECK_STATUS(ts_tensor_sum(doubled, &loss), TS_OK);
