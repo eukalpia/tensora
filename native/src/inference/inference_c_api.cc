@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/abi_guard.h"
 #include "core/status.h"
 #include "inference/inference_bridge.h"
 #include "runtime/handle_registry.h"
@@ -16,36 +17,6 @@
 namespace tensora {
 namespace {
 
-template <typename Function>
-ts_status_t GuardedInferenceAbiCall(const char* operation,
-                                    Function&& function) noexcept {
-  ClearLastError();
-  try {
-    Status status = function();
-    if (!status.ok()) {
-      if (status.message().empty()) {
-        status = Status(status.code(), std::string(operation) + ": failed");
-      }
-      SetLastError(status);
-    }
-    return status.code();
-  } catch (const std::bad_alloc&) {
-    const Status status =
-        OutOfMemory(std::string(operation) + ": native allocation failed");
-    SetLastError(status);
-    return status.code();
-  } catch (const std::exception& error) {
-    const Status status =
-        InternalError(std::string(operation) + ": " + error.what());
-    SetLastError(status);
-    return status.code();
-  } catch (...) {
-    const Status status =
-        InternalError(std::string(operation) + ": unknown native exception");
-    SetLastError(status);
-    return status.code();
-  }
-}
 
 Status CopyUtf8String(const std::string& value,
                       char* out_value,
@@ -103,13 +74,13 @@ void ReleaseInsertedOutputs(const std::vector<ts_tensor_t>& handles) {
 extern "C" {
 
 ts_status_t ts_onnx_available(uint8_t* out_available) {
-  return tensora::GuardedInferenceAbiCall("onnx_available", [&] {
+  return tensora::AbiGuard("onnx_available", [&] {
     return tensora::inference::IsAvailable(out_available);
   });
 }
 
 ts_status_t ts_onnx_provider_count(size_t* out_count) {
-  return tensora::GuardedInferenceAbiCall("onnx_provider_count", [&] {
+  return tensora::AbiGuard("onnx_provider_count", [&] {
     return tensora::inference::ProviderCount(out_count);
   });
 }
@@ -118,7 +89,7 @@ ts_status_t ts_onnx_provider_name(size_t index,
                                   char* out_name,
                                   size_t capacity,
                                   size_t* out_required) {
-  return tensora::GuardedInferenceAbiCall("onnx_provider_name", [&] {
+  return tensora::AbiGuard("onnx_provider_name", [&] {
     std::string name;
     tensora::Status status = tensora::inference::ProviderName(index, &name);
     if (!status.ok()) return status;
@@ -141,7 +112,7 @@ ts_status_t ts_onnx_session_create_with_provider(
     uint8_t enable_profiling,
     const char* profiling_prefix,
     ts_onnx_session_t* out_session) {
-  return tensora::GuardedInferenceAbiCall(
+  return tensora::AbiGuard(
       "onnx_session_create_with_provider", [&] {
         if (out_session == nullptr) {
           return tensora::InvalidArgument(
@@ -169,7 +140,7 @@ ts_status_t ts_onnx_session_provider(ts_onnx_session_t session,
                                      char* out_provider,
                                      size_t capacity,
                                      size_t* out_required) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_provider", [&] {
+  return tensora::AbiGuard("onnx_session_provider", [&] {
     std::string provider;
     tensora::Status status =
         tensora::inference::SessionProvider(session, &provider);
@@ -182,14 +153,14 @@ ts_status_t ts_onnx_session_provider(ts_onnx_session_t session,
 
 ts_status_t ts_onnx_session_input_count(ts_onnx_session_t session,
                                         size_t* out_count) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_input_count", [&] {
+  return tensora::AbiGuard("onnx_session_input_count", [&] {
     return tensora::inference::SessionInputCount(session, out_count);
   });
 }
 
 ts_status_t ts_onnx_session_output_count(ts_onnx_session_t session,
                                          size_t* out_count) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_output_count", [&] {
+  return tensora::AbiGuard("onnx_session_output_count", [&] {
     return tensora::inference::SessionOutputCount(session, out_count);
   });
 }
@@ -199,7 +170,7 @@ ts_status_t ts_onnx_session_input_name(ts_onnx_session_t session,
                                        char* out_name,
                                        size_t capacity,
                                        size_t* out_required) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_input_name", [&] {
+  return tensora::AbiGuard("onnx_session_input_name", [&] {
     std::string name;
     tensora::Status status =
         tensora::inference::SessionInputName(session, index, &name);
@@ -214,7 +185,7 @@ ts_status_t ts_onnx_session_output_name(ts_onnx_session_t session,
                                         char* out_name,
                                         size_t capacity,
                                         size_t* out_required) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_output_name", [&] {
+  return tensora::AbiGuard("onnx_session_output_name", [&] {
     std::string name;
     tensora::Status status =
         tensora::inference::SessionOutputName(session, index, &name);
@@ -233,7 +204,7 @@ ts_status_t ts_onnx_session_run(ts_onnx_session_t session,
                                 ts_tensor_t* out_tensors,
                                 size_t out_capacity,
                                 size_t* out_written) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_run", [&] {
+  return tensora::AbiGuard("onnx_session_run", [&] {
     if (out_written == nullptr) {
       return tensora::InvalidArgument(
           "onnx_session_run: output count pointer is null");
@@ -316,7 +287,7 @@ ts_status_t ts_onnx_session_end_profiling(ts_onnx_session_t session,
                                           char* out_path,
                                           size_t capacity,
                                           size_t* out_required) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_end_profiling", [&] {
+  return tensora::AbiGuard("onnx_session_end_profiling", [&] {
     std::string path;
     tensora::Status status =
         tensora::inference::SessionEndProfiling(session, &path);
@@ -328,13 +299,13 @@ ts_status_t ts_onnx_session_end_profiling(ts_onnx_session_t session,
 }
 
 ts_status_t ts_onnx_session_release(ts_onnx_session_t session) {
-  return tensora::GuardedInferenceAbiCall("onnx_session_release", [&] {
+  return tensora::AbiGuard("onnx_session_release", [&] {
     return tensora::inference::SessionRelease(session);
   });
 }
 
 ts_status_t ts_runtime_live_onnx_session_count(uint64_t* out_count) {
-  return tensora::GuardedInferenceAbiCall(
+  return tensora::AbiGuard(
       "runtime_live_onnx_session_count", [&] {
         if (out_count == nullptr) {
           return tensora::InvalidArgument(

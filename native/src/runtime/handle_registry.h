@@ -35,6 +35,7 @@ class HandleRegistry {
     if (out == nullptr) {
       return InvalidArgument("handle registry: lookup output pointer is null");
     }
+    out->reset();
     if (handle == 0) {
       return InvalidHandle("handle registry: handle 0 is invalid");
     }

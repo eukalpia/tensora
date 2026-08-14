@@ -58,9 +58,6 @@ Status ValidateShape(const int64_t* dims, size_t rank, ShapeInfo* out) {
       result.strides[i] = stride;
       const uint64_t dim = static_cast<uint64_t>(result.dimensions[i]);
       if (i > 0) {
-        if (stride > kMaxNumel / dim) {
-          return InvalidShape("shape: stride calculation overflow");
-        }
         stride *= dim;
       }
     }

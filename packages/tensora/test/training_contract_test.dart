@@ -2,60 +2,67 @@ import 'package:tensora/tensora.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('core build exposes explicit disabled training diagnostics', () {
-    expect(TensoraRuntime.trainingAvailable, isFalse);
+  test('core build exposes native CPU training diagnostics', () {
+    expect(TensoraRuntime.trainingAvailable, isTrue);
     expect(TensoraRuntime.cudaDeviceCount, 0);
     expect(TensoraRuntime.liveModuleCount, 0);
     expect(TensoraRuntime.liveOptimizerCount, 0);
-    expect(
-      () => TensoraRuntime.manualSeed(42),
-      throwsA(isA<UnsupportedOperationException>()),
-    );
+    TensoraRuntime.manualSeed(42);
     expect(() => TensoraRuntime.manualSeed(-1), throwsArgumentError);
   });
 
-  test(
-    'core tensors report no autograd and training transforms fail clearly',
-    () {
-      final tensor = Tensor.fromList([-1, 2], shape: Shape([2]));
-      addTearDown(tensor.dispose);
+  test('core tensors expose native autograd and training transforms', () {
+    final tensor = Tensor.fromList([-1, 2], shape: Shape([2]));
+    final leaf = tensor.withRequiresGrad();
+    final activated = leaf.relu();
+    final loss = activated.sum();
+    addTearDown(tensor.dispose);
+    addTearDown(leaf.dispose);
+    addTearDown(activated.dispose);
+    addTearDown(loss.dispose);
 
-      expect(tensor.requiresGrad, isFalse);
-      expect(
-        tensor.withRequiresGrad,
-        throwsA(isA<UnsupportedOperationException>()),
-      );
-      expect(tensor.relu, throwsA(isA<UnsupportedOperationException>()));
-      expect(tensor.sigmoid, throwsA(isA<UnsupportedOperationException>()));
-      expect(tensor.tanh, throwsA(isA<UnsupportedOperationException>()));
-      expect(tensor.backward, throwsA(isA<UnsupportedOperationException>()));
-      expect(tensor.grad, throwsA(isA<UnsupportedOperationException>()));
-    },
-  );
+    expect(tensor.requiresGrad, isFalse);
+    expect(leaf.requiresGrad, isTrue);
+    loss.backward();
 
-  test(
-    'disabled losses return structured unsupported errors without leaks',
-    () {
-      final a = Tensor.ones(Shape([2]));
-      final b = Tensor.zeros(Shape([2]));
-      addTearDown(a.dispose);
-      addTearDown(b.dispose);
+    final gradient = leaf.grad();
+    addTearDown(gradient.dispose);
+    expect(gradient.toList(), [0, 1]);
 
-      expect(
-        () => Losses.mse(a, b),
-        throwsA(isA<UnsupportedOperationException>()),
-      );
-      expect(
-        () => Losses.crossEntropy(a, b),
-        throwsA(isA<UnsupportedOperationException>()),
-      );
-    },
-  );
+    final sigmoid = tensor.sigmoid();
+    final tanh = tensor.tanh();
+    addTearDown(sigmoid.dispose);
+    addTearDown(tanh.dispose);
+    expect(sigmoid.toList().first, closeTo(0.26894143, 1e-5));
+    expect(tanh.toList().last, closeTo(0.9640276, 1e-5));
+  });
+
+  test('core losses execute through the native training engine', () {
+    final prediction = Tensor.ones(Shape([2]));
+    final target = Tensor.zeros(Shape([2]));
+    final mse = Losses.mse(prediction, target);
+    final logits = Tensor.fromList([2, 1], shape: Shape([1, 2]));
+    final oneHot = Tensor.fromList([1, 0], shape: Shape([1, 2]));
+    final crossEntropy = Losses.crossEntropy(logits, oneHot);
+    addTearDown(prediction.dispose);
+    addTearDown(target.dispose);
+    addTearDown(mse.dispose);
+    addTearDown(logits.dispose);
+    addTearDown(oneHot.dispose);
+    addTearDown(crossEntropy.dispose);
+
+    expect(mse.toList().single, closeTo(1, 1e-6));
+    expect(crossEntropy.toList().single, closeTo(0.31326166, 1e-5));
+  });
 
   test('module creation validates dimensions before native work', () {
     expect(() => Linear(0, 1), throwsArgumentError);
     expect(() => Linear(1, 0), throwsArgumentError);
-    expect(() => Linear(1, 1), throwsA(isA<UnsupportedOperationException>()));
+
+    final model = Linear(1, 1);
+    expect(model.isDisposed, isFalse);
+    model.dispose();
+    expect(model.isDisposed, isTrue);
   });
 
   test('internal native adoption capability cannot be guessed', () {
