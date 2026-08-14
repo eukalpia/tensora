@@ -1,4 +1,5 @@
 #include "runtime/handle_registry.h"
+#include "runtime/handle_registry_internal.h"
 
 #include <cstdint>
 #include <iostream>
@@ -67,6 +68,23 @@ int TestAbiGuardContracts() {
   if (std::string(tensora::LastErrorMessage()).find("unknown native exception") ==
       std::string::npos)
     return 211;
+  return 0;
+}
+
+int TestRegistryInvariantHelpers() {
+  using namespace tensora::handle_registry_internal;
+  if (!ValidateNextHandle(1).ok()) return 220;
+  if (ValidateNextHandle(0).code() != TS_INTERNAL_ERROR) return 221;
+  if (ValidateNextHandle(std::numeric_limits<uint64_t>::max()).code() != TS_INTERNAL_ERROR) return 222;
+  if (!ValidateInsertion(true).ok()) return 223;
+  if (ValidateInsertion(false).code() != TS_INTERNAL_ERROR) return 224;
+  uint64_t refs = 1;
+  if (!IncrementReferenceCount(refs).ok() || refs != 2) return 225;
+  refs = std::numeric_limits<uint64_t>::max();
+  if (IncrementReferenceCount(refs).code() != TS_INTERNAL_ERROR) return 226;
+  refs = 1;
+  if (!DecrementReferenceCount(refs).ok() || refs != 0) return 227;
+  if (DecrementReferenceCount(refs).code() != TS_INTERNAL_ERROR) return 228;
   return 0;
 }
 
@@ -274,6 +292,8 @@ int TestCoreContracts() {
 int main() {
   const int abi_guard = TestAbiGuardContracts();
   if (abi_guard != 0) return abi_guard;
+  const int invariants = TestRegistryInvariantHelpers();
+  if (invariants != 0) return invariants;
   const int registry = TestRegistryContracts();
   if (registry != 0) return registry;
   return TestCoreContracts();

@@ -12,6 +12,7 @@
 #include "autograd/autograd.h"
 #include "backends/cpu/cpu_backend.h"
 #include "core/allocation_guard.h"
+#include "core/integer_math.h"
 #include "core/status.h"
 #include "runtime/dispatcher.h"
 #include "memory/tensor_storage.h"
@@ -87,6 +88,18 @@ void TestAllocationGuardContracts() {
                  throw std::length_error("too large");
                }),
                TS_OUT_OF_MEMORY);
+}
+
+void TestIntegerAndStatusContracts() {
+  using namespace tensora;
+  uint64_t result = 777;
+  CHECK_STATUS(CheckedAddU64(2, 3, "checked_add", &result), TS_OK);
+  CHECK_TRUE(result == 5);
+  CHECK_STATUS(CheckedAddU64(1, 2, "checked_add", nullptr), TS_INVALID_ARGUMENT);
+  CHECK_STATUS(CheckedAddU64(std::numeric_limits<uint64_t>::max(), 1,
+                             "checked_add", &result), TS_INTERNAL_ERROR);
+  CHECK_TRUE(result == 0);
+  CHECK_STATUS(ModelError("model failure"), TS_MODEL_ERROR);
 }
 
 void TestDirectArgumentContracts() {
@@ -602,6 +615,7 @@ void TestCheckpointCorruptionContracts() {
 
 int main() {
   TestAllocationGuardContracts();
+  TestIntegerAndStatusContracts();
   TestDirectArgumentContracts();
   TestAutogradInternalContracts();
   TestAutogradReachableEdgeContracts();

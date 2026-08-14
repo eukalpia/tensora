@@ -1,6 +1,6 @@
 #include "runtime/handle_registry.h"
 
-#include <limits>
+#include "runtime/handle_registry_internal.h"
 
 namespace tensora {
 
@@ -21,17 +21,14 @@ Status HandleRegistry::Insert(HandleType type,
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
-  if (next_handle_ == 0 ||
-      next_handle_ == std::numeric_limits<uint64_t>::max()) {
-    return InternalError("handle registry: handle identifier space exhausted");
-  }
+  Status status = handle_registry_internal::ValidateNextHandle(next_handle_);
+  if (!status.ok()) return status;
 
   const uint64_t handle = next_handle_++;
   const auto [_, inserted] =
       entries_.emplace(handle, Entry{type, 1, std::move(object)});
-  if (!inserted) {
-    return InternalError("handle registry: duplicate handle identifier");
-  }
+  status = handle_registry_internal::ValidateInsertion(inserted);
+  if (!status.ok()) return status;
 
   *out_handle = handle;
   return Status::Ok();
@@ -50,11 +47,7 @@ Status HandleRegistry::Retain(uint64_t handle, HandleType expected_type) {
   if (it->second.type != expected_type) {
     return InvalidHandle("handle registry: handle type mismatch");
   }
-  if (it->second.refs == std::numeric_limits<uint64_t>::max()) {
-    return InternalError("handle registry: reference count overflow");
-  }
-  ++it->second.refs;
-  return Status::Ok();
+  return handle_registry_internal::IncrementReferenceCount(it->second.refs);
 }
 
 Status HandleRegistry::Release(uint64_t handle, HandleType expected_type) {
@@ -73,11 +66,9 @@ Status HandleRegistry::Release(uint64_t handle, HandleType expected_type) {
     if (it->second.type != expected_type) {
       return InvalidHandle("handle registry: handle type mismatch");
     }
-    if (it->second.refs == 0) {
-      return InternalError("handle registry: corrupted zero reference count");
-    }
-
-    --it->second.refs;
+    Status status =
+        handle_registry_internal::DecrementReferenceCount(it->second.refs);
+    if (!status.ok()) return status;
     if (it->second.refs == 0) {
       retired = std::move(it->second.object);
       entries_.erase(it);
