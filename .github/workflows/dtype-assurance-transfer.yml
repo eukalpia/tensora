@@ -54,6 +54,8 @@ jobs:
             | sha256sum --check --strict
           cp .github/workflows/high-assurance-ci.yml /tmp/final-high-assurance-ci.yml
 
+          git reset --hard "$staging_sha"
+          git clean -fd
           git checkout -B dtype-abi-staging "$staging_sha"
           mkdir -p transfer
           cp /tmp/final-high-assurance-ci.yml transfer/final-high-assurance-ci.yml
