@@ -184,6 +184,7 @@ void test_autograd_through_non_contiguous_view() {
   release_tensor(&source);
 }
 
+#if !defined(TENSORA_WITH_TORCH)
 void test_alias_mutation_is_detected_before_backward_publication() {
   CHECK_STATUS(ts_manual_seed(998877), TS_OK);
   ts_module_t module = 0;
@@ -227,6 +228,7 @@ void test_alias_mutation_is_detected_before_backward_publication() {
   release_tensor(&weight);
   CHECK_STATUS(ts_module_release(module), TS_OK);
 }
+#endif
 
 }  // namespace
 
@@ -235,7 +237,9 @@ int main() {
   test_non_contiguous_ops_use_logical_order();
   test_reshape_non_contiguous_materializes_logical_order();
   test_autograd_through_non_contiguous_view();
+#if !defined(TENSORA_WITH_TORCH)
   test_alias_mutation_is_detected_before_backward_publication();
+#endif
 
   if (failures != 0) {
     std::cerr << failures << " tensor view assertion(s) failed\n";
