@@ -278,8 +278,8 @@ static int test_disabled_inference_contract(ts_tensor_t tensor) {
                237);
   CHECK_STATUS(ts_runtime_live_onnx_session_count(&live), TS_OK, 238);
   CHECK_TRUE(live == 0, 239);
-#endif
   return 0;
+#endif
 }
 
 int main(void) {
