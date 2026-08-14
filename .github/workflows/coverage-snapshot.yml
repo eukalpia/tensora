@@ -185,6 +185,9 @@ jobs:
           --coverage-path=coverage/inference-runtime.info
           --reporter expanded
 
+      - name: Collect native contract fault coverage
+        run: bash tools/collect_contract_coverage.sh
+
       - name: Enforce complete Dart production coverage
         run: >-
           python tools/merge_dart_coverage.py
