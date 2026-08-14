@@ -72,37 +72,49 @@ void main() {
 
   setUp(reset);
 
-  test('native library-name resolution is deterministic for every platform', () {
-    expect(nativeLibraryNameForOperatingSystem('linux'), 'libtensora_native.so');
-    expect(
-      nativeLibraryNameForOperatingSystem('macos'),
-      'libtensora_native.dylib',
-    );
-    expect(nativeLibraryNameForOperatingSystem('windows'), 'tensora_native.dll');
-    expect(
-      () => nativeLibraryNameForOperatingSystem('plan9'),
-      throwsA(isA<UnsupportedOperationException>()),
-    );
-    expect(windowsPreloadedModules, isEmpty);
-  });
+  test(
+    'native library-name resolution is deterministic for every platform',
+    () {
+      expect(
+        nativeLibraryNameForOperatingSystem('linux'),
+        'libtensora_native.so',
+      );
+      expect(
+        nativeLibraryNameForOperatingSystem('macos'),
+        'libtensora_native.dylib',
+      );
+      expect(
+        nativeLibraryNameForOperatingSystem('windows'),
+        'tensora_native.dll',
+      );
+      expect(
+        () => nativeLibraryNameForOperatingSystem('plan9'),
+        throwsA(isA<UnsupportedOperationException>()),
+      );
+      expect(windowsPreloadedModules, isEmpty);
+    },
+  );
 
-  test('native device codec covers all device families and rejects unknown names', () {
-    final cases = <(Device, int)>[
-      (Device.cpu, 1),
-      (Device.cuda(7), 2),
-      (Device.mps, 3),
-      (Device.xpu(2), 4),
-      (Device.hip(3), 5),
-    ];
-    for (final (device, code) in cases) {
-      expect(nativeDeviceCode(device), code);
-    }
-    expect(nativeDeviceCodeForName('cuda:19'), 2);
-    expect(
-      () => nativeDeviceCodeForName('unknown:0'),
-      throwsA(isA<UnsupportedError>()),
-    );
-  });
+  test(
+    'native device codec covers all device families and rejects unknown names',
+    () {
+      final cases = <(Device, int)>[
+        (Device.cpu, 1),
+        (Device.cuda(7), 2),
+        (Device.mps, 3),
+        (Device.xpu(2), 4),
+        (Device.hip(3), 5),
+      ];
+      for (final (device, code) in cases) {
+        expect(nativeDeviceCode(device), code);
+      }
+      expect(nativeDeviceCodeForName('cuda:19'), 2);
+      expect(
+        () => nativeDeviceCodeForName('unknown:0'),
+        throwsA(isA<UnsupportedError>()),
+      );
+    },
+  );
 
   test('accelerator tensor creation releases its CPU staging handle', () {
     setDevice(2, 1);
@@ -128,28 +140,31 @@ void main() {
     );
   });
 
-  test('module tensor readers and collector own returned handles exactly once', () {
-    final module = training.createLinear(1, 1, true);
-    try {
-      final parameterHandle = moduleParameterHandleReader(module)(0);
-      runtime.release(parameterHandle);
+  test(
+    'module tensor readers and collector own returned handles exactly once',
+    () {
+      final module = training.createLinear(1, 1, true);
+      try {
+        final parameterHandle = moduleParameterHandleReader(module)(0);
+        runtime.release(parameterHandle);
 
-      final bufferHandle = moduleBufferHandleReader(module)(0);
-      runtime.release(bufferHandle);
+        final bufferHandle = moduleBufferHandleReader(module)(0);
+        runtime.release(bufferHandle);
 
-      final handles = <int>[
-        runtime.full(Shape([1]), 1),
-        runtime.full(Shape([1]), 2),
-      ];
-      final tensors = collectModuleTensors(2, (index) => handles[index]);
-      expect(tensors, hasLength(2));
-      for (final tensor in tensors) {
-        tensor.dispose();
+        final handles = <int>[
+          runtime.full(Shape([1]), 1),
+          runtime.full(Shape([1]), 2),
+        ];
+        final tensors = collectModuleTensors(2, (index) => handles[index]);
+        expect(tensors, hasLength(2));
+        for (final tensor in tensors) {
+          tensor.dispose();
+        }
+      } finally {
+        training.moduleRelease(module);
       }
-    } finally {
-      training.moduleRelease(module);
-    }
-  });
+    },
+  );
 
   test('finalizer release callbacks are deterministic and non-throwing', () {
     final tensor = runtime.full(Shape([1]), 1);
