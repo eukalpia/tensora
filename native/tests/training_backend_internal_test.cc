@@ -6,6 +6,8 @@
 #include <torch/torch.h>
 
 #include "core/status.h"
+#include "memory/cpu_storage.h"
+#include "memory/tensor_storage.h"
 #include "tensor/shape.h"
 #include "training/torch_backend.h"
 #include "training/training_bridge.h"
@@ -21,6 +23,37 @@ bool ExpectStatus(const tensora::Status& status,
             << status.code() << ": " << status.message() << "\n";
   return false;
 }
+
+class FakeStorage final : public tensora::TensorStorage {
+ public:
+  FakeStorage(tensora::StorageKind kind, uint64_t byte_size, size_t written)
+      : kind_(kind), byte_size_(byte_size), written_(written) {}
+
+  tensora::StorageKind kind() const override { return kind_; }
+  tensora::Status CopyToHostF32(float* out_values,
+                                size_t capacity,
+                                size_t* out_written) const override {
+    if (out_written == nullptr) {
+      return tensora::InvalidArgument("fake storage: written pointer is null");
+    }
+    *out_written = 0;
+    if (capacity < written_) {
+      return tensora::InvalidArgument("fake storage: capacity is too small");
+    }
+    if (written_ > 0 && out_values == nullptr) {
+      return tensora::InvalidArgument("fake storage: values pointer is null");
+    }
+    for (size_t index = 0; index < written_; ++index) out_values[index] = 1.0f;
+    *out_written = written_;
+    return tensora::Status::Ok();
+  }
+  uint64_t byte_size() const override { return byte_size_; }
+
+ private:
+  tensora::StorageKind kind_;
+  uint64_t byte_size_;
+  size_t written_;
+};
 
 int CheckDirectTorchBackend() {
   using tensora::Device;
@@ -109,11 +142,46 @@ int CheckDirectTorchBackend() {
       !converted.defined() || converted.scalar_type() != torch::kFloat32)
     return 117;
 
+  Tensor unsupported_dtype(matrix_shape, matrix->storage(),
+                           static_cast<tensora::DType>(999), Device::kCpu, 0);
+  if (!ExpectStatus(TensorToTorch(unsupported_dtype, &converted), TS_UNSUPPORTED,
+                    "TensorToTorch dtype"))
+    return 148;
+
+  const auto fake_torch_storage = std::make_shared<FakeStorage>(
+      tensora::StorageKind::kTorch, matrix_shape.byte_size, 4);
+  Tensor fake_torch_tensor(matrix_shape, fake_torch_storage);
+  if (!ExpectStatus(TensorToTorch(fake_torch_tensor, &converted),
+                    TS_INTERNAL_ERROR, "TensorToTorch fake Torch storage"))
+    return 149;
+
+  std::shared_ptr<tensora::CpuStorage> cpu_storage;
+  if (!ExpectStatus(tensora::CpuStorage::FromData(matrix_values, 4, &cpu_storage),
+                    TS_OK, "CpuStorage FromData for TensorToTorch") ||
+      !cpu_storage)
+    return 150;
+  Tensor cpu_tensor(matrix_shape, cpu_storage);
+  if (!ExpectStatus(TensorToTorch(cpu_tensor, &converted), TS_OK,
+                    "TensorToTorch CPU storage") ||
+      !converted.defined() || converted.device().type() != c10::DeviceType::CPU)
+    return 151;
+
+  const auto inconsistent_storage = std::make_shared<FakeStorage>(
+      tensora::StorageKind::kCpu, matrix_shape.byte_size, 0);
+  Tensor inconsistent_tensor(matrix_shape, inconsistent_storage);
+  if (!ExpectStatus(TensorToTorch(inconsistent_tensor, &converted),
+                    TS_INTERNAL_ERROR, "TensorToTorch inconsistent storage"))
+    return 152;
+
   std::shared_ptr<Tensor> filled;
   if (!ExpectStatus(backend.Full(matrix_shape, 3.0f, &filled), TS_OK,
                     "TorchBackend Full") ||
       !filled)
     return 118;
+
+  if (!ExpectStatus(backend.Full(matrix_shape, 3.0f, nullptr),
+                    TS_INVALID_ARGUMENT, "TorchBackend Full null output"))
+    return 154;
 
   std::shared_ptr<Tensor> wrapped;
   if (!ExpectStatus(WrapTorchTensor(torch::Tensor(), &wrapped),
@@ -129,6 +197,17 @@ int CheckDirectTorchBackend() {
                     "WrapTorchTensor scalar") ||
       !wrapped || wrapped->numel() != 1)
     return 122;
+  wrapped.reset();
+
+  try {
+    const auto meta = torch::empty(
+        {1}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kMeta));
+    if (!ExpectStatus(WrapTorchTensor(meta, &wrapped), TS_UNSUPPORTED,
+                      "WrapTorchTensor meta device"))
+      return 153;
+  } catch (const c10::Error&) {
+    // Older LibTorch builds may reject construction before Tensora sees it.
+  }
   wrapped.reset();
 
   const uint64_t before_storage_bytes = TorchStorage::LiveBytes();
@@ -236,6 +315,25 @@ int CheckDirectTorchBackend() {
                     "TorchBackend matmul") ||
       !result || result->shape().dimensions != matrix_shape.dimensions)
     return 147;
+
+  if (!ExpectStatus(backend.Reshape(*matrix, flat_shape, nullptr),
+                    TS_INVALID_ARGUMENT, "TorchBackend reshape null output"))
+    return 155;
+  if (!ExpectStatus(backend.Transpose2D(*matrix, nullptr), TS_INVALID_ARGUMENT,
+                    "TorchBackend transpose null output"))
+    return 156;
+  if (!ExpectStatus(backend.Add(*matrix, *filled, nullptr), TS_INVALID_ARGUMENT,
+                    "TorchBackend add null output"))
+    return 157;
+  if (!ExpectStatus(backend.Multiply(*matrix, *filled, nullptr),
+                    TS_INVALID_ARGUMENT, "TorchBackend multiply null output"))
+    return 158;
+  if (!ExpectStatus(backend.Sum(*matrix, nullptr), TS_INVALID_ARGUMENT,
+                    "TorchBackend sum null output"))
+    return 159;
+  if (!ExpectStatus(backend.Matmul(*other, *rhs, nullptr), TS_INVALID_ARGUMENT,
+                    "TorchBackend matmul null output"))
+    return 160;
 
   return 0;
 }
