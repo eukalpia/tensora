@@ -1,0 +1,39 @@
+name: Patch Snapshot
+
+on:
+  push:
+    branches:
+      - work/patch-snapshot-20260814
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Package transfer patch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Reassemble patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat transfer/dtype-abi-assurance-00.patch \
+              transfer/dtype-abi-assurance-01.patch \
+              transfer/dtype-abi-assurance-02.patch \
+              transfer/dtype-abi-assurance-03.patch \
+              > /tmp/dtype-abi-assurance.patch
+          git apply --check /tmp/dtype-abi-assurance.patch
+
+      - name: Upload patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtype-abi-assurance-patch
+          path: /tmp/dtype-abi-assurance.patch
+          if-no-files-found: error
+          retention-days: 1
