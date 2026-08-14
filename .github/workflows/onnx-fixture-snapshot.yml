@@ -1,0 +1,43 @@
+name: ONNX Fixture Snapshot
+
+on:
+  push:
+    branches:
+      - work/source-snapshot-20260814
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Package ONNX fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install fixture dependency
+        run: python -m pip install onnx==1.21.0 numpy
+
+      - name: Generate fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/fixtures
+          python native/tests/generate_onnx_fixture.py build/fixtures/reference.onnx
+
+      - name: Upload fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-onnx-fixtures
+          path: build/fixtures/*.onnx
+          if-no-files-found: error
+          retention-days: 1
