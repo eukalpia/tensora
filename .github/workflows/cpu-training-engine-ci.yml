@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          for source in cpu_training_engine_test autograd_finite_difference_test training_abi_contract_test; do
+          for source in cpu_training_engine_test autograd_finite_difference_test training_abi_contract_test optimizer_checkpoint_test; do
             c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
               native/tests/${source}.cc \
               -Inative/include \
@@ -78,6 +78,8 @@ jobs:
             2>&1 | tee build/diagnostics/proof-gradients-${{ matrix.build_type }}.log
           ./build/training_abi_contract_test \
             2>&1 | tee build/diagnostics/proof-abi-${{ matrix.build_type }}.log
+          ./build/optimizer_checkpoint_test \
+            2>&1 | tee build/diagnostics/proof-optimizer-checkpoint-${{ matrix.build_type }}.log
 
       - name: Preserve CPU training diagnostics
         if: always()
@@ -128,7 +130,7 @@ jobs:
           CXX: clang++
         run: |
           set -o pipefail
-          for source in cpu_training_engine_test autograd_finite_difference_test training_abi_contract_test; do
+          for source in cpu_training_engine_test autograd_finite_difference_test training_abi_contract_test optimizer_checkpoint_test; do
             clang++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
               -fsanitize=address,undefined -fno-omit-frame-pointer \
               native/tests/${source}.cc \
@@ -155,6 +157,8 @@ jobs:
             2>&1 | tee build/diagnostics/proof-gradients-sanitized.log
           ./build/training_abi_contract_test_sanitized \
             2>&1 | tee build/diagnostics/proof-abi-sanitized.log
+          ./build/optimizer_checkpoint_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-optimizer-checkpoint-sanitized.log
 
       - name: Preserve sanitized training diagnostics
         if: always()
