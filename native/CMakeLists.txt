@@ -251,6 +251,24 @@ if(TENSORA_BUILD_TESTS)
       ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     target_link_libraries(tensora_optimizer_checkpoint_tests PRIVATE tensora_native)
+
+    add_executable(tensora_training_core_internal_tests
+      tests/training_core_internal_test.cc
+      src/backends/cpu/cpu_backend.cc
+      src/core/status.cc
+      src/memory/cpu_storage.cc
+      src/runtime/dispatcher.cc
+      src/runtime/handle_registry.cc
+      src/tensor/shape.cc
+      src/tensor/tensor.cc
+      src/training/training_bridge_stub.cc
+    )
+    target_compile_features(tensora_training_core_internal_tests PRIVATE cxx_std_20)
+    target_include_directories(tensora_training_core_internal_tests PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(tensora_training_core_internal_tests PRIVATE Threads::Threads)
   endif()
 
   if(TENSORA_WITH_TORCH)
@@ -308,6 +326,7 @@ if(TENSORA_BUILD_TESTS)
     if(NOT TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_abi_contract_tests PRIVATE /W4 /WX /permissive-)
       target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE /W4 /WX /permissive-)
+      target_compile_options(tensora_training_core_internal_tests PRIVATE /W4 /WX /permissive-)
     endif()
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE /W4 /WX /permissive-)
@@ -328,6 +347,7 @@ if(TENSORA_BUILD_TESTS)
     if(NOT TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_abi_contract_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
       target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+      target_compile_options(tensora_training_core_internal_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     if(TENSORA_WITH_TORCH)
       target_compile_options(tensora_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -359,6 +379,8 @@ if(TENSORA_BUILD_TESTS)
       target_link_options(tensora_training_abi_contract_tests PRIVATE -fsanitize=address,undefined)
       target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
       target_link_options(tensora_optimizer_checkpoint_tests PRIVATE -fsanitize=address,undefined)
+      target_compile_options(tensora_training_core_internal_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
+      target_link_options(tensora_training_core_internal_tests PRIVATE -fsanitize=address,undefined)
     endif()
   endif()
 
@@ -382,6 +404,8 @@ if(TENSORA_BUILD_TESTS)
       target_link_options(tensora_training_abi_contract_tests PRIVATE -fsanitize=thread)
       target_compile_options(tensora_optimizer_checkpoint_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
       target_link_options(tensora_optimizer_checkpoint_tests PRIVATE -fsanitize=thread)
+      target_compile_options(tensora_training_core_internal_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
+      target_link_options(tensora_training_core_internal_tests PRIVATE -fsanitize=thread)
     endif()
   endif()
 
@@ -395,6 +419,7 @@ if(TENSORA_BUILD_TESTS)
   if(NOT TENSORA_WITH_TORCH)
     add_test(NAME tensora_training_abi_contract_tests COMMAND tensora_training_abi_contract_tests)
     add_test(NAME tensora_optimizer_checkpoint_tests COMMAND tensora_optimizer_checkpoint_tests)
+    add_test(NAME tensora_training_core_internal_tests COMMAND tensora_training_core_internal_tests)
   endif()
   if(TENSORA_WITH_TORCH)
     add_test(NAME tensora_training_tests COMMAND tensora_training_tests)
