@@ -20,6 +20,10 @@ void main() {
     }
   });
 
+  test('non-Windows processes retain no preloaded module references', () {
+    expect(NativeRuntime.retainedWindowsModuleCount, 0);
+  });
+
   test('runtime reports generic device counts', () {
     expect(runtime.deviceCount(Device.cpu), 1);
     expect(runtime.deviceCount(Device.cuda(0)), greaterThanOrEqualTo(0));

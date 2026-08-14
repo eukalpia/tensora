@@ -2,7 +2,10 @@
 
 Core Dart API for the Tensora native machine-learning runtime.
 
-The package is pre-1.0 and currently exposes native-backed float32 tensors, optional LibTorch training, optional ONNX Runtime inference, explicit device/provider selection, and deterministic native resource ownership.
+The package is pre-1.0 and currently exposes centralized dtype semantics,
+native-backed float32 tensors, optional LibTorch training, optional ONNX
+Runtime inference, explicit device/provider selection, and deterministic native
+resource ownership.
 
 ## Requirements
 
@@ -36,7 +39,10 @@ Implemented public tensor features include:
 - `toList()`
 - deterministic `dispose()`
 
-Only `DType.float32` is currently public.
+`DType` defines stable metadata and promotion semantics for `float16`,
+`bfloat16`, `float32`, `float64`, `int8`, `uint8`, `int16`, `int32`, `int64`,
+and `boolean`. Native tensor allocation and numerical kernels currently accept
+only `DType.float32`; every other dtype fails explicitly before native work.
 
 Devices are represented as:
 
@@ -158,7 +164,7 @@ The Dart bridge validates native ABI version **4** before using the runtime.
 
 ## Not implemented yet
 
-- additional public dtypes;
+- native storage and numerical kernels for dtypes other than `float32`;
 - Flutter/mobile runtime integration;
 - `.tmodel` packaging/runtime;
 - universal broadcasting/views;

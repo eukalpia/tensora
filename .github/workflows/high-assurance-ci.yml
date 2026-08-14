@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   full-dart-coverage:
-    name: Full Dart coverage >= 90%
+    name: Full Dart coverage >= 99.9%
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -79,9 +79,66 @@ jobs:
       - name: Build core runtime
         run: cmake --build build/core-coverage --parallel 2
 
+      - name: Build ABI contract fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/fault-runtime
+          cc \
+            -std=c11 \
+            -Wall \
+            -Wextra \
+            -Wpedantic \
+            -Werror \
+            -fPIC \
+            -shared \
+            -Inative/include \
+            native/tests/ffi_contract_fixture.c \
+            -o build/fault-runtime/libtensora_fault_runtime.so
+
       - name: Resolve Dart dependencies
         working-directory: packages/tensora
         run: dart pub get
+
+      - name: Collect ABI mismatch coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+          TENSORA_FAULT_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+        run: >-
+          dart test integration_test/native_abi_fault_integration_test.dart
+          --coverage-path=coverage/native-abi.info
+          --reporter expanded
+
+      - name: Collect core ABI violation coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+          TENSORA_FAULT_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+        run: >-
+          dart test integration_test/native_runtime_fault_integration_test.dart
+          --coverage-path=coverage/native-runtime-fault.info
+          --reporter expanded
+
+      - name: Collect training ABI violation coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+          TENSORA_FAULT_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+        run: >-
+          dart test integration_test/native_training_fault_integration_test.dart
+          --coverage-path=coverage/native-training-fault.info
+          --reporter expanded
+
+      - name: Collect inference ABI violation coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+          TENSORA_FAULT_LIBRARY: ${{ github.workspace }}/build/fault-runtime/libtensora_fault_runtime.so
+        run: >-
+          dart test integration_test/native_inference_fault_integration_test.dart
+          --coverage-path=coverage/native-inference-fault.info
+          --reporter expanded
 
       - name: Collect default native discovery coverage in isolated process
         working-directory: packages/tensora
@@ -188,7 +245,7 @@ jobs:
           --coverage-path=coverage/inference-runtime.info
           --reporter expanded
 
-      - name: Enforce 90 percent merged library line coverage
+      - name: Enforce 99.9 percent merged library line coverage
         working-directory: packages/tensora
         shell: bash
         run: |
@@ -201,6 +258,10 @@ jobs:
               Path('coverage/core-soak.info'),
               Path('coverage/runtime-default-load.info'),
               Path('coverage/runtime-missing-load.info'),
+              Path('coverage/native-abi.info'),
+              Path('coverage/native-runtime-fault.info'),
+              Path('coverage/native-training-fault.info'),
+              Path('coverage/native-inference-fault.info'),
               Path('coverage/training.info'),
               Path('coverage/training-edge.info'),
               Path('coverage/training-runtime.info'),
@@ -282,18 +343,28 @@ jobs:
                       current = None
 
           required_sources = {
-              'lib/src/tensor/tensor.dart',
-              'lib/src/training/training.dart',
-              'lib/src/inference/onnx.dart',
-              'lib/src/native/native_runtime.dart',
-              'lib/src/native/native_training_runtime.dart',
-              'lib/src/native/native_inference_runtime.dart',
+              path.as_posix()
+              for path in Path('lib/src').rglob('*.dart')
           }
           missing = sorted(source for source in required_sources if source not in lines)
           if missing:
-              raise SystemExit('coverage is missing required sources: ' + ', '.join(missing))
+              raise SystemExit(
+                  'coverage is missing production sources: ' + ', '.join(missing)
+              )
 
+          ignored_sources = sorted(
+              source for source, values in ignored_lines.items() if values
+          )
+          if ignored_sources != ['lib/src/native/native_runtime.dart']:
+              raise SystemExit(
+                  'coverage exclusions are allowed only for the validated '
+                  'Win32 loader: ' + ', '.join(ignored_sources)
+              )
           ignored_total = sum(len(values) for values in ignored_lines.values())
+          if ignored_total > 48:
+              raise SystemExit(
+                  f'coverage exclusion budget grew from 48 to {ignored_total}'
+              )
           print(f'Validated coverage-ignore source lines: {ignored_total}')
 
           found = sum(len(source_lines) for source_lines in lines.values())
@@ -307,15 +378,15 @@ jobs:
               raise SystemExit('merged LCOV contains no Tensora lib/ lines')
 
           percent = hit * 100.0 / found
-          print(f'Merged Dart library line coverage: {hit}/{found} = {percent:.2f}%')
+          print(f'Merged Dart library line coverage: {hit}/{found} = {percent:.6f}%')
           for source in sorted(lines):
               source_found = len(lines[source])
               source_hit = sum(1 for count in lines[source].values() if count > 0)
               source_percent = source_hit * 100.0 / source_found if source_found else 100.0
               print(f'  {source}: {source_hit}/{source_found} = {source_percent:.2f}%')
 
-          if percent < 90.0:
+          if percent < 99.9:
               raise SystemExit(
-                  f'merged coverage {percent:.2f}% is below required 90.00%'
+                  f'merged coverage {percent:.6f}% is below required 99.900000%'
               )
           PY

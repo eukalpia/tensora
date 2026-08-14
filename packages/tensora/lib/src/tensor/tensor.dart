@@ -1,14 +1,15 @@
 import '../device/device.dart';
 import '../dtype/dtype.dart';
 import '../errors/tensora_exception.dart';
+import '../native/finalizer_callbacks.dart';
 import '../native/native_runtime.dart';
 import '../native/native_training_runtime.dart';
 import '../shape/shape.dart';
 import 'native_adoption.dart';
 
-final Finalizer<int> _tensorFinalizer = Finalizer<int>((handle) {
-  NativeRuntime.instance.releaseFromFinalizer(handle);
-});
+final Finalizer<int> _tensorFinalizer = Finalizer<int>(
+  releaseTensorFromFinalizer,
+);
 
 /// An immutable native-backed tensor.
 ///
@@ -253,9 +254,9 @@ final class Tensor {
     required DType dtype,
     required String operation,
   }) {
-    if (dtype != DType.float32) {
+    if (!dtype.nativeStorageImplemented) {
       throw UnsupportedOperationException(
-        'Tensor creation currently supports only DType.float32.',
+        'Tensor creation currently supports only DType.float32 native storage.',
         operation: 'tensor.$operation',
       );
     }
