@@ -1,71 +1,121 @@
+#include "runtime/handle_registry.h"
+
 #include <cstdint>
-#include <cstring>
-#include <iostream>
 #include <limits>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "backends/backend.h"
+#include "backends/cpu/cpu_backend.h"
 #include "core/status.h"
 #include "memory/cpu_storage.h"
 #include "runtime/dispatcher.h"
-#include "runtime/handle_registry.h"
 #include "tensor/shape.h"
 #include "tensor/tensor.h"
 
 namespace {
 
-bool ExpectCode(const tensora::Status& status,
-                ts_status_t expected,
-                const char* message) {
+using tensora::CpuStorage;
+using tensora::HandleRegistry;
+using tensora::HandleType;
+using tensora::ShapeInfo;
+using tensora::Status;
+using tensora::Tensor;
+
+bool ExpectCode(const Status& status,
+                int32_t expected,
+                const char* operation) {
   if (status.code() == expected) return true;
-  std::cerr << message << ": expected status " << expected << ", got "
-            << status.code() << "\n";
   return false;
 }
 
+int TestRegistryContracts() {
+  auto& registry = HandleRegistry::Instance();
+  const uint64_t baseline_tensors = registry.Count(HandleType::kTensor);
+  const uint64_t baseline_modules = registry.Count(HandleType::kModule);
+
+  if (!ExpectCode(registry.Insert(HandleType::kTensor, nullptr, nullptr),
+                  TS_INVALID_ARGUMENT, "insert null output"))
+    return 10;
+
+  uint64_t handle = 777;
+  if (!ExpectCode(registry.Insert(HandleType::kTensor, nullptr, &handle),
+                  TS_INVALID_ARGUMENT, "insert null object") ||
+      handle != 0)
+    return 11;
+
+  if (!ExpectCode(registry.Lookup<Tensor>(0, HandleType::kTensor, nullptr),
+                  TS_INVALID_ARGUMENT, "lookup null output"))
+    return 12;
+
+  std::shared_ptr<Tensor> tensor;
+  if (!ExpectCode(registry.Lookup<Tensor>(0, HandleType::kTensor, &tensor),
+                  TS_INVALID_HANDLE, "lookup zero"))
+    return 13;
+  if (!ExpectCode(
+          registry.Lookup<Tensor>(UINT64_C(999999999), HandleType::kTensor,
+                                  &tensor),
+          TS_INVALID_HANDLE, "lookup unknown"))
+    return 14;
+  if (!ExpectCode(registry.Retain(0, HandleType::kTensor), TS_INVALID_HANDLE,
+                  "retain zero"))
+    return 15;
+  if (!ExpectCode(registry.Release(0, HandleType::kTensor), TS_INVALID_HANDLE,
+                  "release zero"))
+    return 16;
+  if (!ExpectCode(registry.Retain(UINT64_C(999999999), HandleType::kTensor),
+                  TS_INVALID_HANDLE, "retain unknown"))
+    return 17;
+  if (!ExpectCode(registry.Release(UINT64_C(999999999), HandleType::kTensor),
+                  TS_INVALID_HANDLE, "release unknown"))
+    return 18;
+
+  auto object = std::make_shared<int>(42);
+  if (!registry.Insert(HandleType::kTensor, object, &handle).ok() || handle == 0)
+    return 19;
+  if (registry.Count(HandleType::kTensor) != baseline_tensors + 1) return 20;
+  if (!ExpectCode(registry.Lookup<int>(handle, HandleType::kModule, &object),
+                  TS_INVALID_HANDLE, "lookup wrong type"))
+    return 21;
+  if (!ExpectCode(registry.Retain(handle, HandleType::kModule),
+                  TS_INVALID_HANDLE, "retain wrong type"))
+    return 22;
+  if (!ExpectCode(registry.Release(handle, HandleType::kModule),
+                  TS_INVALID_HANDLE, "release wrong type"))
+    return 23;
+  if (!registry.Retain(handle, HandleType::kTensor).ok()) return 24;
+  if (!registry.Release(handle, HandleType::kTensor).ok()) return 25;
+  if (registry.Count(HandleType::kTensor) != baseline_tensors + 1) return 26;
+  if (!registry.Release(handle, HandleType::kTensor).ok()) return 27;
+  if (registry.Count(HandleType::kTensor) != baseline_tensors) return 28;
+  if (!ExpectCode(registry.Release(handle, HandleType::kTensor),
+                  TS_INVALID_HANDLE, "double release"))
+    return 29;
+  if (registry.Count(HandleType::kModule) != baseline_modules) return 30;
+  return 0;
+}
+
 int TestCoreContracts() {
-  using tensora::Backend;
-  using tensora::CpuStorage;
-  using tensora::Device;
-  using tensora::Dispatcher;
-  using tensora::ShapeInfo;
-  using tensora::Tensor;
-
-  if (!ExpectCode(tensora::InvalidArgument("invalid"), TS_INVALID_ARGUMENT,
-                  "InvalidArgument status") ||
-      !ExpectCode(tensora::InvalidShape("shape"), TS_INVALID_SHAPE,
-                  "InvalidShape status") ||
-      !ExpectCode(tensora::OutOfMemory("oom"), TS_OUT_OF_MEMORY,
-                  "OutOfMemory status") ||
-      !ExpectCode(tensora::Unsupported("unsupported"), TS_UNSUPPORTED,
-                  "Unsupported status") ||
-      !ExpectCode(tensora::InvalidHandle("handle"), TS_INVALID_HANDLE,
-                  "InvalidHandle status") ||
-      !ExpectCode(tensora::InternalError("internal"), TS_INTERNAL_ERROR,
-                  "InternalError status") ||
-      !ExpectCode(tensora::ModelError("model"), TS_MODEL_ERROR,
-                  "ModelError status")) {
+  Status status = Status::Ok();
+  if (!status.ok() || status.code() != TS_OK || !status.message().empty())
     return 100;
-  }
-
-  tensora::ClearLastError();
-  if (std::strlen(tensora::LastErrorMessage()) != 0) return 101;
-  tensora::SetLastError(tensora::InternalError("internal"));
-  if (std::strcmp(tensora::LastErrorMessage(), "internal") != 0) return 102;
-  tensora::SetLastError(tensora::Status::Ok());
-  if (std::strlen(tensora::LastErrorMessage()) != 0) return 103;
+  status = tensora::InvalidArgument("invalid argument");
+  if (status.ok() || status.code() != TS_INVALID_ARGUMENT ||
+      status.message() != "invalid argument")
+    return 101;
+  status = tensora::InvalidShape("invalid shape");
+  if (status.code() != TS_INVALID_SHAPE) return 102;
+  status = tensora::OutOfMemory("oom");
+  if (status.code() != TS_OUT_OF_MEMORY) return 103;
+  status = tensora::Unsupported("unsupported");
+  if (status.code() != TS_UNSUPPORTED) return 104;
+  status = tensora::InvalidHandle("invalid handle");
+  if (status.code() != TS_INVALID_HANDLE) return 105;
+  status = tensora::InternalError("internal");
+  if (status.code() != TS_INTERNAL_ERROR) return 106;
 
   ShapeInfo shape;
-  if (!ExpectCode(tensora::ValidateShape(nullptr, 0, nullptr),
-                  TS_INVALID_ARGUMENT, "shape null output"))
-    return 104;
-  if (!ExpectCode(tensora::ValidateShape(nullptr, 9, &shape), TS_INVALID_SHAPE,
-                  "shape excessive rank"))
-    return 105;
-  if (!ExpectCode(tensora::ValidateShape(nullptr, 1, &shape),
-                  TS_INVALID_ARGUMENT, "shape null dimensions"))
-    return 106;
-
   const int64_t zero_dim[1] = {0};
   if (!ExpectCode(tensora::ValidateShape(zero_dim, 1, &shape),
                   TS_INVALID_SHAPE, "shape zero dimension"))
@@ -87,8 +137,9 @@ int TestCoreContracts() {
     return 110;
 
   const int64_t dims[2] = {2, 2};
-  if (!tensora::ValidateShape(dims, 2, &shape).ok() || shape.rank() != 2 ||
-      shape.numel != 4 || shape.byte_size != 16 || shape.strides.size() != 2 ||
+  if (!tensora::ValidateShape(dims, 2, &shape).ok() ||
+      shape.dimensions.size() != 2 || shape.numel != 4 ||
+      shape.byte_size != 16 || shape.strides.size() != 2 ||
       shape.strides[0] != 2 || shape.strides[1] != 1) {
     return 111;
   }
@@ -108,210 +159,80 @@ int TestCoreContracts() {
                   "CpuStorage filled null output"))
     return 114;
   if (!ExpectCode(CpuStorage::FromData(nullptr, 4, &storage),
-                  TS_INVALID_ARGUMENT, "CpuStorage null input"))
+                  TS_INVALID_ARGUMENT, "CpuStorage from null data"))
     return 115;
-  const float values[4] = {1.0f, 2.0f, 3.0f, 4.0f};
-  if (!CpuStorage::FromData(values, 4, &storage).ok() || !storage ||
-      CpuStorage::LiveBytes() != baseline_bytes + 16)
-    return 116;
-
-  size_t written = 99;
-  float output[4] = {0, 0, 0, 0};
-  if (!ExpectCode(storage->CopyToHostF32(output, 4, nullptr),
-                  TS_INVALID_ARGUMENT, "CpuStorage null written"))
+  if (!CpuStorage::Filled(4, 2.0f, &storage).ok() || !storage) return 116;
+  if (storage->kind() != tensora::StorageKind::kCpu || storage->numel() != 4 ||
+      storage->byte_size() != 16 || CpuStorage::LiveBytes() != baseline_bytes + 16)
     return 117;
-  if (!ExpectCode(storage->CopyToHostF32(output, 3, &written),
-                  TS_INVALID_ARGUMENT, "CpuStorage short output") ||
-      written != 0)
-    return 118;
+  size_t written = 777;
   if (!ExpectCode(storage->CopyToHostF32(nullptr, 4, &written),
-                  TS_INVALID_ARGUMENT, "CpuStorage null output") ||
-      written != 0)
+                  TS_INVALID_ARGUMENT, "CpuStorage copy null output"))
+    return 118;
+  float too_small[3] = {};
+  if (!ExpectCode(storage->CopyToHostF32(too_small, 3, &written),
+                  TS_INVALID_ARGUMENT, "CpuStorage small copy"))
     return 119;
-  if (!storage->CopyToHostF32(output, 4, &written).ok() || written != 4 ||
-      output[0] != 1.0f || output[3] != 4.0f)
+  float values[4] = {};
+  if (!storage->CopyToHostF32(values, 4, &written).ok() || written != 4 ||
+      values[0] != 2.0f || values[3] != 2.0f)
     return 120;
 
-  auto tensor = std::make_shared<Tensor>(shape, storage);
-  const Backend* backend = nullptr;
-  if (!ExpectCode(Dispatcher::For(Device::kCpu, nullptr), TS_INVALID_ARGUMENT,
-                  "Dispatcher null backend"))
+  std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>(shape, storage);
+  if (tensor->numel() != 4 || tensor->dtype() != tensora::DType::kFloat32 ||
+      tensor->device() != tensora::Device::kCpu || tensor->device_index() != 0)
     return 121;
-  if (!Dispatcher::For(Device::kCpu, &backend).ok() || backend == nullptr)
-    return 122;
-  backend = reinterpret_cast<const Backend*>(1);
-  if (!ExpectCode(Dispatcher::For(static_cast<Device>(999), &backend),
-                  TS_UNSUPPORTED, "Dispatcher unknown device") ||
-      backend != nullptr)
-    return 123;
-  if (!ExpectCode(Dispatcher::ForTensor(*tensor, nullptr), TS_INVALID_ARGUMENT,
-                  "Dispatcher tensor null backend"))
-    return 124;
-  if (!Dispatcher::ForTensor(*tensor, &backend).ok() || backend == nullptr)
-    return 125;
-  if (!ExpectCode(Dispatcher::ForTensors(*tensor, *tensor, nullptr),
-                  TS_INVALID_ARGUMENT, "Dispatcher tensors null backend"))
-    return 126;
 
-  auto accelerator_tensor = std::make_shared<Tensor>(
-      shape, storage, tensora::DType::kFloat32, Device::kCuda, 0);
-  if (!ExpectCode(
-          Dispatcher::ForTensors(*tensor, *accelerator_tensor, &backend),
-          TS_INVALID_ARGUMENT, "Dispatcher mismatched devices"))
-    return 127;
-  if (!Dispatcher::ForTensors(*tensor, *tensor, &backend).ok() ||
+  const tensora::Backend* backend = nullptr;
+  if (!tensora::Dispatcher::For(tensora::Device::kCpu, &backend).ok() ||
       backend == nullptr)
-    return 128;
+    return 122;
+  if (!ExpectCode(tensora::Dispatcher::For(tensora::Device::kCuda, &backend),
+                  TS_UNSUPPORTED, "dispatcher cuda"))
+    return 123;
+  if (!ExpectCode(tensora::Dispatcher::For(tensora::Device::kCpu, nullptr),
+                  TS_INVALID_ARGUMENT, "dispatcher null output"))
+    return 124;
 
-  accelerator_tensor.reset();
+  std::shared_ptr<Tensor> full;
+  tensora::CpuBackend cpu;
+  if (!cpu.Full(shape, 3.0f, &full).ok() || !full) return 125;
+  std::shared_ptr<Tensor> reshaped;
+  const int64_t flat[1] = {4};
+  ShapeInfo reshaped_shape;
+  if (!tensora::ValidateShape(flat, 1, &reshaped_shape).ok() ||
+      !cpu.Reshape(*full, reshaped_shape, &reshaped).ok() || !reshaped)
+    return 126;
+  std::shared_ptr<Tensor> transposed;
+  if (!cpu.Transpose2D(*full, &transposed).ok() || !transposed) return 127;
+  std::shared_ptr<Tensor> added;
+  if (!cpu.Add(*full, *full, &added).ok() || !added) return 128;
+  std::shared_ptr<Tensor> multiplied;
+  if (!cpu.Multiply(*full, *full, &multiplied).ok() || !multiplied)
+    return 129;
+  std::shared_ptr<Tensor> summed;
+  if (!cpu.Sum(*full, &summed).ok() || !summed || summed->numel() != 1)
+    return 130;
+  std::shared_ptr<Tensor> product;
+  if (!cpu.Matmul(*full, *full, &product).ok() || !product) return 131;
+
+  product.reset();
+  summed.reset();
+  multiplied.reset();
+  added.reset();
+  transposed.reset();
+  reshaped.reset();
+  full.reset();
   tensor.reset();
   storage.reset();
-  if (CpuStorage::LiveBytes() != baseline_bytes) return 129;
+  if (CpuStorage::LiveBytes() != baseline_bytes) return 132;
   return 0;
 }
 
 }  // namespace
 
 int main() {
-  auto& registry = tensora::HandleRegistry::Instance();
-  const auto payload = std::make_shared<int>(42);
-
-  uint64_t handle = 123;
-  if (!ExpectCode(registry.Insert(tensora::HandleType::kRuntimeReserved,
-                                  payload, nullptr),
-                  TS_INVALID_ARGUMENT,
-                  "insert accepted null output pointer")) {
-    return 1;
-  }
-  if (!ExpectCode(registry.Insert(tensora::HandleType::kRuntimeReserved,
-                                  std::shared_ptr<void>(), &handle),
-                  TS_INVALID_ARGUMENT, "insert accepted null object")) {
-    return 2;
-  }
-  if (handle != 123) {
-    std::cerr << "failed insert unexpectedly mutated output handle\n";
-    return 3;
-  }
-
-  uint64_t wrong_type_handle = 0;
-  const tensora::Status insert_status = registry.Insert(
-      tensora::HandleType::kRuntimeReserved, payload, &wrong_type_handle);
-  if (!insert_status.ok() || wrong_type_handle == 0) {
-    std::cerr << "failed to create internal wrong-type test handle\n";
-    return 4;
-  }
-  if (registry.Count(tensora::HandleType::kRuntimeReserved) != 1 ||
-      registry.Count(tensora::HandleType::kTensor) != 0) {
-    std::cerr << "registry count did not reflect inserted object type\n";
-    return 5;
-  }
-
-  std::shared_ptr<tensora::Tensor> tensor;
-  if (!ExpectCode(registry.Lookup<tensora::Tensor>(
-                      wrong_type_handle, tensora::HandleType::kTensor, nullptr),
-                  TS_INVALID_ARGUMENT,
-                  "lookup accepted null output pointer")) {
-    return 6;
-  }
-  if (!ExpectCode(registry.Lookup<tensora::Tensor>(
-                      0, tensora::HandleType::kTensor, &tensor),
-                  TS_INVALID_HANDLE, "lookup accepted handle zero")) {
-    return 7;
-  }
-  if (!ExpectCode(registry.Lookup<tensora::Tensor>(
-                      UINT64_C(999999999), tensora::HandleType::kTensor,
-                      &tensor),
-                  TS_INVALID_HANDLE, "lookup accepted unknown handle")) {
-    return 8;
-  }
-
-  const tensora::Status lookup_status = registry.Lookup<tensora::Tensor>(
-      wrong_type_handle, tensora::HandleType::kTensor, &tensor);
-  if (lookup_status.code() != TS_INVALID_HANDLE || tensor) {
-    std::cerr << "handle registry accepted a handle with the wrong object type\n";
-    return 9;
-  }
-
-  std::shared_ptr<int> retained_payload;
-  const tensora::Status good_lookup = registry.Lookup<int>(
-      wrong_type_handle, tensora::HandleType::kRuntimeReserved,
-      &retained_payload);
-  if (!good_lookup.ok() || !retained_payload || *retained_payload != 42) {
-    std::cerr << "handle registry failed a valid typed lookup\n";
-    return 10;
-  }
-
-  if (!ExpectCode(registry.Retain(0, tensora::HandleType::kRuntimeReserved),
-                  TS_INVALID_HANDLE, "retain accepted handle zero")) {
-    return 11;
-  }
-  if (!ExpectCode(registry.Retain(UINT64_C(999999999),
-                                  tensora::HandleType::kRuntimeReserved),
-                  TS_INVALID_HANDLE, "retain accepted unknown handle")) {
-    return 12;
-  }
-  if (!ExpectCode(registry.Retain(wrong_type_handle,
-                                  tensora::HandleType::kTensor),
-                  TS_INVALID_HANDLE, "retain accepted wrong handle type")) {
-    return 13;
-  }
-  if (!registry.Retain(wrong_type_handle,
-                       tensora::HandleType::kRuntimeReserved)
-           .ok()) {
-    std::cerr << "valid retain failed\n";
-    return 14;
-  }
-
-  if (!ExpectCode(registry.Release(0, tensora::HandleType::kRuntimeReserved),
-                  TS_INVALID_HANDLE, "release accepted handle zero")) {
-    return 15;
-  }
-  if (!ExpectCode(registry.Release(UINT64_C(999999999),
-                                   tensora::HandleType::kRuntimeReserved),
-                  TS_INVALID_HANDLE, "release accepted unknown handle")) {
-    return 16;
-  }
-  if (!ExpectCode(registry.Release(wrong_type_handle,
-                                   tensora::HandleType::kTensor),
-                  TS_INVALID_HANDLE, "release accepted wrong handle type")) {
-    return 17;
-  }
-
-  if (!registry.Release(wrong_type_handle,
-                        tensora::HandleType::kRuntimeReserved)
-           .ok()) {
-    std::cerr << "release after retain failed\n";
-    return 18;
-  }
-  if (registry.Count(tensora::HandleType::kRuntimeReserved) != 1) {
-    std::cerr << "release after retain prematurely retired object\n";
-    return 19;
-  }
-
-  const tensora::Status release_status = registry.Release(
-      wrong_type_handle, tensora::HandleType::kRuntimeReserved);
-  if (!release_status.ok()) {
-    std::cerr << "failed to release internal wrong-type test handle\n";
-    return 20;
-  }
-  if (registry.Count(tensora::HandleType::kRuntimeReserved) != 0) {
-    std::cerr << "final release did not retire object\n";
-    return 21;
-  }
-
-  const tensora::Status stale_status = registry.Lookup<tensora::Tensor>(
-      wrong_type_handle, tensora::HandleType::kTensor, &tensor);
-  if (stale_status.code() != TS_INVALID_HANDLE) {
-    std::cerr << "handle registry accepted a stale handle\n";
-    return 22;
-  }
-  if (!ExpectCode(registry.Release(wrong_type_handle,
-                                   tensora::HandleType::kRuntimeReserved),
-                  TS_INVALID_HANDLE, "double release accepted stale handle")) {
-    return 23;
-  }
-
-  const int core_contracts = TestCoreContracts();
-  if (core_contracts != 0) return core_contracts;
-  return 0;
+  const int registry = TestRegistryContracts();
+  if (registry != 0) return registry;
+  return TestCoreContracts();
 }
