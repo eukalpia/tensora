@@ -1,6 +1,7 @@
 #include "runtime/handle_registry.h"
 
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -27,6 +28,8 @@ bool ExpectCode(const Status& status,
                 int32_t expected,
                 const char* operation) {
   if (status.code() == expected) return true;
+  std::cerr << operation << ": expected status " << expected << ", got "
+            << status.code() << "\n";
   return false;
 }
 
