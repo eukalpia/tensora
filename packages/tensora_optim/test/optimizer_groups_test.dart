@@ -4,18 +4,9 @@ import 'package:test/test.dart';
 
 void main() {
   test('optimizer API is parameter-oriented', () {
-    expect(
-      () => AdamW(parameters: const <Parameter>[]),
-      throwsArgumentError,
-    );
-    expect(
-      () => SGD(parameters: const <Parameter>[]),
-      throwsArgumentError,
-    );
-    expect(
-      () => Adam(parameters: const <Parameter>[]),
-      throwsArgumentError,
-    );
+    expect(() => AdamW(parameters: const <Parameter>[]), throwsArgumentError);
+    expect(() => SGD(parameters: const <Parameter>[]), throwsArgumentError);
+    expect(() => Adam(parameters: const <Parameter>[]), throwsArgumentError);
   });
 
   test('ParameterGroup rejects an empty parameter collection', () {
@@ -25,18 +16,21 @@ void main() {
     );
   });
 
-  test('group factories reject an empty group collection before native work', () {
-    expect(
-      () => AdamW.groups(groups: const <ParameterGroup>[]),
-      throwsArgumentError,
-    );
-    expect(
-      () => SGD.groups(groups: const <ParameterGroup>[]),
-      throwsArgumentError,
-    );
-    expect(
-      () => Adam.groups(groups: const <ParameterGroup>[]),
-      throwsArgumentError,
-    );
-  });
+  test(
+    'group factories reject an empty group collection before native work',
+    () {
+      expect(
+        () => AdamW.groups(groups: const <ParameterGroup>[]),
+        throwsArgumentError,
+      );
+      expect(
+        () => SGD.groups(groups: const <ParameterGroup>[]),
+        throwsArgumentError,
+      );
+      expect(
+        () => Adam.groups(groups: const <ParameterGroup>[]),
+        throwsArgumentError,
+      );
+    },
+  );
 }
