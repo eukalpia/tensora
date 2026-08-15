@@ -1,35 +1,38 @@
 import 'package:tensora/tensora.dart'
-    show Parameter, UnsupportedOperationException;
+    show NativeParameterOptimizer, Parameter;
 
 import 'parameter_group.dart';
 
 /// Base class for parameter-oriented NN V2 optimizers.
 abstract base class Optimizer {
-  Optimizer(this.groups);
+  Optimizer(this.groups, List<NativeParameterOptimizer> nativeOptimizers)
+    : _nativeOptimizers = nativeOptimizers;
 
   final List<ParameterGroup> groups;
+  final List<NativeParameterOptimizer> _nativeOptimizers;
   bool _disposed = false;
 
   bool get isDisposed => _disposed;
 
   void zeroGrad() {
     _ensureLive('zeroGrad');
-    throw const UnsupportedOperationException(
-      'Generalized native optimizer collections are not available yet.',
-      operation: 'optimizer.zeroGrad',
-    );
+    for (final optimizer in _nativeOptimizers) {
+      optimizer.zeroGrad();
+    }
   }
 
   void step() {
     _ensureLive('step');
-    throw const UnsupportedOperationException(
-      'Generalized native optimizer collections are not available yet.',
-      operation: 'optimizer.step',
-    );
+    for (final optimizer in _nativeOptimizers) {
+      optimizer.step();
+    }
   }
 
   void dispose() {
     if (_disposed) return;
+    for (final optimizer in _nativeOptimizers.reversed) {
+      optimizer.dispose();
+    }
     _disposed = true;
   }
 
@@ -69,8 +72,19 @@ final class SGD extends Optimizer {
     _positive(learningRate, 'learningRate');
     _nonNegative(momentum, 'momentum');
     _nonNegative(weightDecay, 'weightDecay');
+    final validated = _validatedGroups(groups);
+    final native = _createNativeGroups(
+      validated,
+      (group) => NativeParameterOptimizer.sgd(
+        parameters: group.parameters,
+        learningRate: group.learningRate ?? learningRate,
+        momentum: group.momentum ?? momentum,
+        weightDecay: group.weightDecay ?? weightDecay,
+      ),
+    );
     return SGD._(
-      _validatedGroups(groups),
+      validated,
+      native,
       learningRate: learningRate,
       momentum: momentum,
       weightDecay: weightDecay,
@@ -78,7 +92,8 @@ final class SGD extends Optimizer {
   }
 
   SGD._(
-    super.groups, {
+    super.groups,
+    super.nativeOptimizers, {
     required this.learningRate,
     required this.momentum,
     required this.weightDecay,
@@ -124,8 +139,21 @@ final class Adam extends Optimizer {
     double weightDecay = 0,
   }) {
     _validateAdamDefaults(learningRate, beta1, beta2, epsilon, weightDecay);
+    final validated = _validatedGroups(groups);
+    final native = _createNativeGroups(
+      validated,
+      (group) => NativeParameterOptimizer.adam(
+        parameters: group.parameters,
+        learningRate: group.learningRate ?? learningRate,
+        beta1: group.beta1 ?? beta1,
+        beta2: group.beta2 ?? beta2,
+        epsilon: group.epsilon ?? epsilon,
+        weightDecay: group.weightDecay ?? weightDecay,
+      ),
+    );
     return Adam._(
-      _validatedGroups(groups),
+      validated,
+      native,
       learningRate: learningRate,
       beta1: beta1,
       beta2: beta2,
@@ -135,7 +163,8 @@ final class Adam extends Optimizer {
   }
 
   Adam._(
-    super.groups, {
+    super.groups,
+    super.nativeOptimizers, {
     required this.learningRate,
     required this.beta1,
     required this.beta2,
@@ -185,8 +214,22 @@ final class AdamW extends Optimizer {
     double weightDecay = 0.01,
   }) {
     _validateAdamDefaults(learningRate, beta1, beta2, epsilon, weightDecay);
+    final validated = _validatedGroups(groups);
+    final native = _createNativeGroups(
+      validated,
+      (group) => NativeParameterOptimizer.adam(
+        parameters: group.parameters,
+        learningRate: group.learningRate ?? learningRate,
+        beta1: group.beta1 ?? beta1,
+        beta2: group.beta2 ?? beta2,
+        epsilon: group.epsilon ?? epsilon,
+        weightDecay: group.weightDecay ?? weightDecay,
+        decoupled: true,
+      ),
+    );
     return AdamW._(
-      _validatedGroups(groups),
+      validated,
+      native,
       learningRate: learningRate,
       beta1: beta1,
       beta2: beta2,
@@ -196,7 +239,8 @@ final class AdamW extends Optimizer {
   }
 
   AdamW._(
-    super.groups, {
+    super.groups,
+    super.nativeOptimizers, {
     required this.learningRate,
     required this.beta1,
     required this.beta2,
@@ -227,6 +271,24 @@ List<ParameterGroup> _validatedGroups(Iterable<ParameterGroup> groups) {
     }
   }
   return copied;
+}
+
+List<NativeParameterOptimizer> _createNativeGroups(
+  List<ParameterGroup> groups,
+  NativeParameterOptimizer Function(ParameterGroup group) create,
+) {
+  final created = <NativeParameterOptimizer>[];
+  try {
+    for (final group in groups) {
+      created.add(create(group));
+    }
+    return List<NativeParameterOptimizer>.unmodifiable(created);
+  } catch (_) {
+    for (final optimizer in created.reversed) {
+      optimizer.dispose();
+    }
+    rethrow;
+  }
 }
 
 void _validateAdamDefaults(
