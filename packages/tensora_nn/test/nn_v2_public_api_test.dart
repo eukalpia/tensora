@@ -8,7 +8,8 @@ void main() {
       required int inFeatures,
       required int outFeatures,
       bool bias,
-    }) linearFactory = Linear.new;
+    })
+    linearFactory = Linear.new;
     final List<Module> activations = <Module>[
       ReLU(),
       Sigmoid(),
