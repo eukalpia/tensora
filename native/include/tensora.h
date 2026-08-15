@@ -85,7 +85,7 @@ TS_API ts_status_t ts_tensor_full_f32(const int64_t* dims,
                                       float value,
                                       ts_tensor_t* out_tensor);
 
-/* Tensor metadata. */
+/* Tensor metadata and state identity. */
 TS_API ts_status_t ts_tensor_rank(ts_tensor_t tensor, size_t* out_rank);
 TS_API ts_status_t ts_tensor_shape(ts_tensor_t tensor,
                                    int64_t* out_dims,
@@ -96,6 +96,13 @@ TS_API ts_status_t ts_tensor_device(ts_tensor_t tensor, uint32_t* out_device);
 TS_API ts_status_t ts_tensor_device_index(ts_tensor_t tensor,
                                           int32_t* out_device_index);
 TS_API ts_status_t ts_tensor_numel(ts_tensor_t tensor, uint64_t* out_numel);
+TS_API ts_status_t ts_tensor_identity(ts_tensor_t tensor,
+                                      uint64_t* out_identity);
+TS_API ts_status_t ts_tensor_clone_detached(ts_tensor_t tensor,
+                                            ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_assign_many(const ts_tensor_t* targets,
+                                         const ts_tensor_t* sources,
+                                         size_t count);
 
 /* Device transfer. */
 TS_API ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
