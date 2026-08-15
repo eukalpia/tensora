@@ -10,6 +10,7 @@
 #include "runtime/device_codec.h"
 #include "runtime/handle_registry.h"
 #include "tensor/tensor.h"
+#include "training/nn_v2_optimizer.h"
 #include "training/nn_v2_runtime.h"
 #include "training/training_bridge.h"
 
@@ -412,6 +413,67 @@ ts_status_t ts_optimizer_release(ts_optimizer_t optimizer) {
   });
 }
 
+ts_status_t ts_sgd_create_for_tensors(const ts_tensor_t* parameters,
+                                      size_t count,
+                                      double learning_rate,
+                                      double momentum,
+                                      double weight_decay,
+                                      ts_optimizer_t* out_optimizer) {
+  return tensora::AbiGuard("sgd_create_for_tensors", [&] {
+    return tensora::training::nn_v2_optimizer::SgdCreate(
+        parameters, count, learning_rate, momentum, weight_decay,
+        out_optimizer);
+  });
+}
+
+ts_status_t ts_adam_create_for_tensors(const ts_tensor_t* parameters,
+                                       size_t count,
+                                       double learning_rate,
+                                       double beta1,
+                                       double beta2,
+                                       double epsilon,
+                                       double weight_decay,
+                                       ts_optimizer_t* out_optimizer) {
+  return tensora::AbiGuard("adam_create_for_tensors", [&] {
+    return tensora::training::nn_v2_optimizer::AdamCreate(
+        parameters, count, learning_rate, beta1, beta2, epsilon, weight_decay,
+        out_optimizer);
+  });
+}
+
+ts_status_t ts_adamw_create_for_tensors(const ts_tensor_t* parameters,
+                                        size_t count,
+                                        double learning_rate,
+                                        double beta1,
+                                        double beta2,
+                                        double epsilon,
+                                        double weight_decay,
+                                        ts_optimizer_t* out_optimizer) {
+  return tensora::AbiGuard("adamw_create_for_tensors", [&] {
+    return tensora::training::nn_v2_optimizer::AdamWCreate(
+        parameters, count, learning_rate, beta1, beta2, epsilon, weight_decay,
+        out_optimizer);
+  });
+}
+
+ts_status_t ts_parameter_optimizer_zero_grad(ts_optimizer_t optimizer) {
+  return tensora::AbiGuard("parameter_optimizer_zero_grad", [&] {
+    return tensora::training::nn_v2_optimizer::ZeroGrad(optimizer);
+  });
+}
+
+ts_status_t ts_parameter_optimizer_step(ts_optimizer_t optimizer) {
+  return tensora::AbiGuard("parameter_optimizer_step", [&] {
+    return tensora::training::nn_v2_optimizer::Step(optimizer);
+  });
+}
+
+ts_status_t ts_parameter_optimizer_release(ts_optimizer_t optimizer) {
+  return tensora::AbiGuard("parameter_optimizer_release", [&] {
+    return tensora::training::nn_v2_optimizer::Release(optimizer);
+  });
+}
+
 ts_status_t ts_runtime_live_module_count(uint64_t* out_count) {
   return tensora::AbiGuard("runtime_live_module_count", [&] {
     if (out_count == nullptr) {
@@ -430,8 +492,11 @@ ts_status_t ts_runtime_live_optimizer_count(uint64_t* out_count) {
       return tensora::InvalidArgument(
           "runtime_live_optimizer_count: output pointer is null");
     }
-    *out_count = tensora::HandleRegistry::Instance().Count(
-        tensora::HandleType::kOptimizer);
+    *out_count =
+        tensora::HandleRegistry::Instance().Count(
+            tensora::HandleType::kOptimizer) +
+        tensora::HandleRegistry::Instance().Count(
+            tensora::HandleType::kParameterOptimizer);
     return tensora::Status::Ok();
   });
 }
