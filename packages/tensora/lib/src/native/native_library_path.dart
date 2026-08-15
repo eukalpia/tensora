@@ -12,3 +12,19 @@ String nativeLibraryNameForOperatingSystem(String operatingSystem) =>
           operation: 'runtime.load',
         ),
     };
+
+/// Resolves an explicit native runtime override or the platform default.
+///
+/// Whitespace-only overrides are treated as unset. A non-empty override is
+/// returned byte-for-byte so callers retain control over intentional spaces in
+/// a filesystem path.
+String resolveNativeLibraryPath({
+  required Map<String, String> environment,
+  required String operatingSystem,
+}) {
+  final override = environment['TENSORA_NATIVE_LIBRARY'];
+  if (override != null && override.trim().isNotEmpty) {
+    return override;
+  }
+  return nativeLibraryNameForOperatingSystem(operatingSystem);
+}
