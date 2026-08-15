@@ -42,9 +42,7 @@ void main() {
   test('blank native library overrides fall back to platform default', () {
     expect(
       resolveNativeLibraryPath(
-        environment: const <String, String>{
-          'TENSORA_NATIVE_LIBRARY': '   ',
-        },
+        environment: const <String, String>{'TENSORA_NATIVE_LIBRARY': '   '},
         operatingSystem: 'linux',
       ),
       'libtensora_native.so',
