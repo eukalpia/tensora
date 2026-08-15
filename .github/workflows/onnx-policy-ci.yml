@@ -75,3 +75,22 @@ jobs:
         env:
           LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
         run: ./tensora_onnx_policy_tests
+
+      - name: Compile ONNX private-contract whitebox
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include -Inative/src -I"$ORT_ROOT/include" \
+            native/tests/onnx_whitebox_contract_test.cc \
+            -Lbuild/onnx-policy -ltensora_native \
+            -L"$ORT_LIBRARY_PATH" -lonnxruntime -pthread \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/onnx-policy" \
+            -Wl,-rpath,"$ORT_LIBRARY_PATH" \
+            -o build/onnx-policy/tensora_onnx_whitebox_contract_tests
+
+      - name: Run ONNX private-contract whitebox
+        working-directory: build/onnx-policy
+        env:
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: ./tensora_onnx_whitebox_contract_tests
