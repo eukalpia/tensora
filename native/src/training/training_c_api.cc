@@ -10,11 +10,11 @@
 #include "runtime/device_codec.h"
 #include "runtime/handle_registry.h"
 #include "tensor/tensor.h"
+#include "training/nn_v2_runtime.h"
 #include "training/training_bridge.h"
 
 namespace tensora {
 namespace {
-
 
 Status LookupTrainingTensor(ts_tensor_t handle, std::shared_ptr<Tensor>* out) {
   return HandleRegistry::Instance().Lookup<Tensor>(
@@ -179,6 +179,39 @@ ts_status_t ts_tensor_tanh(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
         [](const tensora::Tensor& value,
            std::shared_ptr<tensora::Tensor>* out) {
           return tensora::training::Tanh(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_gelu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_gelu", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2::Gelu(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_silu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_silu", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2::Silu(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_swiglu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_swiglu", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2::SwiGlu(value, out);
         });
   });
 }

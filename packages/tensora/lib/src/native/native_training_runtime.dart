@@ -84,6 +84,21 @@ final class NativeTrainingRuntime {
     (out) => _bindings.tensorTanh(tensor, out),
   );
 
+  int gelu(int tensor) => _newTensorHandle(
+    'tensor.gelu',
+    (out) => _bindings.tensorGelu(tensor, out),
+  );
+
+  int silu(int tensor) => _newTensorHandle(
+    'tensor.silu',
+    (out) => _bindings.tensorSilu(tensor, out),
+  );
+
+  int swiglu(int tensor) => _newTensorHandle(
+    'tensor.swiglu',
+    (out) => _bindings.tensorSwiGlu(tensor, out),
+  );
+
   int mseLoss(int prediction, int target) => _newTensorHandle(
     'loss.mse',
     (out) => _bindings.mseLoss(prediction, target, out),

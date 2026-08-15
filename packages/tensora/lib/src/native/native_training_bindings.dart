@@ -102,6 +102,16 @@ final class NativeTrainingBindings {
       tensorTanh = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
         'ts_tensor_tanh',
       ),
+      tensorGelu = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+        'ts_tensor_gelu',
+      ),
+      tensorSilu = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+        'ts_tensor_silu',
+      ),
+      tensorSwiGlu = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_swiglu',
+          ),
       mseLoss = library.lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
         'ts_mse_loss',
       ),
@@ -192,6 +202,9 @@ final class NativeTrainingBindings {
   final _TensorUnaryDart tensorRelu;
   final _TensorUnaryDart tensorSigmoid;
   final _TensorUnaryDart tensorTanh;
+  final _TensorUnaryDart tensorGelu;
+  final _TensorUnaryDart tensorSilu;
+  final _TensorUnaryDart tensorSwiGlu;
   final _TensorBinaryDart mseLoss;
   final _TensorBinaryDart crossEntropyLoss;
   final _LinearCreateDart linearCreate;

@@ -172,6 +172,24 @@ final class Tensor {
     return _adopt(NativeTrainingRuntime.instance.tanh(_handle));
   }
 
+  /// Applies exact GELU through native Tensor/autograd execution.
+  Tensor gelu() {
+    _ensureLive('gelu');
+    return _adopt(NativeTrainingRuntime.instance.gelu(_handle));
+  }
+
+  /// Applies SiLU (`x * sigmoid(x)`) through native Tensor/autograd execution.
+  Tensor silu() {
+    _ensureLive('silu');
+    return _adopt(NativeTrainingRuntime.instance.silu(_handle));
+  }
+
+  /// Applies SwiGLU by splitting the final dimension into equal halves.
+  Tensor swiglu() {
+    _ensureLive('swiglu');
+    return _adopt(NativeTrainingRuntime.instance.swiglu(_handle));
+  }
+
   /// Runs reverse-mode autograd from this scalar loss Tensor.
   void backward() {
     _ensureLive('backward');

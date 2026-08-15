@@ -136,6 +136,12 @@ TS_API ts_status_t ts_tensor_sigmoid(ts_tensor_t tensor,
                                      ts_tensor_t* out_tensor);
 TS_API ts_status_t ts_tensor_tanh(ts_tensor_t tensor,
                                   ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_gelu(ts_tensor_t tensor,
+                                  ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_silu(ts_tensor_t tensor,
+                                  ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_swiglu(ts_tensor_t tensor,
+                                    ts_tensor_t* out_tensor);
 TS_API ts_status_t ts_mse_loss(ts_tensor_t prediction,
                                ts_tensor_t target,
                                ts_tensor_t* out_tensor);

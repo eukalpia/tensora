@@ -37,12 +37,7 @@ final class GELU extends Module {
   GELU();
 
   @override
-  core.Tensor forward(core.Tensor input) {
-    throw const core.UnsupportedOperationException(
-      'GELU requires the NN V2 native activation extension.',
-      operation: 'nn.gelu',
-    );
-  }
+  core.Tensor forward(core.Tensor input) => input.gelu();
 
   @override
   String get internalDiagnosticLabel => 'GELU()';
@@ -53,12 +48,7 @@ final class SiLU extends Module {
   SiLU();
 
   @override
-  core.Tensor forward(core.Tensor input) {
-    throw const core.UnsupportedOperationException(
-      'SiLU requires the NN V2 native activation extension.',
-      operation: 'nn.silu',
-    );
-  }
+  core.Tensor forward(core.Tensor input) => input.silu();
 
   @override
   String get internalDiagnosticLabel => 'SiLU()';
@@ -69,12 +59,7 @@ final class SwiGLU extends Module {
   SwiGLU();
 
   @override
-  core.Tensor forward(core.Tensor input) {
-    throw const core.UnsupportedOperationException(
-      'SwiGLU requires the NN V2 native activation extension.',
-      operation: 'nn.swiglu',
-    );
-  }
+  core.Tensor forward(core.Tensor input) => input.swiglu();
 
   @override
   String get internalDiagnosticLabel => 'SwiGLU()';
