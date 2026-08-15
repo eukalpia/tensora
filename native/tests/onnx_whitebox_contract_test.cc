@@ -99,7 +99,8 @@ int CheckConversionContracts() {
   const float value = 1.0f;
   std::shared_ptr<CpuStorage> storage;
   if (!CpuStorage::FromData(&value, 1, &storage).ok()) return 21;
-  Tensor non_float(std::move(shape), std::move(storage), DType::kFloat16);
+  Tensor non_float(std::move(shape), std::move(storage),
+                   static_cast<DType>(TS_DTYPE_FLOAT16));
 
   std::vector<float> values;
   std::vector<int64_t> dimensions;
