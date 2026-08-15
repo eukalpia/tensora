@@ -67,6 +67,13 @@ int CheckProviderHelpers() {
   } catch (const Ort::Exception& error) {
     if (error.GetOrtErrorCode() != ORT_NOT_IMPLEMENTED) return 9;
   }
+
+  try {
+    (void)SessionState::MakeOptions("DefinitelyUnknownProvider", false, "");
+    return 10;
+  } catch (const Ort::Exception& error) {
+    if (error.GetOrtErrorCode() != ORT_NOT_IMPLEMENTED) return 11;
+  }
   return 0;
 }
 
@@ -74,31 +81,31 @@ int CheckLocalOrtMapping() {
   if (!ExpectStatus(OrtFailure(
                         "missing", Ort::Exception("missing", ORT_NO_SUCHFILE)),
                     TS_MODEL_ERROR, "local ORT missing"))
-    return 10;
+    return 20;
   if (!ExpectStatus(OrtFailure(
                         "invalid",
                         Ort::Exception("invalid", ORT_INVALID_ARGUMENT)),
                     TS_INVALID_ARGUMENT, "local ORT invalid"))
-    return 11;
+    return 21;
   if (!ExpectStatus(OrtFailure(
                         "unsupported",
                         Ort::Exception("unsupported", ORT_NOT_IMPLEMENTED)),
                     TS_UNSUPPORTED, "local ORT unsupported"))
-    return 12;
+    return 22;
   if (!ExpectStatus(
           OrtFailure("generic", Ort::Exception("generic", ORT_FAIL)),
           TS_MODEL_ERROR, "local ORT generic"))
-    return 13;
+    return 23;
   return 0;
 }
 
 int CheckConversionContracts() {
   const int64_t dims[1] = {1};
   ShapeInfo shape;
-  if (!ValidateShape(dims, 1, &shape).ok()) return 20;
+  if (!ValidateShape(dims, 1, &shape).ok()) return 30;
   const float value = 1.0f;
   std::shared_ptr<CpuStorage> storage;
-  if (!CpuStorage::FromData(&value, 1, &storage).ok()) return 21;
+  if (!CpuStorage::FromData(&value, 1, &storage).ok()) return 31;
   Tensor non_float(std::move(shape), std::move(storage),
                    static_cast<DType>(TS_DTYPE_FLOAT16));
 
@@ -106,15 +113,15 @@ int CheckConversionContracts() {
   std::vector<int64_t> dimensions;
   if (!ExpectStatus(TensorToHost(non_float, &values, &dimensions),
                     TS_UNSUPPORTED, "input dtype"))
-    return 22;
+    return 32;
   if (!ExpectStatus(TensorToHost(non_float, nullptr, &dimensions),
                     TS_INVALID_ARGUMENT, "input null values"))
-    return 23;
+    return 33;
 
   std::shared_ptr<Tensor> output;
   if (!ExpectStatus(OrtValueToTensor(nullptr, &output), TS_INVALID_ARGUMENT,
                     "output null value"))
-    return 24;
+    return 34;
 
   Ort::MemoryInfo memory_info =
       Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
@@ -124,7 +131,7 @@ int CheckConversionContracts() {
       memory_info, &double_value, 1, output_dims, 1);
   if (!ExpectStatus(OrtValueToTensor(&double_tensor, &output), TS_UNSUPPORTED,
                     "output dtype"))
-    return 25;
+    return 35;
   return 0;
 }
 
