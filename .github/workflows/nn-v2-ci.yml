@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  core-parameter-optimizer:
-    name: Core parameter optimizer contract
+  core-contracts:
+    name: Core NN V2 native contracts
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -51,3 +51,18 @@ jobs:
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/nn-v2-core
         run: ./build/nn_v2_optimizer_test
+
+      - name: Compile state identity and transaction proof
+        run: >-
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror
+          native/tests/nn_v2_state_test.cc
+          -Inative/include
+          -Lbuild/nn-v2-core
+          -Wl,-rpath,$PWD/build/nn-v2-core
+          -ltensora_native
+          -o build/nn_v2_state_test
+
+      - name: Run state identity and transaction proof
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/nn-v2-core
+        run: ./build/nn_v2_state_test
