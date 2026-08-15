@@ -24,6 +24,10 @@ typedef _TensorUnaryNative = Int32 Function(Uint64, Pointer<Uint64>);
 typedef _TensorUnaryDart = int Function(int, Pointer<Uint64>);
 typedef _TensorBinaryNative = Int32 Function(Uint64, Uint64, Pointer<Uint64>);
 typedef _TensorBinaryDart = int Function(int, int, Pointer<Uint64>);
+typedef _TensorAssignManyNative =
+    Int32 Function(Pointer<Uint64>, Pointer<Uint64>, Size);
+typedef _TensorAssignManyDart =
+    int Function(Pointer<Uint64>, Pointer<Uint64>, int);
 
 typedef _LinearCreateNative =
     Int32 Function(Int64, Int64, Uint8, Pointer<Uint64>);
@@ -118,6 +122,18 @@ final class NativeTrainingBindings {
       manualSeed = library.lookupFunction<_ManualSeedNative, _ManualSeedDart>(
         'ts_manual_seed',
       ),
+      tensorIdentity = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_identity',
+          ),
+      tensorCloneDetached = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_clone_detached',
+          ),
+      tensorAssignMany = library
+          .lookupFunction<_TensorAssignManyNative, _TensorAssignManyDart>(
+            'ts_tensor_assign_many',
+          ),
       tensorWithRequiresGrad = library
           .lookupFunction<_TensorBoolTransformNative, _TensorBoolTransformDart>(
             'ts_tensor_with_requires_grad',
@@ -260,6 +276,9 @@ final class NativeTrainingBindings {
   final _ByteOutputDart trainingAvailable;
   final _Uint32OutputDart cudaDeviceCount;
   final _ManualSeedDart manualSeed;
+  final _TensorUnaryDart tensorIdentity;
+  final _TensorUnaryDart tensorCloneDetached;
+  final _TensorAssignManyDart tensorAssignMany;
   final _TensorBoolTransformDart tensorWithRequiresGrad;
   final _TensorBoolMetadataDart tensorRequiresGrad;
   final _TensorStatusDart tensorBackward;
