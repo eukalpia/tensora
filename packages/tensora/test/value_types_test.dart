@@ -2,8 +2,23 @@ import 'package:tensora/tensora.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('Tensora exposes the implemented dtype', () {
-    expect(DType.values, [DType.float32]);
+  test('Tensora exposes stable dtype semantics separately from storage support', () {
+    expect(DType.values, [
+      DType.float16,
+      DType.bfloat16,
+      DType.float32,
+      DType.float64,
+      DType.int8,
+      DType.uint8,
+      DType.int16,
+      DType.int32,
+      DType.int64,
+      DType.boolean,
+    ]);
+    expect(
+      DType.values.where((dtype) => dtype.nativeStorageImplemented).toList(),
+      [DType.float32],
+    );
     expect(DType.float32.toString(), 'DType.float32');
   });
 
