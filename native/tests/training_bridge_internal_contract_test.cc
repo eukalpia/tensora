@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <utility>
 
 #include "memory/cpu_storage.h"
 #include "tensor/shape.h"
