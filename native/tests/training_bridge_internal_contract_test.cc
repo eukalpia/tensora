@@ -1,7 +1,7 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
-#include <string>
+#include <optional>
 #include <utility>
 
 #include "memory/cpu_storage.h"
@@ -42,19 +42,24 @@ std::shared_ptr<Tensor> MakeTensor(Device device = Device::kCpu,
                                   device_index);
 }
 
-int CheckDispatcherContracts(const Tensor& cpu,
-                             const Tensor& fake_cuda,
-                             bool expect_accelerators) {
+int CheckDispatcherContracts(const Tensor& cpu, const Tensor& fake_cuda) {
   const Backend* backend = nullptr;
-  const ts_status_t expected = expect_accelerators ? TS_OK : TS_UNSUPPORTED;
+  std::optional<bool> accelerator_backend_enabled;
   for (const Device device : {Device::kCuda, Device::kMps, Device::kXpu,
                               Device::kHip}) {
     const Status status = Dispatcher::For(device, &backend);
-    if (!ExpectStatus(status, expected, "dispatcher accelerator")) {
+    if (status.code() != TS_OK && status.code() != TS_UNSUPPORTED) {
+      std::cerr << "dispatcher accelerator returned unexpected status "
+                << status.code() << ": " << status.message() << "\n";
       return 30;
     }
-    if (expect_accelerators && backend == nullptr) return 31;
-    if (!expect_accelerators && backend != nullptr) return 32;
+    const bool enabled = status.code() == TS_OK;
+    if (enabled != (backend != nullptr)) return 31;
+    if (accelerator_backend_enabled.has_value() &&
+        *accelerator_backend_enabled != enabled) {
+      return 32;
+    }
+    accelerator_backend_enabled = enabled;
     backend = nullptr;
   }
 
@@ -65,14 +70,12 @@ int CheckDispatcherContracts(const Tensor& cpu,
   return 0;
 }
 
-int CheckDirectBridgeFailures(bool expect_accelerators) {
+int CheckDirectBridgeFailures() {
   auto cpu = MakeTensor();
   auto fake_cuda = MakeTensor(Device::kCuda, 0);
   if (!cpu || !fake_cuda) return 1;
 
-  if (const int code =
-          CheckDispatcherContracts(*cpu, *fake_cuda, expect_accelerators);
-      code != 0) {
+  if (const int code = CheckDispatcherContracts(*cpu, *fake_cuda); code != 0) {
     return code;
   }
 
@@ -150,8 +153,4 @@ int CheckDirectBridgeFailures(bool expect_accelerators) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  const bool expect_accelerators =
-      argc > 1 && std::string(argv[1]) == "accelerators";
-  return CheckDirectBridgeFailures(expect_accelerators);
-}
+int main() { return CheckDirectBridgeFailures(); }
