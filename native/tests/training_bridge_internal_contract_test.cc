@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "memory/cpu_storage.h"
@@ -41,31 +42,37 @@ std::shared_ptr<Tensor> MakeTensor(Device device = Device::kCpu,
                                   device_index);
 }
 
-int CheckDispatcherContracts(const Tensor& cpu, const Tensor& fake_cuda) {
+int CheckDispatcherContracts(const Tensor& cpu,
+                             const Tensor& fake_cuda,
+                             bool expect_accelerators) {
   const Backend* backend = nullptr;
+  const ts_status_t expected = expect_accelerators ? TS_OK : TS_UNSUPPORTED;
   for (const Device device : {Device::kCuda, Device::kMps, Device::kXpu,
                               Device::kHip}) {
-    if (!ExpectStatus(Dispatcher::For(device, &backend), TS_OK,
-                      "dispatcher accelerator") ||
-        backend == nullptr) {
+    const Status status = Dispatcher::For(device, &backend);
+    if (!ExpectStatus(status, expected, "dispatcher accelerator")) {
       return 30;
     }
+    if (expect_accelerators && backend == nullptr) return 31;
+    if (!expect_accelerators && backend != nullptr) return 32;
     backend = nullptr;
   }
 
   if (!ExpectStatus(Dispatcher::ForTensors(cpu, fake_cuda, &backend),
                     TS_INVALID_ARGUMENT, "dispatcher mixed devices")) {
-    return 31;
+    return 33;
   }
   return 0;
 }
 
-int CheckDirectBridgeFailures() {
+int CheckDirectBridgeFailures(bool expect_accelerators) {
   auto cpu = MakeTensor();
   auto fake_cuda = MakeTensor(Device::kCuda, 0);
   if (!cpu || !fake_cuda) return 1;
 
-  if (const int code = CheckDispatcherContracts(*cpu, *fake_cuda); code != 0) {
+  if (const int code =
+          CheckDispatcherContracts(*cpu, *fake_cuda, expect_accelerators);
+      code != 0) {
     return code;
   }
 
@@ -143,4 +150,8 @@ int CheckDirectBridgeFailures() {
 
 }  // namespace
 
-int main() { return CheckDirectBridgeFailures(); }
+int main(int argc, char** argv) {
+  const bool expect_accelerators =
+      argc > 1 && std::string(argv[1]) == "accelerators";
+  return CheckDirectBridgeFailures(expect_accelerators);
+}
