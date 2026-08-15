@@ -18,6 +18,10 @@ This document records the current engineering state of the autonomous Tensora tr
 - zero-copy contiguous reshape and rank-2 transpose design;
 - stride-aware CPU elementwise, reduction, and matrix operations.
 
+## P0 unified-line integration
+
+The `work/unified-p0-high-assurance-20260815` line now carries the public dtype semantic table and stable ABI dtype codes while intentionally keeping native tensor allocation float32-only. Non-float32 creation is required to fail explicitly in both Debug and Release. This is a P0 compatibility contract, not a claim that additional dtype storage has been implemented; real multi-dtype storage remains P1 work.
+
 ## Verified gates reached before the tensor-view slice
 
 The core-only training proof passed in Debug, Release, and ASan/UBSan configurations. The Dart training integration suite also passed against a native runtime built without LibTorch. Finite-difference checks validated analytical gradients for the implemented operations. Adam, AdamW, convergence, checkpoint restore, and checkpoint failure rollback proofs passed in the same core-only line.
