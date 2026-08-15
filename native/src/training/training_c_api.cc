@@ -12,6 +12,7 @@
 #include "tensor/tensor.h"
 #include "training/nn_v2_optimizer.h"
 #include "training/nn_v2_runtime.h"
+#include "training/nn_v2_state.h"
 #include "training/training_bridge.h"
 
 namespace tensora {
@@ -99,6 +100,41 @@ ts_status_t ts_training_available(uint8_t* out_available) {
 ts_status_t ts_manual_seed(uint64_t seed) {
   return tensora::AbiGuard("manual_seed", [&] {
     return tensora::training::ManualSeed(seed);
+  });
+}
+
+ts_status_t ts_tensor_identity(ts_tensor_t tensor, uint64_t* out_identity) {
+  return tensora::AbiGuard("tensor_identity", [&] {
+    if (out_identity == nullptr) {
+      return tensora::InvalidArgument(
+          "tensor_identity: output identity pointer is null");
+    }
+    *out_identity = 0;
+    std::shared_ptr<tensora::Tensor> object;
+    tensora::Status status = tensora::LookupTrainingTensor(tensor, &object);
+    if (!status.ok()) return status;
+    return tensora::training::nn_v2_state::TensorIdentity(
+        *object, out_identity);
+  });
+}
+
+ts_status_t ts_tensor_clone_detached(ts_tensor_t tensor,
+                                     ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_clone_detached", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2_state::CloneDetached(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_assign_many(const ts_tensor_t* targets,
+                                  const ts_tensor_t* sources,
+                                  size_t count) {
+  return tensora::AbiGuard("tensor_assign_many", [&] {
+    return tensora::training::nn_v2_state::AssignMany(targets, sources, count);
   });
 }
 
