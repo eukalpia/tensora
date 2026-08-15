@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <memory>
-#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,10 +27,6 @@ struct OptimizerState {
   std::shared_ptr<LinearState> module;
   std::unique_ptr<torch::optim::Optimizer> optimizer;
 };
-
-Status TorchFailure(const char* operation, const c10::Error& error) {
-  return InternalError(std::string(operation) + ": " + error.what());
-}
 
 Status LookupModule(uint64_t handle, std::shared_ptr<LinearState>* out) {
   return HandleRegistry::Instance().Lookup<LinearState>(
@@ -96,6 +91,13 @@ Status EnsureSameDevice(const Tensor& left,
   return Status::Ok();
 }
 
+template <typename Operation>
+Status GuardTorchAllocation(const char* operation, Operation&& body) {
+  return internal::GuardAllocation(operation, [&]() {
+    return internal::GuardTorch(operation, std::forward<Operation>(body));
+  });
+}
+
 Status CreateOptimizerState(
     std::shared_ptr<LinearState> module,
     std::unique_ptr<torch::optim::Optimizer> optimizer,
@@ -104,15 +106,13 @@ Status CreateOptimizerState(
     return InvalidArgument("optimizer: output handle pointer is null");
   }
   *out_optimizer = 0;
-  try {
+  return internal::GuardAllocation("optimizer", [&]() {
     auto state = std::make_shared<OptimizerState>();
     state->module = std::move(module);
     state->optimizer = std::move(optimizer);
     return HandleRegistry::Instance().Insert(
         HandleType::kOptimizer, std::move(state), out_optimizer);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("optimizer: allocation failed");
-  }
+  });
 }
 
 }  // namespace
@@ -129,27 +129,14 @@ Status CudaDeviceCount(uint32_t* out_count) {
   if (out_count == nullptr) {
     return InvalidArgument("cuda_device_count: output pointer is null");
   }
-  *out_count = 0;
-  try {
-    if (!torch::cuda::is_available()) return Status::Ok();
-    const auto count = torch::cuda::device_count();
-    if (count < 0) {
-      return InternalError("cuda_device_count: negative count reported");
-    }
-    *out_count = static_cast<uint32_t>(count);
-    return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("cuda_device_count", error);
-  }
+  return DeviceCount(Device::kCuda, out_count);
 }
 
 Status ManualSeed(uint64_t seed) {
-  try {
+  return internal::GuardTorch("manual_seed", [&]() {
     torch::manual_seed(static_cast<int64_t>(seed));
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("manual_seed", error);
-  }
+  });
 }
 
 Status Transfer(const Tensor& tensor,
@@ -169,15 +156,13 @@ Status Transfer(const Tensor& tensor,
   status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
 
-  try {
+  return internal::GuardTorch("tensor_to_device", [&]() {
     torch::Tensor moved = value.to(target);
     if (moved.device() == value.device()) {
       moved = moved.clone();
     }
     return WrapTorchTensor(std::move(moved), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor_to_device", error);
-  }
+  });
 }
 
 Status WithRequiresGrad(const Tensor& tensor,
@@ -192,13 +177,11 @@ Status WithRequiresGrad(const Tensor& tensor,
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("tensor_with_requires_grad", [&]() {
     torch::Tensor leaf = value.detach().clone();
     leaf.set_requires_grad(requires_grad);
     return WrapTorchTensor(std::move(leaf), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor_with_requires_grad", error);
-  }
+  });
 }
 
 Status RequiresGrad(const Tensor& tensor, uint8_t* out_requires_grad) {
@@ -228,12 +211,10 @@ Status Backward(const Tensor& tensor) {
     return InvalidArgument(
         "tensor_backward: tensor does not require gradients");
   }
-  try {
+  return internal::GuardTorch("tensor_backward", [&]() {
     value.backward();
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor_backward", error);
-  }
+  });
 }
 
 Status Gradient(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
@@ -248,44 +229,36 @@ Status Gradient(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
   if (!value.grad().defined()) {
     return InvalidArgument("tensor_grad: gradient is not available");
   }
-  try {
+  return internal::GuardTorch("tensor_grad", [&]() {
     return WrapTorchTensor(value.grad().detach().clone(), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor_grad", error);
-  }
+  });
 }
 
 Status Relu(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("tensor_relu", [&]() {
     return WrapTorchTensor(torch::relu(value), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor_relu", error);
-  }
+  });
 }
 
 Status Sigmoid(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("tensor_sigmoid", [&]() {
     return WrapTorchTensor(torch::sigmoid(value), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor_sigmoid", error);
-  }
+  });
 }
 
 Status Tanh(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("tensor_tanh", [&]() {
     return WrapTorchTensor(torch::tanh(value), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor_tanh", error);
-  }
+  });
 }
 
 Status MseLoss(const Tensor& prediction,
@@ -303,12 +276,10 @@ Status MseLoss(const Tensor& prediction,
   if (!status.ok()) return status;
   status = TensorToTorch(target, &target_value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("mse_loss", [&]() {
     return WrapTorchTensor(
         torch::mse_loss(prediction_value, target_value), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("mse_loss", error);
-  }
+  });
 }
 
 Status CrossEntropyLoss(const Tensor& logits,
@@ -332,15 +303,13 @@ Status CrossEntropyLoss(const Tensor& logits,
   if (!status.ok()) return status;
   status = TensorToTorch(one_hot_target, &target_value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("cross_entropy_loss", [&]() {
     const torch::Tensor log_probabilities =
         torch::log_softmax(logits_value, 1);
     const torch::Tensor loss =
         -(target_value * log_probabilities).sum(1).mean();
     return WrapTorchTensor(loss, out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("cross_entropy_loss", error);
-  }
+  });
 }
 
 Status LinearCreate(int64_t in_features,
@@ -354,16 +323,12 @@ Status LinearCreate(int64_t in_features,
   Status status = ValidateModuleDimensions(in_features, out_features);
   if (!status.ok()) return status;
 
-  try {
+  return GuardTorchAllocation("linear_create", [&]() {
     auto state =
         std::make_shared<LinearState>(in_features, out_features, use_bias);
     return HandleRegistry::Instance().Insert(
         HandleType::kModule, std::move(state), out_module);
-  } catch (const c10::Error& error) {
-    return TorchFailure("linear_create", error);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("linear_create: allocation failed");
-  }
+  });
 }
 
 Status ModuleForward(uint64_t module,
@@ -381,11 +346,9 @@ Status ModuleForward(uint64_t module,
   torch::Tensor input_value;
   status = TensorToTorch(input, &input_value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("module_forward", [&]() {
     return WrapTorchTensor(state->module->forward(input_value), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("module_forward", error);
-  }
+  });
 }
 
 Status ModuleSetTraining(uint64_t module, bool training) {
@@ -404,12 +367,10 @@ Status ModuleToDevice(uint64_t module, Device device, int32_t device_index) {
   torch::Device target(torch::kCPU);
   status = TorchDevice(device, device_index, &target);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("module_to_device", [&]() {
     state->module->to(target, torch::kFloat32);
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("module_to_device", error);
-  }
+  });
 }
 
 Status ModuleParameterCount(uint64_t module, size_t* out_count) {
@@ -477,14 +438,12 @@ Status ModuleSave(uint64_t module, const std::string& path) {
   std::shared_ptr<LinearState> state;
   Status status = LookupModule(module, &state);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("module_save", [&]() {
     torch::serialize::OutputArchive archive;
     state->module->save(archive);
     archive.save_to(path);
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("module_save", error);
-  }
+  });
 }
 
 Status ModuleLoad(uint64_t module, const std::string& path) {
@@ -494,14 +453,12 @@ Status ModuleLoad(uint64_t module, const std::string& path) {
   std::shared_ptr<LinearState> state;
   Status status = LookupModule(module, &state);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("module_load", [&]() {
     torch::serialize::InputArchive archive;
     archive.load_from(path);
     state->module->load(archive);
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("module_load", error);
-  }
+  });
 }
 
 Status ModuleRelease(uint64_t module) {
@@ -529,7 +486,7 @@ Status SgdCreate(uint64_t module,
   std::shared_ptr<LinearState> state;
   status = LookupModule(module, &state);
   if (!status.ok()) return status;
-  try {
+  return GuardTorchAllocation("sgd_create", [&]() {
     auto options = torch::optim::SGDOptions(learning_rate)
                        .momentum(momentum)
                        .weight_decay(weight_decay);
@@ -537,11 +494,7 @@ Status SgdCreate(uint64_t module,
         state->module->parameters(), options);
     return CreateOptimizerState(std::move(state), std::move(optimizer),
                                 out_optimizer);
-  } catch (const c10::Error& error) {
-    return TorchFailure("sgd_create", error);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("sgd_create: allocation failed");
-  }
+  });
 }
 
 Status AdamCreate(uint64_t module,
@@ -567,7 +520,7 @@ Status AdamCreate(uint64_t module,
   std::shared_ptr<LinearState> state;
   status = LookupModule(module, &state);
   if (!status.ok()) return status;
-  try {
+  return GuardTorchAllocation("adam_create", [&]() {
     auto options = torch::optim::AdamOptions(learning_rate)
                        .betas(std::make_tuple(beta1, beta2))
                        .eps(epsilon)
@@ -576,11 +529,7 @@ Status AdamCreate(uint64_t module,
         state->module->parameters(), options);
     return CreateOptimizerState(std::move(state), std::move(optimizer),
                                 out_optimizer);
-  } catch (const c10::Error& error) {
-    return TorchFailure("adam_create", error);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("adam_create: allocation failed");
-  }
+  });
 }
 
 Status AdamWCreate(uint64_t module,
@@ -606,7 +555,7 @@ Status AdamWCreate(uint64_t module,
   std::shared_ptr<LinearState> state;
   status = LookupModule(module, &state);
   if (!status.ok()) return status;
-  try {
+  return GuardTorchAllocation("adamw_create", [&]() {
     auto options = torch::optim::AdamWOptions(learning_rate)
                        .betas(std::make_tuple(beta1, beta2))
                        .eps(epsilon)
@@ -615,35 +564,27 @@ Status AdamWCreate(uint64_t module,
         state->module->parameters(), options);
     return CreateOptimizerState(std::move(state), std::move(optimizer),
                                 out_optimizer);
-  } catch (const c10::Error& error) {
-    return TorchFailure("adamw_create", error);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("adamw_create: allocation failed");
-  }
+  });
 }
 
 Status OptimizerZeroGrad(uint64_t optimizer) {
   std::shared_ptr<OptimizerState> state;
   Status status = LookupOptimizer(optimizer, &state);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("optimizer_zero_grad", [&]() {
     state->optimizer->zero_grad();
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("optimizer_zero_grad", error);
-  }
+  });
 }
 
 Status OptimizerStep(uint64_t optimizer) {
   std::shared_ptr<OptimizerState> state;
   Status status = LookupOptimizer(optimizer, &state);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("optimizer_step", [&]() {
     state->optimizer->step();
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("optimizer_step", error);
-  }
+  });
 }
 
 Status OptimizerRelease(uint64_t optimizer) {
