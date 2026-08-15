@@ -10,6 +10,7 @@ cc -std=c11 -fPIC -shared -Wall -Wextra -Werror \
   -DTENSORA_NATIVE_BUILD \
   -I "$root_dir/native/include" \
   "$root_dir/native/tests/dart_contract_fixture.c" \
+  "$root_dir/native/tests/dart_contract_nn_v2_fixture.c" \
   -o "$fixture"
 
 cd "$root_dir/packages/tensora"
