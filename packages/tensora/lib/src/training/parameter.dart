@@ -1,7 +1,9 @@
 import '../device/device.dart';
 import '../dtype/dtype.dart';
 import '../errors/tensora_exception.dart';
+import '../native/native_training_runtime.dart';
 import '../shape/shape.dart';
+import '../tensor/native_adoption.dart';
 import '../tensor/tensor.dart';
 
 /// Safe retained reference to a trainable native-backed tensor.
@@ -10,19 +12,18 @@ import '../tensor/tensor.dart';
 /// optimizers and neural-network composition can both depend only on `tensora`.
 final class Parameter {
   /// Creates a parameter reference that owns [tensor].
-  ///
-  /// Framework code normally obtains these from native module parameter views.
-  Parameter.fromTensor(Tensor tensor, {int? identity})
-    : _tensor = tensor,
-      identity = identity ?? identityHashCode(tensor);
+  factory Parameter.fromTensor(Tensor tensor) {
+    final handle = tensor.nativeHandleForRuntime(nativeTensorAdoptionToken);
+    final identity = NativeTrainingRuntime.instance.tensorIdentity(handle);
+    return Parameter._(tensor, identity);
+  }
+
+  Parameter._(this._tensor, this.identity);
 
   final Tensor _tensor;
   bool _disposed = false;
 
-  /// Opaque stable identity used for de-duplication.
-  ///
-  /// The NN V2 native-identity ABI replaces the wrapper identity fallback while
-  /// preserving this public contract.
+  /// Opaque stable identity used for de-duplication across retained wrappers.
   final int identity;
 
   Shape get shape {
@@ -55,7 +56,12 @@ final class Parameter {
   /// Returns an independently owned detached native state snapshot.
   Tensor snapshot() {
     _ensureLive('snapshot');
-    return _tensor.withRequiresGrad(false);
+    final handle = _tensor.nativeHandleForRuntime(nativeTensorAdoptionToken);
+    final cloned = NativeTrainingRuntime.instance.cloneDetached(handle);
+    return Tensor.adoptNativeHandleForRuntime(
+      cloned,
+      nativeTensorAdoptionToken,
+    );
   }
 
   /// @nodoc
