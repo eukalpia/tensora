@@ -60,6 +60,47 @@ typedef _AdamCreateNative =
 typedef _AdamCreateDart =
     int Function(int, double, double, double, double, double, Pointer<Uint64>);
 
+typedef _ParameterSgdCreateNative =
+    Int32 Function(
+      Pointer<Uint64>,
+      Size,
+      Double,
+      Double,
+      Double,
+      Pointer<Uint64>,
+    );
+typedef _ParameterSgdCreateDart =
+    int Function(
+      Pointer<Uint64>,
+      int,
+      double,
+      double,
+      double,
+      Pointer<Uint64>,
+    );
+typedef _ParameterAdamCreateNative =
+    Int32 Function(
+      Pointer<Uint64>,
+      Size,
+      Double,
+      Double,
+      Double,
+      Double,
+      Double,
+      Pointer<Uint64>,
+    );
+typedef _ParameterAdamCreateDart =
+    int Function(
+      Pointer<Uint64>,
+      int,
+      double,
+      double,
+      double,
+      double,
+      double,
+      Pointer<Uint64>,
+    );
+
 final class NativeTrainingBindings {
   NativeTrainingBindings(DynamicLibrary library)
     : lastErrorMessage = library
@@ -182,6 +223,30 @@ final class NativeTrainingBindings {
           .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
             'ts_optimizer_release',
           ),
+      parameterSgdCreate = library
+          .lookupFunction<_ParameterSgdCreateNative, _ParameterSgdCreateDart>(
+            'ts_sgd_create_for_tensors',
+          ),
+      parameterAdamCreate = library
+          .lookupFunction<_ParameterAdamCreateNative, _ParameterAdamCreateDart>(
+            'ts_adam_create_for_tensors',
+          ),
+      parameterAdamWCreate = library
+          .lookupFunction<_ParameterAdamCreateNative, _ParameterAdamCreateDart>(
+            'ts_adamw_create_for_tensors',
+          ),
+      parameterOptimizerZeroGrad = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_parameter_optimizer_zero_grad',
+          ),
+      parameterOptimizerStep = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_parameter_optimizer_step',
+          ),
+      parameterOptimizerRelease = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_parameter_optimizer_release',
+          ),
       liveModuleCount = library
           .lookupFunction<_Uint64OutputNative, _Uint64OutputDart>(
             'ts_runtime_live_module_count',
@@ -224,6 +289,12 @@ final class NativeTrainingBindings {
   final _HandleReleaseDart optimizerZeroGrad;
   final _HandleReleaseDart optimizerStep;
   final _HandleReleaseDart optimizerRelease;
+  final _ParameterSgdCreateDart parameterSgdCreate;
+  final _ParameterAdamCreateDart parameterAdamCreate;
+  final _ParameterAdamCreateDart parameterAdamWCreate;
+  final _HandleReleaseDart parameterOptimizerZeroGrad;
+  final _HandleReleaseDart parameterOptimizerStep;
+  final _HandleReleaseDart parameterOptimizerRelease;
   final _Uint64OutputDart liveModuleCount;
   final _Uint64OutputDart liveOptimizerCount;
 }
