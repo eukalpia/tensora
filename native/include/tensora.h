@@ -176,7 +176,7 @@ TS_API ts_status_t ts_module_save(ts_module_t module, const char* path);
 TS_API ts_status_t ts_module_load(ts_module_t module, const char* path);
 TS_API ts_status_t ts_module_release(ts_module_t module);
 
-/* Optimizers. */
+/* Legacy module-bound optimizers. */
 TS_API ts_status_t ts_sgd_create(ts_module_t module,
                                  double learning_rate,
                                  double momentum,
@@ -199,6 +199,36 @@ TS_API ts_status_t ts_adamw_create(ts_module_t module,
 TS_API ts_status_t ts_optimizer_zero_grad(ts_optimizer_t optimizer);
 TS_API ts_status_t ts_optimizer_step(ts_optimizer_t optimizer);
 TS_API ts_status_t ts_optimizer_release(ts_optimizer_t optimizer);
+
+/* NN V2 optimizers over arbitrary trainable tensor collections. */
+TS_API ts_status_t ts_sgd_create_for_tensors(
+    const ts_tensor_t* parameters,
+    size_t count,
+    double learning_rate,
+    double momentum,
+    double weight_decay,
+    ts_optimizer_t* out_optimizer);
+TS_API ts_status_t ts_adam_create_for_tensors(
+    const ts_tensor_t* parameters,
+    size_t count,
+    double learning_rate,
+    double beta1,
+    double beta2,
+    double epsilon,
+    double weight_decay,
+    ts_optimizer_t* out_optimizer);
+TS_API ts_status_t ts_adamw_create_for_tensors(
+    const ts_tensor_t* parameters,
+    size_t count,
+    double learning_rate,
+    double beta1,
+    double beta2,
+    double epsilon,
+    double weight_decay,
+    ts_optimizer_t* out_optimizer);
+TS_API ts_status_t ts_parameter_optimizer_zero_grad(ts_optimizer_t optimizer);
+TS_API ts_status_t ts_parameter_optimizer_step(ts_optimizer_t optimizer);
+TS_API ts_status_t ts_parameter_optimizer_release(ts_optimizer_t optimizer);
 
 /* ONNX Runtime provider discovery. Names are UTF-8 and NUL-terminated. */
 TS_API ts_status_t ts_onnx_provider_count(size_t* out_count);
