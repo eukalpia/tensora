@@ -99,6 +99,15 @@ jobs:
             -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage"
           cmake --build build/native-coverage-training --parallel 2
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include -Inative/src \
+            native/tests/training_bridge_internal_contract_test.cc \
+            -Lbuild/native-coverage-training -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-training" \
+            -o build/native-coverage-training/tensora_training_bridge_internal_contract_tests
+          ./build/native-coverage-training/tensora_training_bridge_internal_contract_tests
+
           python3 - <<'PY'
           import json
           import shlex
