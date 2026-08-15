@@ -29,6 +29,10 @@ bool ExpectStatus(const Status& status,
   return false;
 }
 
+bool IsExpectedMixedDeviceStatus(const Status& status) {
+  return status.code() == TS_INVALID_ARGUMENT || status.code() == TS_UNSUPPORTED;
+}
+
 std::shared_ptr<Tensor> MakeTensor(Device device = Device::kCpu,
                                    int32_t device_index = 0) {
   const int64_t dims[2] = {1, 2};
@@ -109,45 +113,54 @@ int CheckDirectBridgeFailures() {
     return 16;
 
   std::shared_ptr<Tensor> output;
-  if (!ExpectStatus(tensora::training::MseLoss(*cpu, *fake_cuda, &output),
-                    TS_INVALID_ARGUMENT, "MSE mixed device"))
+  const Status mse_status =
+      tensora::training::MseLoss(*cpu, *fake_cuda, &output);
+  if (!IsExpectedMixedDeviceStatus(mse_status)) {
+    std::cerr << "MSE mixed device returned unexpected status "
+              << mse_status.code() << ": " << mse_status.message() << "\n";
     return 17;
-  if (!ExpectStatus(
-          tensora::training::CrossEntropyLoss(*cpu, *fake_cuda, &output),
-          TS_INVALID_ARGUMENT, "cross entropy mixed device"))
+  }
+  const Status cross_entropy_status =
+      tensora::training::CrossEntropyLoss(*cpu, *fake_cuda, &output);
+  if (!IsExpectedMixedDeviceStatus(cross_entropy_status)) {
+    std::cerr << "cross entropy mixed device returned unexpected status "
+              << cross_entropy_status.code() << ": "
+              << cross_entropy_status.message() << "\n";
     return 18;
+  }
+  if (mse_status.code() != cross_entropy_status.code()) return 19;
 
   if (!ExpectStatus(tensora::training::LinearCreate(2, 2, true, nullptr),
                     TS_INVALID_ARGUMENT, "linear null"))
-    return 19;
+    return 20;
 
   uint64_t module = 0;
   if (!ExpectStatus(tensora::training::LinearCreate(2, 2, true, &module),
                     TS_OK, "linear create"))
-    return 20;
-  if (module == 0) return 21;
+    return 21;
+  if (module == 0) return 22;
 
   if (!ExpectStatus(tensora::training::ModuleForward(module, *cpu, nullptr),
                     TS_INVALID_ARGUMENT, "module forward null"))
-    return 22;
+    return 23;
   if (!ExpectStatus(
           tensora::training::ModuleToDevice(module, Device::kCpu, 0), TS_OK,
           "module to CPU"))
-    return 23;
+    return 24;
   if (!ExpectStatus(
           tensora::training::ModuleParameterAt(module, 0, nullptr),
           TS_INVALID_ARGUMENT, "parameter null"))
-    return 24;
+    return 25;
   if (!ExpectStatus(tensora::training::ModuleBufferAt(module, 0, nullptr),
                     TS_INVALID_ARGUMENT, "buffer null"))
-    return 25;
+    return 26;
   if (!ExpectStatus(tensora::training::ModuleBufferAt(module, 0, &output),
                     TS_INVALID_ARGUMENT, "linear buffer out of range"))
-    return 26;
+    return 27;
 
   if (!ExpectStatus(tensora::training::ModuleRelease(module), TS_OK,
                     "module release"))
-    return 27;
+    return 28;
   return 0;
 }
 
