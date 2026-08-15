@@ -10,7 +10,6 @@ resolution: workspace
 
 dependencies:
   tensora: ^0.1.0-dev.1
-  tensora_nn: ^0.1.0-dev.1
 
 dev_dependencies:
   test: ^1.27.0

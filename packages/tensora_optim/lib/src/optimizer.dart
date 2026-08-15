@@ -1,4 +1,5 @@
-import 'package:tensora_nn/tensora_nn.dart';
+import 'package:tensora/tensora.dart'
+    show Parameter, UnsupportedOperationException;
 
 import 'parameter_group.dart';
 

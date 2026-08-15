@@ -1,4 +1,4 @@
-import 'package:tensora_nn/tensora_nn.dart';
+import 'package:tensora/tensora.dart' show Parameter;
 
 /// One immutable optimizer parameter group with optional hyperparameter overrides.
 final class ParameterGroup {
