@@ -10,6 +10,7 @@
 
 #include "core/status.h"
 #include "training/torch_backend.h"
+#include "training/torch_storage.h"
 
 namespace {
 
@@ -205,6 +206,41 @@ int CheckTorchDeviceMapping() {
   return 0;
 }
 
+int CheckStoragePolicies() {
+  using tensora::training::internal::ValidateHostCopyMetadata;
+  using tensora::training::internal::ValidateTorchStorageSize;
+
+  uint64_t bytes = 99;
+  if (!ExpectStatus(ValidateTorchStorageSize(4, nullptr), TS_INVALID_ARGUMENT,
+                    "storage size null"))
+    return 60;
+  if (!ExpectStatus(ValidateTorchStorageSize(-1, &bytes), TS_INVALID_ARGUMENT,
+                    "storage negative numel"))
+    return 61;
+  if (!ExpectStatus(ValidateTorchStorageSize(
+                        std::numeric_limits<int64_t>::max(), &bytes),
+                    TS_OUT_OF_MEMORY, "storage byte overflow"))
+    return 62;
+  if (!ExpectStatus(ValidateTorchStorageSize(4, &bytes), TS_OK,
+                    "storage valid size") ||
+      bytes != 4 * sizeof(float))
+    return 63;
+
+  if (!ExpectStatus(ValidateHostCopyMetadata(
+                        4, torch::kFloat64, 4),
+                    TS_UNSUPPORTED, "host copy dtype"))
+    return 64;
+  if (!ExpectStatus(ValidateHostCopyMetadata(
+                        4, torch::kFloat32, 3),
+                    TS_INTERNAL_ERROR, "host copy count"))
+    return 65;
+  if (!ExpectStatus(ValidateHostCopyMetadata(
+                        4, torch::kFloat32, 4),
+                    TS_OK, "host copy valid"))
+    return 66;
+  return 0;
+}
+
 int CheckGuards() {
   using tensora::Status;
   using tensora::training::internal::GuardAllocation;
@@ -246,6 +282,7 @@ int main() {
   if (const int code = CheckDeviceCountPolicy(); code != 0) return code;
   if (const int code = CheckTorchDevicePolicy(); code != 0) return code;
   if (const int code = CheckTorchDeviceMapping(); code != 0) return code;
+  if (const int code = CheckStoragePolicies(); code != 0) return code;
   if (const int code = CheckGuards(); code != 0) return code;
   return 0;
 }
