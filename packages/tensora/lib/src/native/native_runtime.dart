@@ -113,13 +113,10 @@ final class NativeRuntime {
   }
   // coverage:ignore-end
 
-  static String _resolveLibraryPath() {
-    final override = Platform.environment['TENSORA_NATIVE_LIBRARY'];
-    if (override != null && override.trim().isNotEmpty) {
-      return override;
-    }
-    return nativeLibraryNameForOperatingSystem(Platform.operatingSystem);
-  }
+  static String _resolveLibraryPath() => resolveNativeLibraryPath(
+    environment: Platform.environment,
+    operatingSystem: Platform.operatingSystem,
+  );
 
   int createFromList(List<num> values, Shape shape) {
     final data = calloc<Float>(values.length);
@@ -188,66 +185,41 @@ final class NativeRuntime {
     (out) => _bindings.tensorMatmul(left, right, out),
   );
 
-  Shape shape(int handle) {
-    final rankPointer = calloc<Size>();
+  List<int> shape(int handle) {
+    final rankPointer = calloc<Uint32>();
     try {
-      _check(_bindings.tensorRank(handle, rankPointer), 'tensor.rank');
+      _check('tensor.shape.rank', _bindings.tensorRank(handle, rankPointer));
       final rank = rankPointer.value;
       if (rank > Shape.maxRank) {
         throw NativeRuntimeException(
-          'Native runtime returned rank $rank above ${Shape.maxRank}.',
+          'Native tensor rank $rank exceeds the supported maximum '
+          '${Shape.maxRank}.',
           operation: 'tensor.shape',
         );
       }
+      if (rank == 0) return const <int>[];
 
-      if (rank == 0) {
-        final returnedRank = calloc<Size>();
+      final dims = calloc<Int64>(rank);
+      try {
+        final actualRankPointer = calloc<Uint32>();
         try {
           _check(
-            _bindings.tensorShape(
-              handle,
-              nullptr.cast<Int64>(),
-              0,
-              returnedRank,
-            ),
             'tensor.shape',
+            _bindings.tensorShape(handle, dims, rank, actualRankPointer),
           );
-          if (returnedRank.value != 0) {
+          final actualRank = actualRankPointer.value;
+          if (actualRank != rank) {
             throw NativeRuntimeException(
-              'Native tensor rank changed while reading metadata.',
+              'Native tensor rank changed during metadata query: '
+              '$rank -> $actualRank.',
               operation: 'tensor.shape',
             );
           }
-          return Shape(const []);
+          return List<int>.generate(rank, (index) => dims[index]);
         } finally {
-          calloc.free(returnedRank);
-        }
-      }
-
-      final dims = calloc<Int64>(rank);
-      final returnedRank = calloc<Size>();
-      try {
-        _check(
-          _bindings.tensorShape(handle, dims, rank, returnedRank),
-          'tensor.shape',
-        );
-        if (returnedRank.value != rank) {
-          throw NativeRuntimeException(
-            'Native tensor rank changed while reading metadata.',
-            operation: 'tensor.shape',
-          );
-        }
-        final values = List<int>.generate(rank, (index) => dims[index]);
-        try {
-          return Shape(values);
-        } on ArgumentError catch (error) {
-          throw NativeRuntimeException(
-            'Native runtime returned invalid shape metadata: $error',
-            operation: 'tensor.shape',
-          );
+          calloc.free(actualRankPointer);
         }
       } finally {
-        calloc.free(returnedRank);
         calloc.free(dims);
       }
     } finally {
@@ -255,20 +227,30 @@ final class NativeRuntime {
     }
   }
 
-  DType dtype(int handle) {
-    final value = calloc<Uint32>();
+  int numel(int handle) {
+    final pointer = calloc<Uint64>();
     try {
-      _check(_bindings.tensorDType(handle, value), 'tensor.dtype');
-      return switch (value.value) {
-        1 => DType.float32,
-        final code =>
-          throw NativeRuntimeException(
-            'Native runtime returned unknown dtype code $code.',
-            operation: 'tensor.dtype',
-          ),
-      };
+      _check('tensor.numel', _bindings.tensorNumel(handle, pointer));
+      return pointer.value;
     } finally {
-      calloc.free(value);
+      calloc.free(pointer);
+    }
+  }
+
+  DType dtype(int handle) {
+    final pointer = calloc<Uint32>();
+    try {
+      _check('tensor.dtype', _bindings.tensorDtype(handle, pointer));
+      final value = pointer.value;
+      for (final dtype in DType.values) {
+        if (dtype.nativeCode == value) return dtype;
+      }
+      throw NativeRuntimeException(
+        'Native tensor returned an unknown dtype code $value.',
+        operation: 'tensor.dtype',
+      );
+    } finally {
+      calloc.free(pointer);
     }
   }
 
@@ -276,154 +258,110 @@ final class NativeRuntime {
     final kind = calloc<Uint32>();
     final index = calloc<Int32>();
     try {
-      _check(_bindings.tensorDevice(handle, kind), 'tensor.device');
-      _check(_bindings.tensorDeviceIndex(handle, index), 'tensor.deviceIndex');
-      return switch (kind.value) {
-        1 when index.value == 0 => Device.cpu,
-        1 =>
-          throw NativeRuntimeException(
-            'Native CPU tensor returned invalid device index ${index.value}.',
-            operation: 'tensor.device',
-          ),
-        2 when index.value >= 0 => Device.cuda(index.value),
-        2 =>
-          throw NativeRuntimeException(
-            'Native CUDA tensor returned invalid device index ${index.value}.',
-            operation: 'tensor.device',
-          ),
-        3 when index.value == 0 => Device.mps,
-        3 =>
-          throw NativeRuntimeException(
-            'Native MPS tensor returned invalid device index ${index.value}.',
-            operation: 'tensor.device',
-          ),
-        4 when index.value >= 0 => Device.xpu(index.value),
-        4 =>
-          throw NativeRuntimeException(
-            'Native XPU tensor returned invalid device index ${index.value}.',
-            operation: 'tensor.device',
-          ),
-        5 when index.value >= 0 => Device.hip(index.value),
-        5 =>
-          throw NativeRuntimeException(
-            'Native HIP tensor returned invalid device index ${index.value}.',
-            operation: 'tensor.device',
-          ),
-        final code =>
-          throw NativeRuntimeException(
-            'Native runtime returned unknown device code $code.',
-            operation: 'tensor.device',
-          ),
-      };
+      _check('tensor.device', _bindings.tensorDevice(handle, kind, index));
+      return decodeNativeDevice(kind.value, index.value);
     } finally {
-      calloc.free(index);
       calloc.free(kind);
-    }
-  }
-
-  int numel(int handle) {
-    final value = calloc<Uint64>();
-    try {
-      _check(_bindings.tensorNumel(handle, value), 'tensor.numel');
-      return value.value;
-    } finally {
-      calloc.free(value);
+      calloc.free(index);
     }
   }
 
   int deviceCount(Device device) {
-    final value = calloc<Uint32>();
+    final pointer = calloc<Uint32>();
     try {
       _check(
-        _bindings.runtimeDeviceCount(nativeDeviceCode(device), value),
         'runtime.deviceCount',
+        _bindings.deviceCount(nativeDeviceCode(device), pointer),
       );
-      return value.value;
+      return pointer.value;
     } finally {
-      calloc.free(value);
+      calloc.free(pointer);
     }
   }
 
-  int cudaDeviceCount() => deviceCount(Device.cuda(0));
+  List<Device> get availableDevices {
+    final devices = <Device>[Device.cpu];
+    for (final kind in const <Device>[
+      Device.cuda(0),
+      Device.mps,
+      Device.xpu(0),
+      Device.hip(0),
+    ]) {
+      final count = deviceCount(kind);
+      for (var index = 0; index < count; index++) {
+        devices.add(switch (kind.kind) {
+          DeviceKind.cpu => Device.cpu,
+          DeviceKind.cuda => Device.cuda(index),
+          DeviceKind.mps => Device.mps,
+          DeviceKind.xpu => Device.xpu(index),
+          DeviceKind.hip => Device.hip(index),
+        });
+      }
+    }
+    return List<Device>.unmodifiable(devices);
+  }
 
-  List<double> copyToHost(int handle, int numel) {
-    final values = calloc<Float>(numel);
-    final written = calloc<Size>();
+  Device get preferredDevice {
+    final devices = availableDevices;
+    for (final kind in const <DeviceKind>[
+      DeviceKind.cuda,
+      DeviceKind.mps,
+      DeviceKind.xpu,
+      DeviceKind.hip,
+    ]) {
+      for (final device in devices) {
+        if (device.kind == kind) return device;
+      }
+    }
+    return Device.cpu;
+  }
+
+  List<double> copyToHost(int handle, int length) {
+    final values = calloc<Float>(length);
+    final written = calloc<Uint64>();
     try {
       _check(
-        _bindings.tensorCopyToHostF32(handle, values, numel, written),
         'tensor.toList',
+        _bindings.tensorCopyToF32(handle, values, length, written),
       );
-      if (written.value != numel) {
+      if (written.value != length) {
         throw NativeRuntimeException(
-          'Native copy wrote ${written.value} elements; expected $numel.',
+          'Native tensor copy wrote ${written.value} values, expected $length.',
           operation: 'tensor.toList',
         );
       }
-      return List<double>.generate(numel, (index) => values[index]);
+      return List<double>.generate(length, (index) => values[index]);
     } finally {
       calloc.free(written);
       calloc.free(values);
     }
   }
 
-  void retain(int handle) {
-    _check(_bindings.tensorRetain(handle), 'tensor.retain');
-  }
+  void retain(int handle) => _check('tensor.retain', _bindings.retain(handle));
 
-  void release(int handle) {
-    _check(_bindings.tensorRelease(handle), 'tensor.dispose');
-  }
+  void release(int handle) => _check('tensor.release', _bindings.release(handle));
 
-  /// Finalizer-only best effort. It intentionally does not throw from a GC hook.
   void releaseFromFinalizer(int handle) {
-    _bindings.tensorRelease(handle);
+    _bindings.release(handle);
   }
 
-  void noop() {
-    _check(_bindings.noop(), 'runtime.noop');
-  }
-
-  int liveTensorCount() {
-    final value = calloc<Uint64>();
+  int get liveTensors {
+    final pointer = calloc<Uint64>();
     try {
-      _check(
-        _bindings.runtimeLiveTensorCount(value),
-        'runtime.liveTensorCount',
-      );
-      return value.value;
+      _check('runtime.liveTensors', _bindings.liveTensors(pointer));
+      return pointer.value;
     } finally {
-      calloc.free(value);
+      calloc.free(pointer);
     }
   }
 
-  int liveStorageBytes() {
-    final value = calloc<Uint64>();
+  int get liveStorageBytes {
+    final pointer = calloc<Uint64>();
     try {
-      _check(
-        _bindings.runtimeLiveStorageBytes(value),
-        'runtime.liveStorageBytes',
-      );
-      return value.value;
+      _check('runtime.liveStorageBytes', _bindings.liveStorageBytes(pointer));
+      return pointer.value;
     } finally {
-      calloc.free(value);
-    }
-  }
-
-  int _newHandle(String operation, int Function(Pointer<Uint64> out) call) {
-    final output = calloc<Uint64>();
-    try {
-      _check(call(output), operation);
-      final handle = output.value;
-      if (handle == 0) {
-        throw NativeRuntimeException(
-          'Native runtime returned a null tensor handle on success.',
-          operation: operation,
-        );
-      }
-      return handle;
-    } finally {
-      calloc.free(output);
+      calloc.free(pointer);
     }
   }
 
@@ -431,42 +369,66 @@ final class NativeRuntime {
     Shape shape,
     T Function(Pointer<Int64> dims, int rank) operation,
   ) {
-    if (shape.rank == 0) {
-      return operation(nullptr.cast<Int64>(), 0);
+    final rank = shape.rank;
+    if (rank == 0) {
+      return operation(nullptr, 0);
     }
-
-    final dims = calloc<Int64>(shape.rank);
+    final dims = calloc<Int64>(rank);
     try {
-      for (var index = 0; index < shape.rank; index++) {
+      for (var index = 0; index < rank; index++) {
         dims[index] = shape.dimensions[index];
       }
-      return operation(dims, shape.rank);
+      return operation(dims, rank);
     } finally {
       calloc.free(dims);
     }
   }
 
-  void _check(int status, String operation) {
-    if (status == 0) return;
+  int _newHandle(
+    String operation,
+    int Function(Pointer<Uint64> out) nativeCall,
+  ) {
+    final out = calloc<Uint64>();
+    try {
+      final status = nativeCall(out);
+      if (status != NativeStatus.ok) {
+        _throwStatus(operation, status);
+      }
+      final handle = out.value;
+      if (handle == 0) {
+        throw NativeRuntimeException(
+          'Native operation succeeded without returning a tensor handle.',
+          operation: operation,
+        );
+      }
+      return handle;
+    } finally {
+      calloc.free(out);
+    }
+  }
 
-    final errorPointer = _bindings.lastErrorMessage();
-    final message =
-        errorPointer.address == 0
-            ? 'Native runtime returned status $status without a diagnostic.'
-            : errorPointer.toDartString();
+  void _check(String operation, int status) {
+    if (status == NativeStatus.ok) return;
+    _throwStatus(operation, status);
+  }
 
+  Never _throwStatus(String operation, int status) {
+    final messagePointer = _bindings.lastError();
+    final message = messagePointer == nullptr
+        ? 'Native Tensora operation failed without a diagnostic.'
+        : messagePointer.toDartString();
     switch (status) {
-      case 1:
+      case NativeStatus.invalidArgument:
         throw InvalidArgumentException(message, operation: operation);
-      case 2:
+      case NativeStatus.invalidShape:
         throw InvalidShapeException(message, operation: operation);
-      case 3:
-        throw OutOfMemoryException(message, operation: operation);
-      case 4:
+      case NativeStatus.invalidHandle:
+        throw DisposedTensorException(message, operation: operation);
+      case NativeStatus.unsupported:
         throw UnsupportedOperationException(message, operation: operation);
-      case 5:
-        throw NativeRuntimeException(message, operation: operation);
-      case 6:
+      case NativeStatus.outOfMemory:
+        throw OutOfMemoryException(message, operation: operation);
+      case NativeStatus.internal:
         throw NativeRuntimeException(message, operation: operation);
       default:
         throw NativeRuntimeException(
