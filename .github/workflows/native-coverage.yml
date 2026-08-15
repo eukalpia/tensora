@@ -88,6 +88,7 @@ jobs:
           set -euo pipefail
           cmake -S native -B build/native-coverage-training \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX" \
             -DTENSORA_BUILD_TESTS=ON \
             -DTENSORA_BUILD_BENCHMARKS=OFF \
@@ -98,6 +99,61 @@ jobs:
             -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage"
           cmake --build build/native-coverage-training --parallel 2
+          python3 - <<'PY'
+          import json
+          import shlex
+          import subprocess
+          from pathlib import Path
+
+          repo = Path.cwd()
+          build = repo / 'build' / 'native-coverage-training'
+          compile_db = json.loads((build / 'compile_commands.json').read_text())
+          entry = next(
+              item for item in compile_db
+              if item['file'].replace('\\', '/').endswith('/native/src/training/torch_backend.cc')
+          )
+          args = entry.get('arguments') or shlex.split(entry['command'])
+          test_source = str(repo / 'native/tests/torch_backend_policy_test.cc')
+          output = str(build / 'torch_backend_policy_test.o')
+          rewritten = []
+          replace_output = False
+          for arg in args:
+              normalized = arg.replace('\\', '/')
+              if normalized.endswith('/native/src/training/torch_backend.cc'):
+                  rewritten.append(test_source)
+              elif replace_output:
+                  rewritten.append(output)
+                  replace_output = False
+              elif arg == '-o':
+                  rewritten.append(arg)
+                  replace_output = True
+              else:
+                  rewritten.append(arg)
+          subprocess.run(rewritten, cwd=entry['directory'], check=True)
+
+          target_dir = build / 'CMakeFiles/tensora_training_backend_internal_tests.dir'
+          link_args = shlex.split((target_dir / 'link.txt').read_text())
+          existing_test_suffix = (
+              'CMakeFiles/tensora_training_backend_internal_tests.dir/'
+              'tests/training_backend_internal_test.cc.o'
+          )
+          linked = []
+          replace_binary = False
+          for arg in link_args:
+              normalized = arg.replace('\\', '/')
+              if normalized.endswith(existing_test_suffix):
+                  linked.append(output)
+              elif replace_binary:
+                  linked.append('tensora_torch_backend_policy_tests')
+                  replace_binary = False
+              elif arg == '-o':
+                  linked.append(arg)
+                  replace_binary = True
+              else:
+                  linked.append(arg)
+          subprocess.run(linked, cwd=build, check=True)
+          PY
+          ./build/native-coverage-training/tensora_torch_backend_policy_tests
           ctest --test-dir build/native-coverage-training --build-config Debug --output-on-failure
           gcovr build/native-coverage-training \
             --root "$GITHUB_WORKSPACE" \
