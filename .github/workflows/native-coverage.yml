@@ -188,6 +188,15 @@ jobs:
             -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage"
           cmake --build build/native-coverage-inference --parallel 2
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include -Inative/src \
+            native/tests/inference_bridge_internal_contract_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -o build/native-coverage-inference/tensora_inference_bridge_internal_contract_tests
+          ./build/native-coverage-inference/tensora_inference_bridge_internal_contract_tests
+
           ctest --test-dir build/native-coverage-inference --build-config Debug --output-on-failure
           gcovr build/native-coverage-inference \
             --root "$GITHUB_WORKSPACE" \
