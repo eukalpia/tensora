@@ -1,11 +1,45 @@
 #include "training/torch_storage.h"
 
-#include <algorithm>
 #include <cstring>
 #include <limits>
-#include <new>
+#include <utility>
+
+#include "training/torch_backend.h"
 
 namespace tensora::training {
+
+namespace internal {
+
+Status ValidateTorchStorageSize(int64_t numel, uint64_t* out_bytes) {
+  if (out_bytes == nullptr) {
+    return InvalidArgument("torch storage: byte-size output pointer is null");
+  }
+  *out_bytes = 0;
+  if (numel < 0) {
+    return InternalError("torch storage: tensor reported a negative element count");
+  }
+  const auto unsigned_numel = static_cast<uint64_t>(numel);
+  if (unsigned_numel >
+      std::numeric_limits<uint64_t>::max() / sizeof(float)) {
+    return OutOfMemory("torch storage: byte size overflow");
+  }
+  *out_bytes = unsigned_numel * sizeof(float);
+  return Status::Ok();
+}
+
+Status ValidateHostCopyMetadata(int64_t expected_numel,
+                                torch::ScalarType actual_type,
+                                int64_t actual_numel) {
+  if (actual_type != torch::kFloat32) {
+    return Unsupported("torch storage: host copy is not float32");
+  }
+  if (actual_numel != expected_numel) {
+    return InternalError("torch storage: host copy changed element count");
+  }
+  return Status::Ok();
+}
+
+}  // namespace internal
 
 std::atomic<uint64_t> TorchStorage::live_bytes_{0};
 
@@ -31,23 +65,19 @@ Status TorchStorage::FromTensor(torch::Tensor tensor,
   if (tensor.scalar_type() != torch::kFloat32) {
     return Unsupported("torch storage: only float32 is supported");
   }
-  if (tensor.numel() < 0) {
-    return InternalError("torch storage: tensor reported a negative element count");
-  }
-  const auto numel = static_cast<uint64_t>(tensor.numel());
-  if (numel > std::numeric_limits<uint64_t>::max() / sizeof(float)) {
-    return OutOfMemory("torch storage: byte size overflow");
-  }
 
-  try {
-    *out = std::shared_ptr<TorchStorage>(
-        new TorchStorage(std::move(tensor)));
-    return Status::Ok();
-  } catch (const c10::Error& error) {
-    return InternalError(std::string("torch storage: ") + error.what());
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("torch storage: allocation failed");
-  }
+  uint64_t byte_size = 0;
+  Status status = internal::ValidateTorchStorageSize(tensor.numel(), &byte_size);
+  if (!status.ok()) return status;
+  (void)byte_size;
+
+  return internal::GuardAllocation("torch storage", [&]() {
+    return internal::GuardTorch("torch storage", [&]() {
+      *out = std::shared_ptr<TorchStorage>(
+          new TorchStorage(std::move(tensor)));
+      return Status::Ok();
+    });
+  });
 }
 
 Status TorchStorage::CopyToHostF32(float* out_values,
@@ -66,24 +96,18 @@ Status TorchStorage::CopyToHostF32(float* out_values,
     return InvalidArgument("torch storage: output values pointer is null");
   }
 
-  try {
+  return internal::GuardTorch("torch storage host copy", [&]() {
     torch::NoGradGuard guard;
-    const torch::Tensor host =
-        tensor_.detach().to(torch::kCPU).contiguous();
-    if (host.scalar_type() != torch::kFloat32) {
-      return Unsupported("torch storage: host copy is not float32");
-    }
-    if (host.numel() != tensor_.numel()) {
-      return InternalError("torch storage: host copy changed element count");
-    }
+    const torch::Tensor host = tensor_.detach().to(torch::kCPU).contiguous();
+    Status status = internal::ValidateHostCopyMetadata(
+        tensor_.numel(), host.scalar_type(), host.numel());
+    if (!status.ok()) return status;
     if (numel > 0) {
       std::memcpy(out_values, host.data_ptr<float>(), numel * sizeof(float));
     }
     *out_written = numel;
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return InternalError(std::string("torch storage host copy: ") + error.what());
-  }
+  });
 }
 
 uint64_t TorchStorage::LiveBytes() {
