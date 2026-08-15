@@ -16,6 +16,7 @@ enum class HandleType : uint8_t {
   kModule = 3,
   kOptimizer = 4,
   kInferenceSession = 5,
+  kParameterOptimizer = 6,
 };
 
 class HandleRegistry {
