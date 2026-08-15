@@ -73,6 +73,15 @@ jobs:
             -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage"
           cmake --build build/native-coverage-core --parallel 2
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include -Inative/src \
+            native/tests/training_bridge_internal_contract_test.cc \
+            -Lbuild/native-coverage-core -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-core" \
+            -o build/native-coverage-core/tensora_training_bridge_internal_contract_tests
+          ./build/native-coverage-core/tensora_training_bridge_internal_contract_tests
+
           ctest --test-dir build/native-coverage-core --build-config Debug --output-on-failure
           gcovr build/native-coverage-core \
             --root "$GITHUB_WORKSPACE" \
@@ -196,6 +205,29 @@ jobs:
             -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
             -o build/native-coverage-inference/tensora_inference_bridge_internal_contract_tests
           ./build/native-coverage-inference/tensora_inference_bridge_internal_contract_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src -I"$ORT_ROOT/include" \
+            native/tests/onnx_policy_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -Wl,-rpath,"$ORT_LIBRARY_PATH" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_onnx_policy_tests
+          ./build/native-coverage-inference/tensora_onnx_policy_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src -I"$ORT_ROOT/include" \
+            native/tests/onnx_whitebox_contract_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -L"$ORT_LIBRARY_PATH" -lonnxruntime -pthread \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -Wl,-rpath,"$ORT_LIBRARY_PATH" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_onnx_whitebox_contract_tests
+          ./build/native-coverage-inference/tensora_onnx_whitebox_contract_tests
 
           ctest --test-dir build/native-coverage-inference --build-config Debug --output-on-failure
           gcovr build/native-coverage-inference \
