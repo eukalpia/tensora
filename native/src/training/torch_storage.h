@@ -11,6 +11,15 @@
 
 namespace tensora::training {
 
+namespace internal {
+
+Status ValidateTorchStorageSize(int64_t numel, uint64_t* out_bytes);
+Status ValidateHostCopyMetadata(int64_t expected_numel,
+                                torch::ScalarType actual_type,
+                                int64_t actual_numel);
+
+}  // namespace internal
+
 class TorchStorage final : public TensorStorage {
  public:
   static Status FromTensor(torch::Tensor tensor,
