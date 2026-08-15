@@ -82,6 +82,26 @@ jobs:
             -o build/native-coverage-core/tensora_training_bridge_internal_contract_tests
           ./build/native-coverage-core/tensora_training_bridge_internal_contract_tests
 
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src \
+            native/tests/training_stub_coverage_test.cc \
+            -Lbuild/native-coverage-core -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-core" \
+            --coverage \
+            -o build/native-coverage-core/tensora_training_stub_coverage_tests
+          ./build/native-coverage-core/tensora_training_stub_coverage_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src \
+            native/tests/training_c_api_coverage_test.cc \
+            -Lbuild/native-coverage-core -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-core" \
+            --coverage \
+            -o build/native-coverage-core/tensora_training_c_api_coverage_tests
+          ./build/native-coverage-core/tensora_training_c_api_coverage_tests
+
           ctest --test-dir build/native-coverage-core --build-config Debug --output-on-failure
           gcovr build/native-coverage-core \
             --root "$GITHUB_WORKSPACE" \
@@ -126,52 +146,80 @@ jobs:
           repo = Path.cwd()
           build = repo / 'build' / 'native-coverage-training'
           compile_db = json.loads((build / 'compile_commands.json').read_text())
-          entry = next(
-              item for item in compile_db
-              if item['file'].replace('\\', '/').endswith('/native/src/training/torch_backend.cc')
-          )
-          args = entry.get('arguments') or shlex.split(entry['command'])
-          test_source = str(repo / 'native/tests/torch_backend_policy_test.cc')
-          output = str(build / 'torch_backend_policy_test.o')
-          rewritten = []
-          replace_output = False
-          for arg in args:
-              normalized = arg.replace('\\', '/')
-              if normalized.endswith('/native/src/training/torch_backend.cc'):
-                  rewritten.append(test_source)
-              elif replace_output:
-                  rewritten.append(output)
-                  replace_output = False
-              elif arg == '-o':
-                  rewritten.append(arg)
-                  replace_output = True
-              else:
-                  rewritten.append(arg)
-          subprocess.run(rewritten, cwd=entry['directory'], check=True)
 
-          target_dir = build / 'CMakeFiles/tensora_training_backend_internal_tests.dir'
-          link_args = shlex.split((target_dir / 'link.txt').read_text())
-          existing_test_suffix = (
-              'CMakeFiles/tensora_training_backend_internal_tests.dir/'
-              'tests/training_backend_internal_test.cc.o'
+          def compile_like(source_suffix: str, test_source: str, output_name: str) -> Path:
+              entry = next(
+                  item for item in compile_db
+                  if item['file'].replace('\\', '/').endswith(source_suffix)
+              )
+              args = entry.get('arguments') or shlex.split(entry['command'])
+              output = build / output_name
+              rewritten = []
+              replace_output = False
+              for arg in args:
+                  normalized = arg.replace('\\', '/')
+                  if normalized.endswith(source_suffix):
+                      rewritten.append(str(repo / test_source))
+                  elif replace_output:
+                      rewritten.append(str(output))
+                      replace_output = False
+                  elif arg == '-o':
+                      rewritten.append(arg)
+                      replace_output = True
+                  else:
+                      rewritten.append(arg)
+              subprocess.run(rewritten, cwd=entry['directory'], check=True)
+              return output
+
+          def link_like(test_object: Path, binary_name: str, *, link_native: bool = False) -> None:
+              target_dir = build / 'CMakeFiles/tensora_training_backend_internal_tests.dir'
+              link_args = shlex.split((target_dir / 'link.txt').read_text())
+              existing_test_suffix = (
+                  'CMakeFiles/tensora_training_backend_internal_tests.dir/'
+                  'tests/training_backend_internal_test.cc.o'
+              )
+              linked = []
+              replace_binary = False
+              for arg in link_args:
+                  normalized = arg.replace('\\', '/')
+                  if normalized.endswith(existing_test_suffix):
+                      linked.append(str(test_object))
+                  elif replace_binary:
+                      linked.append(binary_name)
+                      replace_binary = False
+                  elif arg == '-o':
+                      linked.append(arg)
+                      replace_binary = True
+                  else:
+                      linked.append(arg)
+              if link_native:
+                  linked.extend([
+                      f'-L{build}',
+                      f'-Wl,-rpath,{build}',
+                      '-ltensora_native',
+                  ])
+              subprocess.run(linked, cwd=build, check=True)
+
+          policy_object = compile_like(
+              '/native/src/training/torch_backend.cc',
+              'native/tests/torch_backend_policy_test.cc',
+              'torch_backend_policy_test.o',
           )
-          linked = []
-          replace_binary = False
-          for arg in link_args:
-              normalized = arg.replace('\\', '/')
-              if normalized.endswith(existing_test_suffix):
-                  linked.append(output)
-              elif replace_binary:
-                  linked.append('tensora_torch_backend_policy_tests')
-                  replace_binary = False
-              elif arg == '-o':
-                  linked.append(arg)
-                  replace_binary = True
-              else:
-                  linked.append(arg)
-          subprocess.run(linked, cwd=build, check=True)
+          link_like(policy_object, 'tensora_torch_backend_policy_tests')
+
+          bridge_object = compile_like(
+              '/native/src/training/training_bridge_torch.cc',
+              'native/tests/training_torch_bridge_coverage_test.cc',
+              'training_torch_bridge_coverage_test.o',
+          )
+          link_like(
+              bridge_object,
+              'tensora_training_torch_bridge_coverage_tests',
+              link_native=True,
+          )
           PY
           ./build/native-coverage-training/tensora_torch_backend_policy_tests
+          ./build/native-coverage-training/tensora_training_torch_bridge_coverage_tests
           ctest --test-dir build/native-coverage-training --build-config Debug --output-on-failure
           gcovr build/native-coverage-training \
             --root "$GITHUB_WORKSPACE" \
@@ -208,6 +256,16 @@ jobs:
 
           c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
             --coverage -O0 -g \
+            -Inative/include -Inative/src \
+            native/tests/inference_c_api_coverage_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_inference_c_api_coverage_tests
+          ./build/native-coverage-inference/tensora_inference_c_api_coverage_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
             -Inative/include -Inative/src -I"$ORT_ROOT/include" \
             native/tests/onnx_policy_test.cc \
             -Lbuild/native-coverage-inference -ltensora_native \
@@ -228,6 +286,18 @@ jobs:
             --coverage \
             -o build/native-coverage-inference/tensora_onnx_whitebox_contract_tests
           ./build/native-coverage-inference/tensora_onnx_whitebox_contract_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src -I"$ORT_ROOT/include" \
+            native/tests/onnx_bridge_coverage_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -L"$ORT_LIBRARY_PATH" -lonnxruntime -pthread \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -Wl,-rpath,"$ORT_LIBRARY_PATH" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_onnx_bridge_coverage_tests
+          ./build/native-coverage-inference/tensora_onnx_bridge_coverage_tests
 
           ctest --test-dir build/native-coverage-inference --build-config Debug --output-on-failure
           gcovr build/native-coverage-inference \

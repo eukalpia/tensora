@@ -61,8 +61,50 @@ def build_no_input_model() -> onnx.ModelProto:
     return model
 
 
+def build_double_input_model() -> onnx.ModelProto:
+    input_info = helper.make_tensor_value_info("X", TensorProto.DOUBLE, [2, 2])
+    output_info = helper.make_tensor_value_info("Y", TensorProto.DOUBLE, [2, 2])
+    graph = helper.make_graph(
+        [helper.make_node("Identity", ["X"], ["Y"])],
+        "tensora_double_input_graph",
+        [input_info],
+        [output_info],
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="tensora",
+        opset_imports=[helper.make_opsetid("", 18)],
+    )
+    model.ir_version = 10
+    onnx.checker.check_model(model)
+    return model
+
+
+def build_double_output_model() -> onnx.ModelProto:
+    input_info = helper.make_tensor_value_info("X", TensorProto.FLOAT, [2, 2])
+    output_info = helper.make_tensor_value_info("Y", TensorProto.DOUBLE, [2, 2])
+    graph = helper.make_graph(
+        [helper.make_node("Cast", ["X"], ["Y"], to=TensorProto.DOUBLE)],
+        "tensora_double_output_graph",
+        [input_info],
+        [output_info],
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="tensora",
+        opset_imports=[helper.make_opsetid("", 18)],
+    )
+    model.ir_version = 10
+    onnx.checker.check_model(model)
+    return model
+
+
+def sibling_model_path(output: Path, suffix: str) -> Path:
+    return output.with_name(f"{output.stem}{suffix}{output.suffix}")
+
+
 def no_input_model_path(output: Path) -> Path:
-    return output.with_name(f"{output.stem}-no-input{output.suffix}")
+    return sibling_model_path(output, "-no-input")
 
 
 def main() -> None:
@@ -72,6 +114,12 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     onnx.save(build_model(), args.output)
     onnx.save(build_no_input_model(), no_input_model_path(args.output))
+    onnx.save(
+        build_double_input_model(), sibling_model_path(args.output, "-double-input")
+    )
+    onnx.save(
+        build_double_output_model(), sibling_model_path(args.output, "-double-output")
+    )
 
 
 if __name__ == "__main__":
