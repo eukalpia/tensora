@@ -223,6 +223,50 @@ final class NativeTrainingRuntime {
     ),
   );
 
+  int createParameterSgd(
+    List<int> parameterHandles, {
+    required double learningRate,
+    required double momentum,
+    required double weightDecay,
+  }) => _withTensorHandles(
+    parameterHandles,
+    'optimizer.parameterSgd',
+    (handles, count, out) => _bindings.parameterSgdCreate(
+      handles,
+      count,
+      learningRate,
+      momentum,
+      weightDecay,
+      out,
+    ),
+  );
+
+  int createParameterAdam(
+    List<int> parameterHandles, {
+    required double learningRate,
+    required double beta1,
+    required double beta2,
+    required double epsilon,
+    required double weightDecay,
+    required bool decoupled,
+  }) => _withTensorHandles(
+    parameterHandles,
+    decoupled ? 'optimizer.parameterAdamW' : 'optimizer.parameterAdam',
+    (handles, count, out) =>
+        (decoupled
+            ? _bindings.parameterAdamWCreate
+            : _bindings.parameterAdamCreate)(
+          handles,
+          count,
+          learningRate,
+          beta1,
+          beta2,
+          epsilon,
+          weightDecay,
+          out,
+        ),
+  );
+
   void optimizerZeroGrad(int optimizer) {
     _check(_bindings.optimizerZeroGrad(optimizer), 'optimizer.zeroGrad');
   }
@@ -237,6 +281,31 @@ final class NativeTrainingRuntime {
 
   void optimizerReleaseFromFinalizer(int optimizer) {
     _bindings.optimizerRelease(optimizer);
+  }
+
+  void parameterOptimizerZeroGrad(int optimizer) {
+    _check(
+      _bindings.parameterOptimizerZeroGrad(optimizer),
+      'optimizer.parameterZeroGrad',
+    );
+  }
+
+  void parameterOptimizerStep(int optimizer) {
+    _check(
+      _bindings.parameterOptimizerStep(optimizer),
+      'optimizer.parameterStep',
+    );
+  }
+
+  void parameterOptimizerRelease(int optimizer) {
+    _check(
+      _bindings.parameterOptimizerRelease(optimizer),
+      'optimizer.parameterDispose',
+    );
+  }
+
+  void parameterOptimizerReleaseFromFinalizer(int optimizer) {
+    _bindings.parameterOptimizerRelease(optimizer);
   }
 
   int liveModuleCount() =>
@@ -268,6 +337,28 @@ final class NativeTrainingRuntime {
       return value.value;
     } finally {
       calloc.free(value);
+    }
+  }
+
+  int _withTensorHandles(
+    List<int> handles,
+    String operation,
+    int Function(Pointer<Uint64>, int, Pointer<Uint64>) call,
+  ) {
+    if (handles.isEmpty) {
+      throw ArgumentError.value(handles, 'handles', 'must not be empty');
+    }
+    final nativeHandles = calloc<Uint64>(handles.length);
+    try {
+      for (var index = 0; index < handles.length; index++) {
+        nativeHandles[index] = handles[index];
+      }
+      return _newObjectHandle(
+        operation,
+        (out) => call(nativeHandles, handles.length, out),
+      );
+    } finally {
+      calloc.free(nativeHandles);
     }
   }
 
