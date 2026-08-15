@@ -156,6 +156,29 @@ int CheckInternalContracts() {
     return 8;
   }
 
+  LinearState input_state;
+  input_state.in_features = 1;
+  if (!ExpectStatus(ValidateModuleInput(input_state, *matrix), TS_INVALID_SHAPE,
+                    "module input feature mismatch")) {
+    return 9;
+  }
+  if (!ExpectStatus(WithRequiresGrad(*matrix, true, nullptr),
+                    TS_INVALID_ARGUMENT, "requires grad null output")) {
+    return 10;
+  }
+  if (!ExpectStatus(CrossEntropyLoss(*matrix, *matrix, nullptr),
+                    TS_INVALID_ARGUMENT, "cross entropy null output")) {
+    return 11;
+  }
+  if (!ExpectStatus(CrossEntropyLoss(*matrix, *wide_bias, &output),
+                    TS_INVALID_SHAPE, "cross entropy shape mismatch")) {
+    return 12;
+  }
+  if (!ExpectStatus(CrossEntropyLoss(*rank_one, *rank_one, &output),
+                    TS_INVALID_SHAPE, "cross entropy rank mismatch")) {
+    return 13;
+  }
+
   return 0;
 }
 
