@@ -107,39 +107,46 @@ int CheckTorchDevicePolicy() {
                                              c10::DeviceType::MPS, 1, &output),
                     TS_INVALID_ARGUMENT, "MPS index"))
     return 24;
+  const int32_t too_large_index =
+      static_cast<int32_t>(std::numeric_limits<c10::DeviceIndex>::max()) + 1;
+  if (!ExpectStatus(TorchDeviceFromSnapshot(
+                        Device::kCuda, too_large_index,
+                        c10::DeviceType::CUDA, 1, &output),
+                    TS_INVALID_ARGUMENT, "accelerator index range"))
+    return 25;
   if (!ExpectStatus(TorchDeviceFromSnapshot(Device::kCuda, 0, std::nullopt, 0,
                                              &output),
                     TS_UNSUPPORTED, "unavailable CUDA"))
-    return 25;
+    return 26;
   if (!ExpectStatus(TorchDeviceFromSnapshot(Device::kCuda, 0,
                                              c10::DeviceType::MPS, 1, &output),
-                    TS_UNSUPPORTED, "mismatched CUDA") )
-    return 26;
+                    TS_UNSUPPORTED, "mismatched CUDA"))
+    return 27;
 
   if (!ExpectStatus(TorchDeviceFromSnapshot(Device::kCuda, 1,
                                              c10::DeviceType::CUDA, 2, &output),
                     TS_OK, "CUDA") ||
       output.type() != c10::DeviceType::CUDA || output.index() != 1)
-    return 27;
+    return 28;
   if (!ExpectStatus(TorchDeviceFromSnapshot(Device::kMps, 0,
                                              c10::DeviceType::MPS, 1, &output),
                     TS_OK, "MPS") ||
       output.type() != c10::DeviceType::MPS)
-    return 28;
+    return 29;
   if (!ExpectStatus(TorchDeviceFromSnapshot(Device::kXpu, 0,
                                              c10::DeviceType::XPU, 1, &output),
                     TS_OK, "XPU") ||
       output.type() != c10::DeviceType::XPU)
-    return 29;
+    return 30;
   if (!ExpectStatus(TorchDeviceFromSnapshot(Device::kHip, 0,
                                              c10::DeviceType::HIP, 1, &output),
                     TS_OK, "HIP") ||
       output.type() != c10::DeviceType::CUDA || output.index() != 0)
-    return 30;
+    return 31;
   if (!ExpectStatus(TorchDeviceFromSnapshot(static_cast<Device>(999), 0,
                                              c10::DeviceType::CUDA, 1, &output),
                     TS_UNSUPPORTED, "unknown device"))
-    return 31;
+    return 32;
   return 0;
 }
 
@@ -193,7 +200,7 @@ int CheckTorchDeviceMapping() {
     return 48;
   if (!ExpectStatus(MapTorchDevice(c10::DeviceType::Meta, -1, std::nullopt,
                                    &device, &index),
-                    TS_UNSUPPORTED, "map unsupported") )
+                    TS_UNSUPPORTED, "map unsupported"))
     return 49;
   return 0;
 }
