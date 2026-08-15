@@ -52,6 +52,94 @@ void main() {
     expectValues(tanh.toList(), [0, 0.7615942], tolerance: 1e-5);
   });
 
+  test('GELU and SiLU match exact deterministic references', () {
+    final input = Tensor.fromList([-1, 0, 1], shape: Shape([3]));
+    final gelu = input.gelu();
+    final silu = input.silu();
+    addTearDown(input.dispose);
+    addTearDown(gelu.dispose);
+    addTearDown(silu.dispose);
+
+    expectValues(
+      gelu.toList(),
+      [-0.15865526, 0, 0.8413447],
+      tolerance: 2e-5,
+    );
+    expectValues(
+      silu.toList(),
+      [-0.26894143, 0, 0.7310586],
+      tolerance: 2e-5,
+    );
+  });
+
+  test('GELU and SiLU autograd match analytical derivatives', () {
+    final input = Tensor.fromList([-1, 0, 1], shape: Shape([3]));
+    final geluLeaf = input.withRequiresGrad();
+    final siluLeaf = input.withRequiresGrad();
+    final gelu = geluLeaf.gelu();
+    final silu = siluLeaf.silu();
+    final geluLoss = gelu.sum();
+    final siluLoss = silu.sum();
+    addTearDown(input.dispose);
+    addTearDown(geluLeaf.dispose);
+    addTearDown(siluLeaf.dispose);
+    addTearDown(gelu.dispose);
+    addTearDown(silu.dispose);
+    addTearDown(geluLoss.dispose);
+    addTearDown(siluLoss.dispose);
+
+    geluLoss.backward();
+    siluLoss.backward();
+
+    final geluGradient = geluLeaf.grad();
+    final siluGradient = siluLeaf.grad();
+    addTearDown(geluGradient.dispose);
+    addTearDown(siluGradient.dispose);
+    expectValues(
+      geluGradient.toList(),
+      [-0.08331547, 0.5, 1.0833155],
+      tolerance: 3e-5,
+    );
+    expectValues(
+      siluGradient.toList(),
+      [0.07232949, 0.5, 0.9276705],
+      tolerance: 3e-5,
+    );
+  });
+
+  test('SwiGLU halves the final dimension and has exact backward', () {
+    final input = Tensor.fromList([1, -1, 2, 3], shape: Shape([1, 4]));
+    final leaf = input.withRequiresGrad();
+    final output = leaf.swiglu();
+    final loss = output.sum();
+    addTearDown(input.dispose);
+    addTearDown(leaf.dispose);
+    addTearDown(output.dispose);
+    addTearDown(loss.dispose);
+
+    expect(output.shape, Shape([1, 2]));
+    expectValues(output.toList(), [1.4621172, -0.80682427], tolerance: 3e-5);
+
+    loss.backward();
+    final gradient = leaf.grad();
+    addTearDown(gradient.dispose);
+    expectValues(
+      gradient.toList(),
+      [1.855341, 0.21698847, 0.7310586, -0.26894143],
+      tolerance: 4e-5,
+    );
+  });
+
+  test('SwiGLU rejects rank-zero and odd final dimensions', () {
+    final scalar = Tensor.fromList([1], shape: Shape([]));
+    final odd = Tensor.fromList([1, 2, 3], shape: Shape([1, 3]));
+    addTearDown(scalar.dispose);
+    addTearDown(odd.dispose);
+
+    expect(scalar.swiglu, throwsA(isA<InvalidShapeException>()));
+    expect(odd.swiglu, throwsA(isA<InvalidShapeException>()));
+  });
+
   test('cross entropy matches the float32 one-hot reference', () {
     final logits = Tensor.fromList([2, 1], shape: Shape([1, 2]));
     final target = Tensor.fromList([1, 0], shape: Shape([1, 2]));
