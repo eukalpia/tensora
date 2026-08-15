@@ -5,6 +5,12 @@
 
 #include "inference/inference_bridge.h"
 
+// Keep this internal contract self-contained instead of relying on C++ bridge
+// symbols being exported from the Windows DLL. The public C ABI remains the
+// DLL boundary; this test intentionally exercises the disabled backend bridge
+// implementation directly on every platform.
+#include "../src/inference/inference_bridge_stub.cc"
+
 int main() {
   using namespace tensora::inference;
   std::string text;
