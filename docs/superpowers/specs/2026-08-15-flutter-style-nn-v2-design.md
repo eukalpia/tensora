@@ -30,7 +30,7 @@ Reusable architectures use a cached `Model.build()` contract:
 
 ```dart
 class MLP extends Model {
-  const MLP({this.hiddenSize = 512});
+  MLP({this.hiddenSize = 512});
 
   final int hiddenSize;
 
@@ -48,6 +48,8 @@ class MLP extends Model {
 ```
 
 `build()` is evaluated lazily once per `Model` instance and the materialized child tree is cached. Tensora must not rebuild trainable layers on every forward pass.
+
+`Model` constructors are intentionally non-`const` in NN V2 because every instance owns mutable lifecycle/materialization state after first use. Flutter-like declarative syntax is a design influence, not a requirement to copy Flutter's immutable widget object model.
 
 ## 3. Core type hierarchy
 
@@ -72,6 +74,8 @@ A `Model` starts unmaterialized. The first operation that needs its tree (`call`
 
 Materialization is atomic. If `build()` or child validation fails, the model remains unmaterialized and no partially owned child tree is retained.
 
+After successful materialization the root child identity is fixed for the lifetime of the `Model`; calling `build()` again is not part of public semantics.
+
 ### 4.2 Child ownership
 
 A module tree has deterministic ownership semantics:
@@ -83,6 +87,8 @@ A module tree has deterministic ownership semantics:
 - parent disposal recursively disposes owned children exactly once;
 - repeated `dispose()` is idempotent.
 
+Composite constructors defensively copy child collections into an immutable internal order so later mutations of the caller's `List` cannot rewrite a materialized architecture.
+
 ### 4.3 Recursive mode and device propagation
 
 `train()`, `eval()`, and `to(Device)` recurse through the materialized tree.
@@ -90,6 +96,8 @@ A module tree has deterministic ownership semantics:
 Mode propagation must preserve leaf-specific behavior such as dropout and normalization state.
 
 Device moves are all-or-error at the public API level. Tensora must not silently leave part of a model on another device.
+
+Where the current native backend cannot provide rollback for a partially completed multi-parameter device move, NN V2 must preflight all children/parameters before mutating any state; it must not advertise transactional device movement without that proof.
 
 ## 5. Parameter and buffer registration
 
@@ -109,6 +117,8 @@ Iterable<NamedBuffer> get namedBuffers;
 Iterable<Module> get modules;
 Iterable<NamedModule> get namedModules;
 ```
+
+Traversal returns deterministic immutable snapshots or snapshot-backed iterables; mutating the module tree during iteration is not supported.
 
 Paths are deterministic and stable for an unchanged architecture, for example:
 
@@ -138,6 +148,8 @@ Required behavior:
 
 Parameter collection must support arbitrary model sizes; it must not rely on the current native optimizer contract that takes one `Module` handle.
 
+Stable parameter identity is native-handle/storage identity, not Dart object identity, so independently owned wrappers for the same underlying parameter deduplicate correctly.
+
 ## 7. Buffers
 
 `Buffer` represents registered non-trainable state, including future running statistics and masks.
@@ -163,7 +175,7 @@ Sequential(
 )
 ```
 
-`Sequential` validates non-null, non-disposed children and owns their ordered execution.
+`Sequential` validates non-disposed children, freezes their order at construction, and owns their ordered execution.
 
 Future residual/branching modules must be implementable without changing the core registration model. NN V2 therefore must not bake “a model is a linear list” into native ABI or optimizer design.
 
@@ -195,7 +207,17 @@ Linear(
 
 The old positional `Linear(int, int)` constructor must not remain the canonical documented API. If compatibility is retained temporarily, it must be clearly deprecated rather than silently diverging into two competing styles.
 
-### 9.1 Native activation requirement
+### 9.1 Exact activation semantics
+
+`ReLU`, `Sigmoid`, and `Tanh` preserve their existing numerical semantics.
+
+`SiLU(x)` is defined as `x * sigmoid(x)` and must expose the analytically correct autograd rule without materializing host values.
+
+`GELU` defaults to the exact formulation `0.5 * x * (1 + erf(x / sqrt(2)))`. NN V2 does not add an approximate/tanh mode yet; that can be introduced later as an explicit named option without changing the default.
+
+`SwiGLU` is a shape-changing gated activation. It requires the final input dimension to be positive and even, splits that final dimension into equal halves `a` and `b`, and returns `silu(a) * b`. Its output has the same leading dimensions and half the final dimension. Invalid/odd final dimensions throw a typed shape error in Release builds.
+
+### 9.2 Native activation requirement
 
 `GELU`, `SiLU`, and `SwiGLU` must execute through native tensor/autograd primitives. Implementations that call `Tensor.toList()`, compute in Dart, and reconstruct a Tensor are forbidden.
 
@@ -223,6 +245,8 @@ Forward execution must:
 - never perform host copies as an implementation convenience;
 - return native-backed tensors;
 - retain explicit device mismatch errors with no silent CPU fallback.
+
+Intermediate tensors created by a composite forward are owned by the operation chain and deterministically released when no longer needed, except values still referenced by autograd saved-tensor state. The implementation must not dispose a wrapper in a way that invalidates native storage retained by the graph.
 
 ## 11. Optimizer redesign
 
@@ -254,8 +278,10 @@ Required semantics:
 
 - arbitrary parameter count;
 - deterministic parameter ordering;
-- duplicate parameter detection across groups;
-- explicit rejection of disposed/frozen-invalid parameters where appropriate;
+- duplicate parameter detection across groups by native parameter identity;
+- empty collections are rejected;
+- frozen parameters may be present but are skipped deterministically rather than becoming an error solely for being frozen;
+- disposed/invalid parameters are rejected;
 - group-specific hyperparameters;
 - no hidden module ownership transfer;
 - optimizer holds safe references to parameter identities for its lifetime;
@@ -263,6 +289,8 @@ Required semantics:
 - SGD, Adam, and AdamW all use the generalized collection model.
 
 The native optimizer ABI must be extended to accept parameter collections/parameter groups rather than requiring a single module handle. Backward compatibility with the old module-bound native entry points may be retained internally during migration, but the new Dart API must not depend on it.
+
+Parameter-group validation is atomic: all identities and hyperparameters are validated before a native optimizer object is published.
 
 ## 12. Loss modules
 
@@ -280,13 +308,15 @@ Required:
 
 The object wrappers must remain zero-copy and call the existing/native loss implementation.
 
+NN V2 does not change CrossEntropy's target representation; it continues to use the current equal-shaped one-hot float32 target contract until the tensor/dtype stage adds integer class targets.
+
 ## 13. State dict
 
 Every materialized module exposes a deterministic state snapshot:
 
 ```dart
 final state = model.stateDict();
-model.loadStateDict(state, strict: true);
+final result = model.loadStateDict(state, strict: true);
 ```
 
 State dict requirements:
@@ -295,10 +325,13 @@ State dict requirements:
 - parameters plus persistent buffers;
 - immutable map-like public view;
 - no accidental host copy merely to enumerate state;
+- snapshot entries own safe tensor references so the snapshot remains valid for its documented lifetime;
 - strict mode reports missing keys, unexpected keys, shape mismatches, dtype mismatches, and device policy errors structurally;
-- non-strict mode still reports a typed result describing missing/unexpected keys;
-- load is transactional: a validation failure must not partially mutate model state;
+- non-strict mode still returns a typed result describing missing/unexpected keys;
+- load is transactional: all entries are validated before mutation and a validation failure must not partially mutate model state;
 - shared parameters are restored once and aliases remain consistent.
+
+`loadStateDict` returns a typed `StateLoadResult` in both strict and non-strict modes. Strict mode throws only for invalid/incompatible state after constructing structured mismatch context; successful strict load returns an empty-success result.
 
 NN V2 state dict is an in-memory model-state abstraction. `.tmodel` packaging remains a later stage and is not redefined here.
 
@@ -326,6 +359,8 @@ Required diagnostics:
 
 No provider implementation details belong in the normal tree representation.
 
+Diagnostics must never materialize host tensor values and must not mutate/materialize a `Model` merely because an exception formatter touches it; explicit tree diagnostics may materialize because inspecting the architecture is itself a materializing operation.
+
 ## 15. Error handling
 
 Use typed Tensora exceptions, not asserts, for public contract violations in Release builds.
@@ -340,7 +375,8 @@ NN V2 must structurally detect:
 - forward use after disposal;
 - invalid device propagation;
 - invalid constructor dimensions;
-- optimizer creation with an empty parameter set unless an explicit no-op policy is later designed.
+- invalid SwiGLU shape;
+- optimizer creation with an empty parameter set.
 
 No silent fallback is introduced.
 
@@ -352,22 +388,25 @@ Migration policy:
 
 - old static `Losses` remains available during NN V2;
 - old module-bound optimizer constructors may remain deprecated for one development cycle if needed to avoid breaking existing acceptance tests, but all new documentation/tests use parameter collections;
-- old positional `Linear` may receive a deprecated compatibility factory only if Dart language constraints allow a clean unambiguous path; otherwise the development version may make the intentional breaking API change before stable 1.0;
+- old positional `Linear` may receive a deprecated named compatibility factory only if Dart language constraints allow a clean unambiguous path; the canonical unnamed constructor becomes named-argument based;
+- because Tensora is pre-1.0, if Dart cannot express both APIs without ambiguity, NN V2 makes the intentional breaking public Dart change and migration tests/documentation are updated in the same PR;
 - native legacy entry points are not removed until their callers are migrated and contract tests prove the replacement.
 
-Because Tensora is still pre-1.0 development, API clarity takes priority over preserving accidental early syntax.
+API clarity takes priority over preserving accidental early syntax.
 
 ## 17. Package boundaries
 
 `tensora` remains the low-level tensor/runtime/training foundation.
 
-`tensora_nn` becomes the canonical high-level neural-network composition package.
+`tensora_nn` becomes the canonical high-level neural-network composition package and owns `Module`, `Model`, containers, activation modules, state-dict abstractions, `Parameter`, and `Buffer` at the public package layer.
 
-`tensora_optim` exports generalized optimizer APIs.
+Low-level native-handle adapters needed by `tensora_nn` remain internal capabilities exposed by `tensora` through non-user-facing bridge APIs, not public raw handles.
+
+`tensora_optim` exports generalized optimizer APIs and depends on the parameter abstraction without depending on Flutter.
 
 `tensora_flutter` remains an adapter package and does not become a dependency of NN/core packages.
 
-The NN API may reuse types from `tensora`, but Flutter widget classes must never appear in NN/core signatures.
+Flutter widget classes never appear in NN/core signatures.
 
 ## 18. Testing strategy
 
@@ -377,15 +416,18 @@ Every public behavior is developed test-first.
 
 - lazy single materialization of `Model.build()`;
 - materialization rollback on build failure;
+- immutable child-order capture;
 - deterministic traversal names/order;
 - nested `Sequential` execution;
 - recursive train/eval/to/dispose;
 - cycle rejection;
-- shared parameter deduplication;
+- shared parameter deduplication by native identity;
+- state dict snapshot lifetime;
 - state dict strict/non-strict results;
 - transactional state loading;
 - diagnostics rendering;
 - optimizer parameter groups and duplicate rejection;
+- frozen-parameter behavior;
 - lifecycle/finalizer fallback behavior;
 - compatibility APIs where retained.
 
@@ -395,6 +437,7 @@ Every public behavior is developed test-first.
 - SGD/Adam/AdamW arbitrary collections;
 - new activation numerical tests;
 - finite-difference gradients for GELU/SiLU/SwiGLU;
+- SwiGLU even/odd/zero-rank shape contracts;
 - invalid/null/overflow/adversarial ABI inputs;
 - allocation/rollback paths;
 - device mismatch behavior;
@@ -425,11 +468,13 @@ NN V2 must not weaken P0 gates.
 - generated/vendor code remains the only legitimate exclusion class;
 - formatting/analyze warnings are errors in CI where current policy requires them.
 
+Branch coverage remains informational unless a separate release policy explicitly promotes it to a gate; NN V2 does not silently redefine the P0 line-coverage contract.
+
 ## 20. Acceptance examples
 
 ### 20.1 MLP
 
-A two-layer MLP can be created entirely declaratively, trained with AdamW over `model.parameters`, saved/restored with state dict, moved between supported devices, and disposed recursively.
+A two-layer MLP can be created entirely declaratively, trained with AdamW over `model.parameters`, snapshotted/restored with state dict, moved between supported devices, and disposed recursively.
 
 ### 20.2 Nested model
 
@@ -437,13 +482,17 @@ A custom `Model` may return nested `Sequential` modules and exposes stable named
 
 ### 20.3 Shared parameter
 
-Two computation paths may intentionally reference one shared parameter. Traversal and optimizer creation deduplicate it by identity, and state restoration preserves sharing.
+Two computation paths may intentionally reference one shared parameter. Traversal and optimizer creation deduplicate it by native identity, and state restoration preserves sharing.
 
 ### 20.4 Training proof
 
 A small multi-layer network must show loss reduction on a deterministic synthetic dataset using the generalized optimizer path and without relying on LibTorch as the CPU training implementation.
 
-### 20.5 No-regression proof
+### 20.5 Activation proof
+
+GELU, SiLU, and SwiGLU forward outputs match high-precision references within declared tolerances and their gradients pass finite-difference validation on CPU. Existing real-MPS qualification must remain green after adding their backend policy paths.
+
+### 20.6 No-regression proof
 
 All P0 exact-SHA gates remain green after NN V2 changes.
 
@@ -470,11 +519,11 @@ NN V2 is complete only when all of the following are true on one exact SHA:
 2. `Model.build()` is lazy, cached, atomic, and lifecycle-safe.
 3. Nested modules automatically expose deterministic parameters/buffers/modules.
 4. Generalized SGD/Adam/AdamW optimize arbitrary parameter collections and groups.
-5. `StateDict` save/load is deterministic and transactional.
+5. `StateDict` snapshot/load is deterministic, lifetime-safe, and transactional on validation failure.
 6. ReLU/Sigmoid/Tanh/GELU/SiLU/SwiGLU module APIs work with native autograd-backed execution.
 7. MSE and CrossEntropy object loss APIs are available.
 8. Module tree diagnostics are readable and stable.
-9. Shared parameters, cycles, duplicate groups, disposal, and failure rollback are tested.
+9. Shared parameters, cycles, duplicate groups, frozen parameters, disposal, and failure rollback are tested.
 10. Native line coverage remains 100%.
 11. New deterministic Dart composition code reaches the declared high-assurance coverage target.
 12. Linux/Windows/macOS, sanitizers, fuzz, Dart, training, inference, and real MPS qualification gates are green.
