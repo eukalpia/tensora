@@ -1,0 +1,70 @@
+name: DType Contract CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'work/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dtype-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dtype-contract:
+    name: Dart and C dtype contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Build core runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/dtype-contract \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_BUILD_TESTS=OFF \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF
+          cmake --build build/dtype-contract --parallel 2
+
+      - name: Compile public C dtype ABI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cc \
+            -std=c11 \
+            -Wall \
+            -Wextra \
+            -Wpedantic \
+            -Werror \
+            -Inative/include \
+            native/tests/dtype_abi_contract_test.c \
+            -o build/dtype-abi-contract
+          ./build/dtype-abi-contract
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run public dtype semantic contract
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/dtype-contract/libtensora_native.so
+        run: dart test test/dtype_semantics_test.dart --reporter expanded
