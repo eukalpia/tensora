@@ -6,10 +6,19 @@ typedef Parameter = core.Parameter;
 
 /// A registered non-trainable tensor state value.
 final class Buffer {
-  /// @nodoc
-  Buffer.fromTensor(core.Tensor tensor, {this.persistent = true, int? identity})
-    : _tensor = tensor,
-      identity = identity ?? identityHashCode(tensor);
+  factory Buffer.fromTensor(core.Tensor tensor, {bool persistent = true}) {
+    return Buffer._(
+      tensor,
+      persistent: persistent,
+      identity: core.NativeTensorState.identity(tensor),
+    );
+  }
+
+  Buffer._(
+    this._tensor, {
+    required this.persistent,
+    required this.identity,
+  });
 
   final core.Tensor _tensor;
   bool _disposed = false;
@@ -36,7 +45,7 @@ final class Buffer {
 
   core.Tensor snapshot() {
     _ensureLive('snapshot');
-    return _tensor.withRequiresGrad(false);
+    return core.NativeTensorState.cloneDetached(_tensor);
   }
 
   /// @nodoc
