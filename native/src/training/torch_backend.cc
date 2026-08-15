@@ -2,7 +2,6 @@
 
 #include <limits>
 #include <memory>
-#include <new>
 #include <optional>
 #include <string>
 #include <utility>
@@ -16,15 +15,19 @@
 namespace tensora::training {
 namespace {
 
-Status TorchFailure(const char* operation, const c10::Error& error) {
-  return InternalError(std::string(operation) + ": " + error.what());
-}
-
 Status EnsureFloat32(const Tensor& tensor, const char* operation) {
   if (tensor.dtype() != DType::kFloat32) {
     return Unsupported(std::string(operation) + ": only float32 is supported");
   }
   return Status::Ok();
+}
+
+}  // namespace
+
+namespace internal {
+
+Status TorchFailure(const char* operation, const c10::Error& error) {
+  return InternalError(std::string(operation) + ": " + error.what());
 }
 
 bool MatchesAccelerator(Device device, c10::DeviceType accelerator) {
@@ -43,40 +46,11 @@ bool MatchesAccelerator(Device device, c10::DeviceType accelerator) {
   return false;
 }
 
-Status AcceleratorType(Device device, c10::DeviceType* out) {
-  if (out == nullptr) {
-    return InvalidArgument("torch device: accelerator output pointer is null");
-  }
-
-  try {
-    const std::optional<c10::DeviceType> accelerator =
-        at::accelerator::getAccelerator(false);
-    if (!accelerator.has_value() ||
-        !MatchesAccelerator(device, *accelerator)) {
-      return Unsupported("torch device: requested accelerator is not available");
-    }
-    *out = *accelerator;
-    return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch accelerator discovery", error);
-  }
-}
-
-Status DeviceIndex(const torch::Tensor& value, int32_t* out_index) {
-  if (out_index == nullptr) {
-    return InvalidArgument("wrap torch tensor: device index output is null");
-  }
-  const c10::DeviceIndex index = value.device().index();
-  if (index < 0) {
-    return InternalError("wrap torch tensor: accelerator has no device index");
-  }
-  *out_index = static_cast<int32_t>(index);
-  return Status::Ok();
-}
-
-}  // namespace
-
-Status DeviceCount(Device device, uint32_t* out_count) {
+Status DeviceCountFromSnapshot(
+    Device device,
+    std::optional<c10::DeviceType> accelerator,
+    c10::DeviceIndex accelerator_count,
+    uint32_t* out_count) {
   if (out_count == nullptr) {
     return InvalidArgument("device_count: output pointer is null");
   }
@@ -86,31 +60,27 @@ Status DeviceCount(Device device, uint32_t* out_count) {
     *out_count = 1;
     return Status::Ok();
   }
-
-  try {
-    const std::optional<c10::DeviceType> accelerator =
-        at::accelerator::getAccelerator(false);
-    if (!accelerator.has_value() ||
-        !MatchesAccelerator(device, *accelerator)) {
-      return Status::Ok();
-    }
-
-    const c10::DeviceIndex count = at::accelerator::deviceCount();
-    if (count < 0) {
-      return InternalError("device_count: accelerator returned a negative count");
-    }
-    if (static_cast<uint64_t>(count) >
-        std::numeric_limits<uint32_t>::max()) {
-      return InternalError("device_count: accelerator count exceeds ABI range");
-    }
-    *out_count = static_cast<uint32_t>(count);
+  if (!accelerator.has_value() ||
+      !MatchesAccelerator(device, *accelerator)) {
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("device_count", error);
   }
+  if (accelerator_count < 0) {
+    return InternalError("device_count: accelerator returned a negative count");
+  }
+
+  // c10::DeviceIndex is narrower than the ABI's uint32_t count field, so a
+  // non-negative value is representable without a second unreachable range
+  // branch.
+  *out_count = static_cast<uint32_t>(accelerator_count);
+  return Status::Ok();
 }
 
-Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
+Status TorchDeviceFromSnapshot(
+    Device device,
+    int32_t device_index,
+    std::optional<c10::DeviceType> accelerator,
+    c10::DeviceIndex accelerator_count,
+    torch::Device* out) {
   if (out == nullptr) {
     return InvalidArgument("torch device: output pointer is null");
   }
@@ -133,18 +103,15 @@ Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
   }
 
   uint32_t count = 0;
-  Status status = DeviceCount(device, &count);
+  Status status = DeviceCountFromSnapshot(
+      device, accelerator, accelerator_count, &count);
   if (!status.ok()) return status;
   if (static_cast<uint32_t>(device_index) >= count) {
     return Unsupported("torch device: requested accelerator is not available");
   }
 
-  c10::DeviceType accelerator = c10::DeviceType::CPU;
-  status = AcceleratorType(device, &accelerator);
-  if (!status.ok()) return status;
   const c10::DeviceIndex torch_device_index =
       static_cast<c10::DeviceIndex>(device_index);
-
   switch (device) {
     case Device::kCuda:
       *out = torch::Device(c10::DeviceType::CUDA, torch_device_index);
@@ -156,7 +123,8 @@ Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
       *out = torch::Device(c10::DeviceType::XPU, torch_device_index);
       return Status::Ok();
     case Device::kHip:
-      if (accelerator != c10::DeviceType::HIP) {
+      if (!accelerator.has_value() ||
+          *accelerator != c10::DeviceType::HIP) {
         return Unsupported("torch device: HIP accelerator is not available");
       }
       // ROCm PyTorch intentionally exposes tensors through CUDA device
@@ -167,6 +135,89 @@ Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
       break;
   }
   return Unsupported("torch device: unknown device kind");
+}
+
+Status MapTorchDevice(c10::DeviceType torch_type,
+                      c10::DeviceIndex torch_index,
+                      std::optional<c10::DeviceType> accelerator,
+                      Device* out_device,
+                      int32_t* out_index) {
+  if (out_device == nullptr || out_index == nullptr) {
+    return InvalidArgument("wrap torch tensor: device output pointer is null");
+  }
+  *out_device = Device::kCpu;
+  *out_index = 0;
+
+  if (torch_type == c10::DeviceType::CPU) {
+    return Status::Ok();
+  }
+  if (torch_type == c10::DeviceType::MPS) {
+    *out_device = Device::kMps;
+    return Status::Ok();
+  }
+  if (torch_type == c10::DeviceType::XPU ||
+      torch_type == c10::DeviceType::HIP ||
+      torch_type == c10::DeviceType::CUDA) {
+    if (torch_index < 0) {
+      return InternalError("wrap torch tensor: accelerator has no device index");
+    }
+    *out_index = static_cast<int32_t>(torch_index);
+    if (torch_type == c10::DeviceType::XPU) {
+      *out_device = Device::kXpu;
+    } else if (torch_type == c10::DeviceType::HIP) {
+      *out_device = Device::kHip;
+    } else {
+      *out_device = accelerator.has_value() &&
+                            *accelerator == c10::DeviceType::HIP
+                        ? Device::kHip
+                        : Device::kCuda;
+    }
+    return Status::Ok();
+  }
+  return Unsupported("wrap torch tensor: unsupported Torch device");
+}
+
+}  // namespace internal
+
+Status DeviceCount(Device device, uint32_t* out_count) {
+  if (out_count == nullptr || device == Device::kCpu) {
+    return internal::DeviceCountFromSnapshot(
+        device, std::nullopt, 0, out_count);
+  }
+
+  return internal::GuardTorch("device_count", [&]() {
+    const std::optional<c10::DeviceType> accelerator =
+        at::accelerator::getAccelerator(false);
+    c10::DeviceIndex count = 0;
+    if (accelerator.has_value() &&
+        internal::MatchesAccelerator(device, *accelerator)) {
+      count = at::accelerator::deviceCount();
+    }
+    return internal::DeviceCountFromSnapshot(
+        device, accelerator, count, out_count);
+  });
+}
+
+Status TorchDevice(Device device, int32_t device_index, torch::Device* out) {
+  if (out == nullptr || device == Device::kCpu || device_index < 0 ||
+      (device == Device::kMps && device_index != 0) ||
+      static_cast<uint64_t>(device_index) >
+          static_cast<uint64_t>(std::numeric_limits<c10::DeviceIndex>::max())) {
+    return internal::TorchDeviceFromSnapshot(
+        device, device_index, std::nullopt, 0, out);
+  }
+
+  return internal::GuardTorch("torch device", [&]() {
+    const std::optional<c10::DeviceType> accelerator =
+        at::accelerator::getAccelerator(false);
+    c10::DeviceIndex count = 0;
+    if (accelerator.has_value() &&
+        internal::MatchesAccelerator(device, *accelerator)) {
+      count = at::accelerator::deviceCount();
+    }
+    return internal::TorchDeviceFromSnapshot(
+        device, device_index, accelerator, count, out);
+  });
 }
 
 Status TensorToTorch(const Tensor& tensor, torch::Tensor* out) {
@@ -196,15 +247,13 @@ Status TensorToTorch(const Tensor& tensor, torch::Tensor* out) {
         "tensor to torch: storage returned an inconsistent element count");
   }
 
-  try {
+  return internal::GuardTorch("tensor to torch", [&]() {
     const auto options =
         torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
     *out = torch::from_blob(values.data(), tensor.shape().dimensions, options)
                .clone();
     return Status::Ok();
-  } catch (const c10::Error& error) {
-    return TorchFailure("tensor to torch", error);
-  }
+  });
 }
 
 Status WrapTorchTensor(torch::Tensor value, std::shared_ptr<Tensor>* out) {
@@ -225,50 +274,33 @@ Status WrapTorchTensor(torch::Tensor value, std::shared_ptr<Tensor>* out) {
   Status status = ValidateShape(dims, dimensions.size(), &shape);
   if (!status.ok()) return status;
 
+  std::optional<c10::DeviceType> accelerator;
+  const c10::DeviceType type = value.device().type();
+  if (type == c10::DeviceType::CUDA) {
+    status = internal::GuardTorch(
+        "wrap torch tensor accelerator discovery", [&]() {
+          accelerator = at::accelerator::getAccelerator(false);
+          return Status::Ok();
+        });
+    if (!status.ok()) return status;
+  }
+
   Device device = Device::kCpu;
   int32_t device_index = 0;
-  const c10::DeviceType type = value.device().type();
-  if (value.device().is_cpu()) {
-    device = Device::kCpu;
-  } else if (type == c10::DeviceType::MPS) {
-    device = Device::kMps;
-  } else if (type == c10::DeviceType::XPU) {
-    device = Device::kXpu;
-    status = DeviceIndex(value, &device_index);
-    if (!status.ok()) return status;
-  } else if (type == c10::DeviceType::HIP) {
-    device = Device::kHip;
-    status = DeviceIndex(value, &device_index);
-    if (!status.ok()) return status;
-  } else if (value.device().is_cuda()) {
-    try {
-      const std::optional<c10::DeviceType> accelerator =
-          at::accelerator::getAccelerator(false);
-      device = accelerator.has_value() &&
-               *accelerator == c10::DeviceType::HIP
-                   ? Device::kHip
-                   : Device::kCuda;
-    } catch (const c10::Error& error) {
-      return TorchFailure("wrap torch tensor accelerator discovery", error);
-    }
-    status = DeviceIndex(value, &device_index);
-    if (!status.ok()) return status;
-  } else {
-    return Unsupported("wrap torch tensor: unsupported Torch device");
-  }
+  status = internal::MapTorchDevice(
+      type, value.device().index(), accelerator, &device, &device_index);
+  if (!status.ok()) return status;
 
   std::shared_ptr<TorchStorage> storage;
   status = TorchStorage::FromTensor(std::move(value), &storage);
   if (!status.ok()) return status;
 
-  try {
+  return internal::GuardAllocation("wrap torch tensor", [&]() {
     *out = std::make_shared<Tensor>(
         std::move(shape), std::move(storage), DType::kFloat32, device,
         device_index);
     return Status::Ok();
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("wrap torch tensor: tensor object allocation failed");
-  }
+  });
 }
 
 Status TorchBackend::FromData(const ShapeInfo& shape,
@@ -277,28 +309,24 @@ Status TorchBackend::FromData(const ShapeInfo& shape,
   if (shape.numel > 0 && data == nullptr) {
     return InvalidArgument("torch from data: input pointer is null");
   }
-  try {
+  return internal::GuardTorch("torch from data", [&]() {
     const auto options =
         torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
     torch::Tensor value =
         torch::from_blob(const_cast<float*>(data), shape.dimensions, options)
             .clone();
     return WrapTorchTensor(std::move(value), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch from data", error);
-  }
+  });
 }
 
 Status TorchBackend::Full(const ShapeInfo& shape,
                           float value,
                           std::shared_ptr<Tensor>* out) const {
-  try {
+  return internal::GuardTorch("torch full", [&]() {
     const auto options =
         torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
     return WrapTorchTensor(torch::full(shape.dimensions, value, options), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch full", error);
-  }
+  });
 }
 
 Status TorchBackend::Reshape(const Tensor& tensor,
@@ -310,11 +338,9 @@ Status TorchBackend::Reshape(const Tensor& tensor,
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("torch reshape", [&]() {
     return WrapTorchTensor(value.reshape(shape.dimensions).clone(), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch reshape", error);
-  }
+  });
 }
 
 Status TorchBackend::Transpose2D(const Tensor& tensor,
@@ -325,11 +351,9 @@ Status TorchBackend::Transpose2D(const Tensor& tensor,
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("torch transpose", [&]() {
     return WrapTorchTensor(value.transpose(0, 1).contiguous(), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch transpose", error);
-  }
+  });
 }
 
 Status TorchBackend::Add(const Tensor& left,
@@ -344,11 +368,9 @@ Status TorchBackend::Add(const Tensor& left,
   if (!status.ok()) return status;
   status = TensorToTorch(right, &b);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("torch add", [&]() {
     return WrapTorchTensor(a + b, out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch add", error);
-  }
+  });
 }
 
 Status TorchBackend::Multiply(const Tensor& left,
@@ -363,11 +385,9 @@ Status TorchBackend::Multiply(const Tensor& left,
   if (!status.ok()) return status;
   status = TensorToTorch(right, &b);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("torch multiply", [&]() {
     return WrapTorchTensor(a * b, out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch multiply", error);
-  }
+  });
 }
 
 Status TorchBackend::Sum(const Tensor& tensor,
@@ -375,11 +395,9 @@ Status TorchBackend::Sum(const Tensor& tensor,
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("torch sum", [&]() {
     return WrapTorchTensor(value.sum(), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch sum", error);
-  }
+  });
 }
 
 Status TorchBackend::Matmul(const Tensor& left,
@@ -398,11 +416,9 @@ Status TorchBackend::Matmul(const Tensor& left,
   if (!status.ok()) return status;
   status = TensorToTorch(right, &b);
   if (!status.ok()) return status;
-  try {
+  return internal::GuardTorch("torch matmul", [&]() {
     return WrapTorchTensor(torch::matmul(a, b), out);
-  } catch (const c10::Error& error) {
-    return TorchFailure("torch matmul", error);
-  }
+  });
 }
 
 }  // namespace tensora::training
