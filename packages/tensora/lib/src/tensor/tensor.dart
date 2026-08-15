@@ -37,7 +37,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype);
+    _validateCreation(dtype: dtype, operation: 'fromList');
     if (values.length != shape.numel) {
       throw InvalidShapeException(
         'Input contains ${values.length} values, but $shape requires '
@@ -71,7 +71,7 @@ final class Tensor {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype);
+    _validateCreation(dtype: dtype, operation: 'full');
     final hostHandle = NativeRuntime.instance.full(shape, value.toDouble());
     return _adoptCreatedHandle(hostHandle, device);
   }
@@ -250,11 +250,16 @@ final class Tensor {
     }
   }
 
-  static void _validateCreation(DType dtype) {
-    final supported = switch (dtype) {
-      DType.float32 => true,
-    };
-    assert(supported);
+  static void _validateCreation({
+    required DType dtype,
+    required String operation,
+  }) {
+    if (!dtype.nativeStorageImplemented) {
+      throw UnsupportedOperationException(
+        'Tensor creation currently supports only DType.float32 native storage.',
+        operation: 'tensor.$operation',
+      );
+    }
   }
 
   void _ensureLive(String operation) {
