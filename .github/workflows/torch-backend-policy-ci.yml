@@ -1,0 +1,122 @@
+name: Torch Backend Policy CI
+
+on:
+  push:
+    branches:
+      - 'work/**'
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: torch-backend-policy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Deterministic LibTorch backend policies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned CPU LibTorch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install \
+            torch==2.13.0+cpu \
+            --index-url https://download.pytorch.org/whl/cpu
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+
+      - name: Configure Torch internal tests
+        shell: bash
+        run: >-
+          cmake -S native -B build/torch-policy
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_WITH_ONNXRUNTIME=OFF
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build existing backend internal target
+        run: >-
+          cmake --build build/torch-policy
+          --target tensora_training_backend_internal_tests
+          --parallel 2
+
+      - name: Compile and link deterministic policy contract with target flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import shlex
+          import subprocess
+          from pathlib import Path
+
+          repo = Path.cwd()
+          build = repo / 'build' / 'torch-policy'
+          compile_db = json.loads((build / 'compile_commands.json').read_text())
+          entry = next(
+              item for item in compile_db
+              if item['file'].replace('\\', '/').endswith('/native/src/training/torch_backend.cc')
+          )
+          args = entry.get('arguments') or shlex.split(entry['command'])
+          test_source = str(repo / 'native/tests/torch_backend_policy_test.cc')
+          output = str(build / 'torch_backend_policy_test.o')
+          rewritten = []
+          skip_next_output = False
+          for index, arg in enumerate(args):
+              normalized = arg.replace('\\', '/')
+              if normalized.endswith('/native/src/training/torch_backend.cc'):
+                  rewritten.append(test_source)
+              elif skip_next_output:
+                  rewritten.append(output)
+                  skip_next_output = False
+              elif arg == '-o':
+                  rewritten.append(arg)
+                  skip_next_output = True
+              else:
+                  rewritten.append(arg)
+          subprocess.run(rewritten, cwd=entry['directory'], check=True)
+
+          target_dir = build / 'CMakeFiles/tensora_training_backend_internal_tests.dir'
+          link_args = shlex.split((target_dir / 'link.txt').read_text())
+          existing_test_suffix = (
+              'CMakeFiles/tensora_training_backend_internal_tests.dir/'
+              'tests/training_backend_internal_test.cc.o'
+          )
+          linked = []
+          replace_output = False
+          for arg in link_args:
+              normalized = arg.replace('\\', '/')
+              if normalized.endswith(existing_test_suffix):
+                  linked.append(output)
+              elif replace_output:
+                  linked.append('tensora_torch_backend_policy_tests')
+                  replace_output = False
+              elif arg == '-o':
+                  linked.append(arg)
+                  replace_output = True
+              else:
+                  linked.append(arg)
+          subprocess.run(linked, cwd=build, check=True)
+          PY
+
+      - name: Run deterministic policy contract
+        working-directory: build/torch-policy
+        run: ./tensora_torch_backend_policy_tests
