@@ -7,12 +7,9 @@ typedef Parameter = core.Parameter;
 /// A registered non-trainable tensor state value.
 final class Buffer {
   /// @nodoc
-  Buffer.fromTensor(
-    core.Tensor tensor, {
-    this.persistent = true,
-    int? identity,
-  }) : _tensor = tensor,
-       identity = identity ?? identityHashCode(tensor);
+  Buffer.fromTensor(core.Tensor tensor, {this.persistent = true, int? identity})
+    : _tensor = tensor,
+      identity = identity ?? identityHashCode(tensor);
 
   final core.Tensor _tensor;
   bool _disposed = false;

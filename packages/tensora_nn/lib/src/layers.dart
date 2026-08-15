@@ -28,12 +28,10 @@ final class Sequential extends Module {
 
   Sequential._(List<Module> children)
     : _children = children,
-      _entries = List<NamedModule>.unmodifiable(
-        <NamedModule>[
-          for (var index = 0; index < children.length; index++)
-            NamedModule('$index', children[index]),
-        ],
-      );
+      _entries = List<NamedModule>.unmodifiable(<NamedModule>[
+        for (var index = 0; index < children.length; index++)
+          NamedModule('$index', children[index]),
+      ]);
 
   final List<Module> _children;
   final List<NamedModule> _entries;

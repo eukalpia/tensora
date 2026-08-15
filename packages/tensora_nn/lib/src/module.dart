@@ -178,7 +178,9 @@ abstract base class Module {
         dtype = buffer.dtype;
         device = buffer.device;
       }
-      if (source.shape != shape || source.dtype != dtype || source.device != device) {
+      if (source.shape != shape ||
+          source.dtype != dtype ||
+          source.device != device) {
         throw core.InvalidArgumentException(
           'StateDict entry $key has incompatible tensor metadata.',
           operation: 'module.loadStateDict',
@@ -338,7 +340,9 @@ abstract base class Module {
     internalEnsureMaterialized();
     for (final entry in internalRegisteredParameters) {
       if (seen.add(entry.parameter.identity)) {
-        output.add(NamedParameter(_joinPath(prefix, entry.name), entry.parameter));
+        output.add(
+          NamedParameter(_joinPath(prefix, entry.name), entry.parameter),
+        );
       }
     }
     for (final child in internalRegisteredChildren) {
@@ -350,11 +354,7 @@ abstract base class Module {
     }
   }
 
-  void _collectBuffers(
-    String prefix,
-    List<NamedBuffer> output,
-    Set<int> seen,
-  ) {
+  void _collectBuffers(String prefix, List<NamedBuffer> output, Set<int> seen) {
     internalEnsureMaterialized();
     for (final entry in internalRegisteredBuffers) {
       if (seen.add(entry.buffer.identity)) {
@@ -375,11 +375,7 @@ abstract base class Module {
     if (!seen.add(this)) return;
     output.add(NamedModule(prefix, this));
     for (final child in internalRegisteredChildren) {
-      child.module._collectModules(
-        _joinPath(prefix, child.name),
-        output,
-        seen,
-      );
+      child.module._collectModules(_joinPath(prefix, child.name), output, seen);
     }
   }
 
@@ -395,7 +391,9 @@ abstract base class Module {
       final isLast = index == entries.length - 1;
       final connector = isLast ? '└── ' : '├── ';
       final labelPrefix = entry.name.isEmpty ? '' : '${entry.name}: ';
-      buffer.writeln('$prefix$connector$labelPrefix${child.internalDiagnosticLabel}');
+      buffer.writeln(
+        '$prefix$connector$labelPrefix${child.internalDiagnosticLabel}',
+      );
       final childPrefix = '$prefix${isLast ? '    ' : '│   '}';
       child._writeChildren(
         buffer,

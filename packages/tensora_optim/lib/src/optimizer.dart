@@ -220,7 +220,9 @@ List<ParameterGroup> _validatedGroups(Iterable<ParameterGroup> groups) {
   for (final group in copied) {
     for (final parameter in group.parameters) {
       if (!identities.add(parameter.identity)) {
-        throw ArgumentError('A parameter may belong to only one optimizer group.');
+        throw ArgumentError(
+          'A parameter may belong to only one optimizer group.',
+        );
       }
     }
   }
