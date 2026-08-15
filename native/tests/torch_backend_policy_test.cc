@@ -214,7 +214,7 @@ int CheckStoragePolicies() {
   if (!ExpectStatus(ValidateTorchStorageSize(4, nullptr), TS_INVALID_ARGUMENT,
                     "storage size null"))
     return 60;
-  if (!ExpectStatus(ValidateTorchStorageSize(-1, &bytes), TS_INVALID_ARGUMENT,
+  if (!ExpectStatus(ValidateTorchStorageSize(-1, &bytes), TS_INTERNAL_ERROR,
                     "storage negative numel"))
     return 61;
   if (!ExpectStatus(ValidateTorchStorageSize(
