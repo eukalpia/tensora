@@ -28,6 +28,31 @@ static ts_status_t nn_v2_optimizer_create(const ts_tensor_t* parameters,
   return TS_OK;
 }
 
+ts_status_t ts_tensor_identity(ts_tensor_t tensor, uint64_t* out_identity) {
+  if (tensor == 0 || out_identity == NULL) {
+    return TS_INVALID_ARGUMENT;
+  }
+  *out_identity = tensor + UINT64_C(1000000);
+  return TS_OK;
+}
+
+ts_status_t ts_tensor_clone_detached(ts_tensor_t tensor,
+                                     ts_tensor_t* out_tensor) {
+  return nn_v2_unary_tensor(tensor, out_tensor);
+}
+
+ts_status_t ts_tensor_assign_many(const ts_tensor_t* targets,
+                                  const ts_tensor_t* sources,
+                                  size_t count) {
+  if (count == 0) {
+    return TS_OK;
+  }
+  if (targets == NULL || sources == NULL) {
+    return TS_INVALID_ARGUMENT;
+  }
+  return TS_OK;
+}
+
 ts_status_t ts_tensor_gelu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
   return nn_v2_unary_tensor(tensor, out_tensor);
 }
