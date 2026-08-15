@@ -9,6 +9,7 @@
 // symbols being exported from the Windows DLL. The public C ABI remains the
 // DLL boundary; this test intentionally exercises the disabled backend bridge
 // implementation directly on every platform.
+#include "../src/core/status.cc"
 #include "../src/inference/inference_bridge_stub.cc"
 
 int main() {
