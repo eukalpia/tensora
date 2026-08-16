@@ -23,6 +23,7 @@
 #include "runtime/handle_registry.h"
 #include "tensor/shape.h"
 #include "tensor/tensor.h"
+#include "training/nn_v2_optimizer.h"
 #include "training/training_bridge.h"
 
 namespace coverage {
@@ -182,6 +183,64 @@ int CheckInternalContracts() {
   return 0;
 }
 
+int CheckNnV2CoreDefensiveContracts() {
+  using namespace autograd;
+
+  ShapeInfo corrupt_shape;
+  const int64_t corrupt_dims[1] = {2};
+  if (!ValidateShape(corrupt_dims, 1, &corrupt_shape).ok()) return 60;
+  corrupt_shape.numel = 3;
+  corrupt_shape.byte_size = 3 * sizeof(float);
+  std::shared_ptr<Tensor> output;
+  if (!ExpectStatus(MakeCpuTensor(corrupt_shape, {1.0f, 2.0f, 3.0f}, &output),
+                    TS_INTERNAL_ERROR, "canonicalized gradient shape mismatch")) {
+    return 61;
+  }
+
+  auto managed = MakeTensor({1.0f, 2.0f}, {2});
+  if (!managed) return 62;
+  Tensor unmanaged(managed->shape(), managed->storage());
+  if (!ExpectStatus(Share(unmanaged, &output), TS_INTERNAL_ERROR,
+                    "unmanaged differentiable tensor sharing")) {
+    return 63;
+  }
+
+  std::shared_ptr<Tensor> leaf;
+  if (!ExpectStatus(CloneAsLeaf(*managed, true, &leaf), TS_OK,
+                    "create versioned leaf") ||
+      !leaf) {
+    return 64;
+  }
+  GradNode version_node;
+  version_node.operation = Operation::kIdentity;
+  version_node.parents = {leaf};
+  version_node.parent_versions = {Version(*leaf)};
+  IncrementVersion(*leaf);
+  if (!ExpectStatus(ValidateSavedVersions(version_node), TS_INVALID_ARGUMENT,
+                    "saved tensor version mismatch")) {
+    return 65;
+  }
+
+  auto parameter = MakeTensor({1.0f}, {1});
+  auto wrong_gradient = MakeTensor({1.0f, 2.0f}, {2});
+  if (!parameter || !wrong_gradient) return 66;
+  auto meta = std::make_shared<AutogradMeta>();
+  meta->requires_grad = true;
+  meta->is_leaf = true;
+  meta->gradient = wrong_gradient;
+  parameter->set_autograd_meta(std::move(meta));
+
+  nn_v2_optimizer::State optimizer_state;
+  optimizer_state.kind = nn_v2_optimizer::Kind::kSgd;
+  optimizer_state.parameters = {parameter};
+  optimizer_state.learning_rate = 0.1;
+  if (!ExpectStatus(nn_v2_optimizer::CpuStep(&optimizer_state),
+                    TS_INTERNAL_ERROR, "NN V2 gradient size mismatch")) {
+    return 67;
+  }
+  return 0;
+}
+
 int CheckCheckpointWriteFailures() {
   uint64_t module = 0;
   if (!ExpectStatus(LinearCreate(1, 1, false, &module), TS_OK,
@@ -267,6 +326,7 @@ int CheckOptimizerGradientMismatch() {
 
 int RunCoverageContracts() {
   if (const int code = CheckInternalContracts(); code != 0) return code;
+  if (const int code = CheckNnV2CoreDefensiveContracts(); code != 0) return code;
   if (const int code = CheckCheckpointWriteFailures(); code != 0) return code;
   if (const int code = CheckOptimizerGradientMismatch(); code != 0) return code;
   return 0;
