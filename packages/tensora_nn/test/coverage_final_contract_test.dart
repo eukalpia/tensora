@@ -11,6 +11,7 @@ void main() {
   test('base Module exposes stateless defaults without hidden ownership', () {
     final probe = _BaseProbe();
 
+    expect(probe.isDisposed, isFalse);
     expect(probe.isMaterialized, isTrue);
     expect(probe.children, isEmpty);
     expect(probe.toString(), '_BaseProbe');
