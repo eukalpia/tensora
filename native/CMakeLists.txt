@@ -122,6 +122,7 @@ if(MSVC)
     # translation units that must compile the upstream LibTorch API.
     set_source_files_properties(
       src/runtime/dispatcher.cc
+      src/training/training_c_api.cc
       src/training/torch_backend.cc
       src/training/torch_storage.cc
       src/training/training_bridge_torch.cc
@@ -307,6 +308,7 @@ if(TENSORA_BUILD_TESTS)
       src/training/torch_storage.cc
     )
     target_compile_features(tensora_training_backend_internal_tests PRIVATE cxx_std_20)
+    target_compile_definitions(tensora_training_backend_internal_tests PRIVATE TENSORA_WITH_TORCH=1)
     target_include_directories(tensora_training_backend_internal_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}/src
