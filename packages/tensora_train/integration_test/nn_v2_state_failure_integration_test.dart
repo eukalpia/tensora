@@ -14,10 +14,7 @@ void main() {
       parameters.last.dispose();
       final baseline = TensoraRuntime.liveTensorCount;
 
-      expect(
-        layer.stateDict,
-        throwsA(isA<DisposedTensorException>()),
-      );
+      expect(layer.stateDict, throwsA(isA<DisposedTensorException>()));
       expect(TensoraRuntime.liveTensorCount, baseline);
     },
   );
