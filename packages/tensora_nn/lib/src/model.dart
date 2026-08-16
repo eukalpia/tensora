@@ -33,10 +33,8 @@ abstract base class Model extends Module {
     }
 
     _building = true;
-    Module? candidate;
-    var ownsCandidate = false;
     try {
-      candidate = build();
+      final candidate = build();
       if (identical(candidate, this)) {
         throw core.InvalidArgumentException(
           'Model.build() cannot return the model itself.',
@@ -63,15 +61,7 @@ abstract base class Model extends Module {
       }
 
       candidate.internalAttachOwner(this);
-      ownsCandidate = true;
       _materializedRoot = candidate;
-    } catch (_) {
-      if (candidate != null && ownsCandidate) {
-        candidate.internalDetachOwner(this);
-        candidate.dispose();
-      }
-      _materializedRoot = null;
-      rethrow;
     } finally {
       _building = false;
     }
