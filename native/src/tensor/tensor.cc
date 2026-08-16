@@ -21,6 +21,11 @@ std::shared_ptr<TensorIdentityAnchor> NewTensorIdentityAnchor() {
   return std::make_shared<TensorIdentityAnchor>(identity);
 }
 
+TensorVersionCounter::TensorVersionCounter(
+    std::shared_ptr<TensorIdentityAnchor> identity_anchor)
+    : identity(identity_anchor ? std::move(identity_anchor)
+                               : NewTensorIdentityAnchor()) {}
+
 Tensor::Tensor(ShapeInfo shape,
                std::shared_ptr<TensorStorage> storage,
                DType dtype,
@@ -35,10 +40,10 @@ Tensor::Tensor(ShapeInfo shape,
       device_(device),
       device_index_(device_index),
       storage_offset_(storage_offset),
-      version_counter_(version_counter ? std::move(version_counter)
-                                       : std::make_shared<TensorVersionCounter>()),
-      identity_anchor_(identity_anchor ? std::move(identity_anchor)
-                                       : NewTensorIdentityAnchor()) {}
+      version_counter_(
+          version_counter
+              ? std::move(version_counter)
+              : std::make_shared<TensorVersionCounter>(std::move(identity_anchor))) {}
 
 bool Tensor::is_contiguous() const {
   uint64_t expected_stride = 1;
