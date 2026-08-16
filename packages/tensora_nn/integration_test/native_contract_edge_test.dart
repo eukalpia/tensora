@@ -76,4 +76,33 @@ void main() {
     },
     skip: fixtureSkip,
   );
+
+  test(
+    'Linear rejects a post-move native parameter-count change before replacing views',
+    () {
+      final library = DynamicLibrary.open(fixturePath!);
+      final reset = library.lookupFunction<_VoidNative, _VoidDart>(
+        'ts_test_reset',
+      );
+      final setTrainingMode = library.lookupFunction<_SetIntNative, _SetIntDart>(
+        'ts_test_set_training_mode',
+      );
+      reset();
+      setTrainingMode(0);
+
+      final layer = Linear(inFeatures: 1, outFeatures: 1, bias: false);
+      addTearDown(layer.dispose);
+      final identity = layer.parameters.single.identity;
+      setTrainingMode(1); // fixture now exposes two native parameters
+
+      expect(
+        () => layer.to(core.Device.cpu),
+        throwsA(isA<core.NativeRuntimeException>()),
+      );
+      setTrainingMode(0);
+      expect(layer.parameters.single.identity, identity);
+      reset();
+    },
+    skip: fixtureSkip,
+  );
 }
