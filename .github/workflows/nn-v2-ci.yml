@@ -20,7 +20,7 @@ jobs:
   core-contracts:
     name: Core NN V2 native + declarative contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/nn-v2-core/libtensora_native.so
     steps:
@@ -123,3 +123,47 @@ jobs:
         run: >-
           dart test integration_test/declarative_nn_v2_integration_test.dart
           --reporter expanded
+
+      - name: Collect NN V2 Dart composition coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          coverage_dir="$GITHUB_WORKSPACE/build/nn-v2-dart-coverage"
+          mkdir -p "$coverage_dir"
+
+          (
+            cd packages/tensora_nn
+            dart test test \
+              --coverage-path="$coverage_dir/nn.info" \
+              --reporter expanded
+          )
+          (
+            cd packages/tensora_optim
+            dart test test \
+              --coverage-path="$coverage_dir/optim.info" \
+              --reporter expanded
+          )
+          (
+            cd packages/tensora_train
+            dart test integration_test/declarative_nn_v2_integration_test.dart \
+              --coverage-path="$coverage_dir/train.info" \
+              --reporter expanded
+          )
+
+          python tools/merge_dart_coverage.py "$coverage_dir" \
+            --source-fragment '/packages/tensora_nn/lib/' \
+            --output "$coverage_dir/tensora-nn-merged.info" \
+            --summary "$coverage_dir/tensora-nn-summary.md"
+          python tools/merge_dart_coverage.py "$coverage_dir" \
+            --source-fragment '/packages/tensora_optim/lib/' \
+            --output "$coverage_dir/tensora-optim-merged.info" \
+            --summary "$coverage_dir/tensora-optim-summary.md"
+
+      - name: Upload NN V2 Dart coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-nn-v2-dart-coverage
+          path: build/nn-v2-dart-coverage/
+          if-no-files-found: warn
+          retention-days: 7
