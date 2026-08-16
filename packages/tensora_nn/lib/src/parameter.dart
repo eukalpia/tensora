@@ -14,11 +14,7 @@ final class Buffer {
     );
   }
 
-  Buffer._(
-    this._tensor, {
-    required this.persistent,
-    required this.identity,
-  });
+  Buffer._(this._tensor, {required this.persistent, required this.identity});
 
   final core.Tensor _tensor;
   bool _disposed = false;
