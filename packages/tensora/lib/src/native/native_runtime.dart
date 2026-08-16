@@ -1,10 +1,12 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
 import '../device/device.dart';
 import '../dtype/dtype.dart';
+import '../dtype/half_codec.dart';
 import '../errors/tensora_exception.dart';
 import '../shape/shape.dart';
 import 'native_bindings.dart';
@@ -27,6 +29,18 @@ typedef _LoadLibraryExWDart =
 typedef _GetLastErrorNative = Uint32 Function();
 typedef _GetLastErrorDart = int Function();
 
+final class _NativeHostBuffer {
+  const _NativeHostBuffer({
+    required this.pointer,
+    required this.byteLength,
+    required this.release,
+  });
+
+  final Pointer<Void> pointer;
+  final int byteLength;
+  final void Function() release;
+}
+
 final class NativeRuntime {
   NativeRuntime._(this._bindings, this.libraryPath) {
     final version = _bindings.abiVersion();
@@ -39,7 +53,7 @@ final class NativeRuntime {
     }
   }
 
-  static const int expectedAbiVersion = 5;
+  static const int expectedAbiVersion = 6;
   static const int _loadLibrarySearchDllLoadDir = 0x00000100;
   static const int _loadLibrarySearchDefaultDirs = 0x00001000;
 
@@ -118,32 +132,60 @@ final class NativeRuntime {
     operatingSystem: Platform.operatingSystem,
   );
 
-  int createFromList(List<num> values, Shape shape) {
-    final data = calloc<Float>(values.length);
+  int createFromList(
+    List<Object> values,
+    Shape shape, [
+    DType dtype = DType.float32,
+  ]) {
+    final buffer = _encodeValues(values, dtype, 'tensor.fromList');
     try {
-      for (var index = 0; index < values.length; index++) {
-        data[index] = values[index].toDouble();
-      }
       return _withDimensions(shape, (dims, rank) {
         return _newHandle(
           'tensor.fromList',
-          (out) =>
-              _bindings.tensorFromF32(data, values.length, dims, rank, out),
+          (out) => _bindings.tensorFromHost(
+            buffer.pointer,
+            buffer.byteLength,
+            dtype.nativeCode,
+            dims,
+            rank,
+            out,
+          ),
         );
       });
     } finally {
-      calloc.free(data);
+      buffer.release();
     }
   }
 
-  int full(Shape shape, double value) {
-    return _withDimensions(shape, (dims, rank) {
-      return _newHandle(
-        'tensor.full',
-        (out) => _bindings.tensorFullF32(dims, rank, value, out),
-      );
-    });
+  int full(
+    Shape shape,
+    Object value, [
+    DType dtype = DType.float32,
+  ]) {
+    final scalar = _encodeValues([value], dtype, 'tensor.full');
+    try {
+      return _withDimensions(shape, (dims, rank) {
+        return _newHandle(
+          'tensor.full',
+          (out) => _bindings.tensorFull(
+            scalar.pointer,
+            scalar.byteLength,
+            dtype.nativeCode,
+            dims,
+            rank,
+            out,
+          ),
+        );
+      });
+    } finally {
+      scalar.release();
+    }
   }
+
+  int cast(int handle, DType target) => _newHandle(
+    'tensor.cast',
+    (out) => _bindings.tensorCast(handle, target.nativeCode, out),
+  );
 
   int toDevice(int handle, Device device) => _newHandle(
     'tensor.to',
@@ -256,14 +298,14 @@ final class NativeRuntime {
     final value = calloc<Uint32>();
     try {
       _check(_bindings.tensorDType(handle, value), 'tensor.dtype');
-      return switch (value.value) {
-        1 => DType.float32,
-        final code =>
-          throw NativeRuntimeException(
-            'Native runtime returned unknown dtype code $code.',
-            operation: 'tensor.dtype',
-          ),
-      };
+      try {
+        return DType.fromNativeCode(value.value);
+      } on ArgumentError catch (error) {
+        throw NativeRuntimeException(
+          'Native runtime returned invalid dtype metadata: $error',
+          operation: 'tensor.dtype',
+        );
+      }
     } finally {
       calloc.free(value);
     }
@@ -343,6 +385,7 @@ final class NativeRuntime {
 
   int cudaDeviceCount() => deviceCount(Device.cuda(0));
 
+  /// Backward-compatible exact float32 host materialization.
   List<double> copyToHost(int handle, int numel) {
     final values = calloc<Float>(numel);
     final written = calloc<Size>();
@@ -362,6 +405,125 @@ final class NativeRuntime {
       calloc.free(written);
       calloc.free(values);
     }
+  }
+
+  TypedData copyToHostTyped(int handle, int numel, DType dtype) {
+    final expectedBytes = numel * dtype.byteWidth;
+    final written = calloc<Size>();
+
+    T copy<T extends NativeType, R extends TypedData>(
+      Pointer<T> pointer,
+      R Function() snapshot,
+    ) {
+      try {
+        _check(
+          _bindings.tensorCopyToHost(
+            handle,
+            pointer.cast<Void>(),
+            expectedBytes,
+            written,
+          ),
+          'tensor.toTypedData',
+        );
+        if (written.value != expectedBytes) {
+          throw NativeRuntimeException(
+            'Native copy wrote ${written.value} bytes; expected $expectedBytes.',
+            operation: 'tensor.toTypedData',
+          );
+        }
+        return snapshot();
+      } finally {
+        calloc.free(pointer);
+      }
+    }
+
+    try {
+      return switch (dtype) {
+        DType.float16 || DType.bfloat16 => () {
+          final pointer = calloc<Uint16>(numel);
+          return copy<Uint16, Uint16List>(
+            pointer,
+            () => Uint16List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+        DType.float32 => () {
+          final pointer = calloc<Float>(numel);
+          return copy<Float, Float32List>(
+            pointer,
+            () => Float32List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+        DType.float64 => () {
+          final pointer = calloc<Double>(numel);
+          return copy<Double, Float64List>(
+            pointer,
+            () => Float64List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+        DType.int8 => () {
+          final pointer = calloc<Int8>(numel);
+          return copy<Int8, Int8List>(
+            pointer,
+            () => Int8List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+        DType.uint8 || DType.boolean => () {
+          final pointer = calloc<Uint8>(numel);
+          return copy<Uint8, Uint8List>(
+            pointer,
+            () => Uint8List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+        DType.int16 => () {
+          final pointer = calloc<Int16>(numel);
+          return copy<Int16, Int16List>(
+            pointer,
+            () => Int16List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+        DType.int32 => () {
+          final pointer = calloc<Int32>(numel);
+          return copy<Int32, Int32List>(
+            pointer,
+            () => Int32List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+        DType.int64 => () {
+          final pointer = calloc<Int64>(numel);
+          return copy<Int64, Int64List>(
+            pointer,
+            () => Int64List.fromList(pointer.asTypedList(numel)),
+          );
+        }(),
+      };
+    } finally {
+      calloc.free(written);
+    }
+  }
+
+  List<Object> copyToHostValues(int handle, int numel, DType dtype) {
+    final values = copyToHostTyped(handle, numel, dtype);
+    return switch (dtype) {
+      DType.float16 => List<Object>.generate(
+        numel,
+        (index) => decodeFloat16((values as Uint16List)[index]),
+      ),
+      DType.bfloat16 => List<Object>.generate(
+        numel,
+        (index) => decodeBFloat16((values as Uint16List)[index]),
+      ),
+      DType.float32 => List<Object>.from(values as Float32List),
+      DType.float64 => List<Object>.from(values as Float64List),
+      DType.int8 => List<Object>.from(values as Int8List),
+      DType.uint8 => List<Object>.from(values as Uint8List),
+      DType.int16 => List<Object>.from(values as Int16List),
+      DType.int32 => List<Object>.from(values as Int32List),
+      DType.int64 => List<Object>.from(values as Int64List),
+      DType.boolean => List<Object>.generate(
+        numel,
+        (index) => (values as Uint8List)[index] != 0,
+      ),
+    };
   }
 
   void retain(int handle) {
@@ -405,6 +567,206 @@ final class NativeRuntime {
     } finally {
       calloc.free(value);
     }
+  }
+
+  _NativeHostBuffer _encodeValues(
+    List<Object> values,
+    DType dtype,
+    String operation,
+  ) {
+    T require<T>(Object value, int index) {
+      if (value is T) return value;
+      throw InvalidArgumentException(
+        '$dtype requires ${T.toString()} host values; value $index is '
+        '${value.runtimeType}.',
+        operation: operation,
+      );
+    }
+
+    int integer(Object value, int index, int minimum, int maximum) {
+      final result = require<int>(value, index);
+      if (result < minimum || result > maximum) {
+        throw InvalidArgumentException(
+          'Value $result at index $index is outside the $dtype range '
+          '[$minimum, $maximum].',
+          operation: operation,
+        );
+      }
+      return result;
+    }
+
+    return switch (dtype) {
+      DType.float16 => () {
+        final pointer = calloc<Uint16>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = encodeFloat16(require<num>(values[index], index).toDouble());
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length * 2,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.bfloat16 => () {
+        final pointer = calloc<Uint16>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = encodeBFloat16(require<num>(values[index], index).toDouble());
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length * 2,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.float32 => () {
+        final pointer = calloc<Float>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = require<num>(values[index], index).toDouble();
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length * 4,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.float64 => () {
+        final pointer = calloc<Double>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = require<num>(values[index], index).toDouble();
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length * 8,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.int8 => () {
+        final pointer = calloc<Int8>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = integer(values[index], index, -128, 127);
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.uint8 => () {
+        final pointer = calloc<Uint8>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = integer(values[index], index, 0, 255);
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.int16 => () {
+        final pointer = calloc<Int16>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = integer(values[index], index, -32768, 32767);
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length * 2,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.int32 => () {
+        final pointer = calloc<Int32>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = integer(
+              values[index],
+              index,
+              -2147483648,
+              2147483647,
+            );
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length * 4,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.int64 => () {
+        final pointer = calloc<Int64>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = integer(
+              values[index],
+              index,
+              -9223372036854775808,
+              9223372036854775807,
+            );
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length * 8,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+      DType.boolean => () {
+        final pointer = calloc<Uint8>(values.length);
+        try {
+          for (var index = 0; index < values.length; index++) {
+            pointer[index] = require<bool>(values[index], index) ? 1 : 0;
+          }
+          return _NativeHostBuffer(
+            pointer: pointer.cast<Void>(),
+            byteLength: values.length,
+            release: () => calloc.free(pointer),
+          );
+        } catch (_) {
+          calloc.free(pointer);
+          rethrow;
+        }
+      }(),
+    };
   }
 
   int _newHandle(String operation, int Function(Pointer<Uint64> out) call) {
