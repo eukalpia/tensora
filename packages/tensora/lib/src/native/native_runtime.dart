@@ -39,7 +39,7 @@ final class NativeRuntime {
     }
   }
 
-  static const int expectedAbiVersion = 4;
+  static const int expectedAbiVersion = 5;
   static const int _loadLibrarySearchDllLoadDir = 0x00000100;
   static const int _loadLibrarySearchDefaultDirs = 0x00001000;
 
