@@ -161,7 +161,7 @@ jobs:
           )
           (
             cd packages/tensora_train
-            dart test integration_test/declarative_nn_v2_integration_test.dart \
+            dart test integration_test \
               --coverage-path="$coverage_dir/train.info" \
               --reporter expanded
           )
