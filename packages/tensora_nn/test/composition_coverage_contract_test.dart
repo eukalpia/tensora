@@ -122,14 +122,12 @@ void main() {
     owned.dispose();
     owner.dispose();
 
-    final cyclicCandidate = CycleProbe();
-    final cyclic = CandidateModel(cyclicCandidate);
+    final cyclic = CandidateModel(CycleProbe());
     expect(
       () => cyclic.parameters,
       throwsA(isA<core.InvalidArgumentException>()),
     );
     cyclic.dispose();
-    cyclicCandidate.dispose();
   });
 
   test('Sequential ownership is atomic when a later attachment fails', () {
