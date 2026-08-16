@@ -67,11 +67,11 @@ inline Status TorchIdentity(const Tensor& tensor, uint64_t* out_identity) {
     return InternalError("tensor_identity: opaque identity space exhausted");
   }
   const uint64_t assigned = next++;
-  try {
+  status = AllocationGuard("tensor_identity", [&]() -> Status {
     identities.emplace(key, assigned);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("tensor_identity: identity registry allocation failed");
-  }
+    return Status::Ok();
+  });
+  if (!status.ok()) return status;
   *out_identity = assigned;
   return Status::Ok();
 }
@@ -187,12 +187,14 @@ inline Status AssignMany(const uint64_t* target_handles,
     uint64_t target_identity = 0;
     status = TensorIdentity(*target, &target_identity);
     if (!status.ok()) return status;
-    try {
-      if (!target_identities.insert(target_identity).second) {
-        return InvalidArgument("tensor_assign_many: duplicate target tensor");
-      }
-    } catch (const std::bad_alloc&) {
-      return OutOfMemory("tensor_assign_many: target registry allocation failed");
+    bool inserted = false;
+    status = AllocationGuard("tensor_assign_many", [&]() -> Status {
+      inserted = target_identities.insert(target_identity).second;
+      return Status::Ok();
+    });
+    if (!status.ok()) return status;
+    if (!inserted) {
+      return InvalidArgument("tensor_assign_many: duplicate target tensor");
     }
 
     const StorageKind kind = target->storage()->kind();
@@ -224,10 +226,6 @@ inline Status AssignMany(const uint64_t* target_handles,
       status = autograd::MutableCpuValues(
           *targets[index], "tensor_assign_many", &mutable_targets[index]);
       if (!status.ok()) return status;
-      if (mutable_targets[index]->size() != staged_sources[index].size()) {
-        return InternalError(
-            "tensor_assign_many: validated CPU tensor size changed");
-      }
     }
 
     for (size_t index = 0; index < count; ++index) {
