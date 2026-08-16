@@ -11,6 +11,7 @@
 
 #include "autograd/autograd.h"
 #include "core/allocation_guard.h"
+#include "core/integer_math.h"
 
 namespace tensora {
 namespace cpu_backend_internal {
@@ -21,6 +22,7 @@ Status MakeTensor(ShapeInfo shape,
   if (out == nullptr) {
     return InvalidArgument("cpu backend: output tensor pointer is null");
   }
+  *out = nullptr;
   if (!storage) {
     return InvalidArgument("cpu backend: materialized tensor storage is null");
   }
@@ -35,10 +37,17 @@ Status MakeTensor(ShapeInfo shape,
     return InternalError(
         "cpu backend: materialized tensor shape/storage contract is invalid");
   }
+  size_t expected_bytes = 0;
+  status = CheckedByteSize(shape.numel, DTypeByteWidth(storage->dtype()),
+                           "cpu backend", &expected_bytes);
+  if (!status.ok() || storage->byte_size() != expected_bytes) {
+    return InternalError(
+        "cpu backend: materialized tensor dtype/storage size is invalid");
+  }
 
   return AllocationGuard("cpu backend tensor", [&]() -> Status {
-    *out = std::make_shared<Tensor>(std::move(materialized_shape),
-                                    std::move(storage));
+    *out = std::make_shared<Tensor>(std::move(materialized_shape), storage,
+                                    storage->dtype());
     return Status::Ok();
   });
 }
@@ -58,10 +67,21 @@ Status MakeView(ShapeInfo shape,
   });
 }
 
-Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
+Status EnsureCpu(const Tensor& tensor, const char* operation) {
   if (tensor.device() != Device::kCpu || tensor.device_index() != 0) {
     return Unsupported(std::string(operation) + ": CPU backend requires cpu:0");
   }
+  auto storage = std::dynamic_pointer_cast<CpuStorage>(tensor.storage());
+  if (!storage || storage->dtype() != tensor.dtype()) {
+    return InternalError(std::string(operation) +
+                         ": CPU tensor storage metadata is inconsistent");
+  }
+  return Status::Ok();
+}
+
+Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
+  Status status = EnsureCpu(tensor, operation);
+  if (!status.ok()) return status;
   if (tensor.dtype() != DType::kFloat32) {
     return Unsupported(std::string(operation) + ": only float32 is supported");
   }
@@ -88,9 +108,39 @@ Status LogicalValues(const Tensor& tensor,
   return Status::Ok();
 }
 
+Status LogicalBytes(const Tensor& tensor,
+                    const char* operation,
+                    std::vector<uint8_t>* out) {
+  if (out == nullptr) {
+    return InvalidArgument(std::string(operation) +
+                           ": output bytes pointer is null");
+  }
+  Status status = EnsureCpu(tensor, operation);
+  if (!status.ok()) return status;
+  size_t bytes = 0;
+  status = CheckedByteSize(tensor.numel(), DTypeByteWidth(tensor.dtype()),
+                           operation, &bytes);
+  if (!status.ok()) return status;
+  status = AllocationGuard(operation, [&]() -> Status {
+    out->assign(bytes, uint8_t{0});
+    return Status::Ok();
+  });
+  if (!status.ok()) return status;
+  size_t written = 0;
+  status = tensor.CopyToHostRaw(out->data(), out->size(), &written);
+  if (!status.ok()) return status;
+  if (written != bytes) {
+    return InternalError(std::string(operation) +
+                         ": logical byte count is inconsistent");
+  }
+  return Status::Ok();
+}
+
 }  // namespace cpu_backend_internal
 
+using cpu_backend_internal::EnsureCpu;
 using cpu_backend_internal::EnsureCpuFloat32;
+using cpu_backend_internal::LogicalBytes;
 using cpu_backend_internal::LogicalValues;
 using cpu_backend_internal::MakeTensor;
 using cpu_backend_internal::MakeView;
@@ -116,7 +166,7 @@ Status CpuBackend::Full(const ShapeInfo& shape,
 Status CpuBackend::Reshape(const Tensor& tensor,
                            const ShapeInfo& shape,
                            std::shared_ptr<Tensor>* out) const {
-  Status status = EnsureCpuFloat32(tensor, "reshape");
+  Status status = EnsureCpu(tensor, "reshape");
   if (!status.ok()) return status;
   if (tensor.numel() != shape.numel) {
     return InvalidShape("reshape: target shape must preserve element count");
@@ -125,24 +175,26 @@ Status CpuBackend::Reshape(const Tensor& tensor,
   if (tensor.is_contiguous()) {
     status = MakeView(shape, tensor, out);
   } else {
-    std::vector<float> values;
-    status = LogicalValues(tensor, "reshape", &values);
+    std::vector<uint8_t> values;
+    status = LogicalBytes(tensor, "reshape", &values);
     if (!status.ok()) return status;
     std::shared_ptr<CpuStorage> storage;
-    status = CpuStorage::FromData(values.data(), tensor.numel(), &storage);
+    status = CpuStorage::FromRaw(values.data(), values.size(), tensor.numel(),
+                                 tensor.dtype(), &storage);
     if (!status.ok()) return status;
     status = MakeTensor(shape, std::move(storage), out);
   }
   if (!status.ok()) return status;
+  if (tensor.dtype() != DType::kFloat32) return Status::Ok();
   return autograd::RecordUnary(autograd::Operation::kReshape, tensor, *out);
 }
 
 Status CpuBackend::Transpose2D(const Tensor& tensor,
                                std::shared_ptr<Tensor>* out) const {
-  Status status = EnsureCpuFloat32(tensor, "transpose");
+  Status status = EnsureCpu(tensor, "transpose");
   if (!status.ok()) return status;
   if (tensor.shape().dimensions.size() != 2) {
-    return InvalidShape("transpose: Milestone 1 requires a rank-2 tensor");
+    return InvalidShape("transpose: requires a rank-2 tensor");
   }
 
   ShapeInfo output_shape = tensor.shape();
@@ -150,6 +202,7 @@ Status CpuBackend::Transpose2D(const Tensor& tensor,
   std::swap(output_shape.strides[0], output_shape.strides[1]);
   status = MakeView(std::move(output_shape), tensor, out);
   if (!status.ok()) return status;
+  if (tensor.dtype() != DType::kFloat32) return Status::Ok();
   return autograd::RecordUnary(autograd::Operation::kTranspose2D, tensor, *out);
 }
 
@@ -162,7 +215,7 @@ Status CpuBackend::Add(const Tensor& left,
   if (!status.ok()) return status;
   if (!SameShape(left.shape(), right.shape())) {
     return InvalidShape(
-        "add: Milestone 1 elementwise operations require equal shapes");
+        "add: current elementwise operations require equal shapes");
   }
 
   std::vector<float> left_values;
@@ -194,7 +247,7 @@ Status CpuBackend::Multiply(const Tensor& left,
   if (!status.ok()) return status;
   if (!SameShape(left.shape(), right.shape())) {
     return InvalidShape(
-        "multiply: Milestone 1 elementwise operations require equal shapes");
+        "multiply: current elementwise operations require equal shapes");
   }
 
   std::vector<float> left_values;
@@ -252,7 +305,7 @@ Status CpuBackend::Matmul(const Tensor& left,
 
   if (left.shape().dimensions.size() != 2 ||
       right.shape().dimensions.size() != 2) {
-    return InvalidShape("matmul: Milestone 1 requires rank-2 tensors");
+    return InvalidShape("matmul: requires rank-2 tensors");
   }
 
   const int64_t m = left.shape().dimensions[0];
