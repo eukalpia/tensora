@@ -74,14 +74,7 @@ typedef _ParameterSgdCreateNative =
       Pointer<Uint64>,
     );
 typedef _ParameterSgdCreateDart =
-    int Function(
-      Pointer<Uint64>,
-      int,
-      double,
-      double,
-      double,
-      Pointer<Uint64>,
-    );
+    int Function(Pointer<Uint64>, int, double, double, double, Pointer<Uint64>);
 typedef _ParameterAdamCreateNative =
     Int32 Function(
       Pointer<Uint64>,
