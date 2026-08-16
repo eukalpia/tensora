@@ -67,6 +67,35 @@ int main() {
   Require(identity_a == identity_b,
           "retained wrappers for one parameter share native identity");
 
+  const float alias_values[2] = {1.0f, 2.0f};
+  const int64_t alias_dims[2] = {1, 2};
+  ts_tensor_t alias_source = 0;
+  RequireStatus(ts_tensor_from_f32(alias_values, 2, alias_dims, 2,
+                                   &alias_source),
+                TS_OK, "create alias source");
+  const int64_t alias_view_dims[1] = {2};
+  ts_tensor_t alias_view = 0;
+  RequireStatus(ts_tensor_reshape(alias_source, alias_view_dims, 1,
+                                  &alias_view),
+                TS_OK, "create zero-copy alias view");
+  uint64_t source_identity = 0;
+  uint64_t view_identity = 0;
+  RequireStatus(ts_tensor_identity(alias_source, &source_identity), TS_OK,
+                "source alias identity");
+  RequireStatus(ts_tensor_identity(alias_view, &view_identity), TS_OK,
+                "view alias identity");
+  Require(source_identity == view_identity,
+          "zero-copy aliases share one opaque identity lineage");
+
+  ts_tensor_t alias_clone = 0;
+  RequireStatus(ts_tensor_clone_detached(alias_source, &alias_clone), TS_OK,
+                "clone alias source");
+  uint64_t clone_identity = 0;
+  RequireStatus(ts_tensor_identity(alias_clone, &clone_identity), TS_OK,
+                "detached clone identity");
+  Require(clone_identity != source_identity,
+          "detached clone receives a distinct opaque identity");
+
   ts_tensor_t original = Scalar(3.0f);
   ts_tensor_t snapshot = 0;
   RequireStatus(ts_tensor_clone_detached(original, &snapshot), TS_OK,
@@ -118,6 +147,9 @@ int main() {
   RequireStatus(ts_tensor_release(weight_a), TS_OK, "release weight view a");
   RequireStatus(ts_tensor_release(weight_b), TS_OK, "release weight view b");
   RequireStatus(ts_module_release(linear), TS_OK, "release linear module");
+  RequireStatus(ts_tensor_release(alias_clone), TS_OK, "release alias clone");
+  RequireStatus(ts_tensor_release(alias_view), TS_OK, "release alias view");
+  RequireStatus(ts_tensor_release(alias_source), TS_OK, "release alias source");
   RequireStatus(ts_tensor_release(original), TS_OK, "release original");
   RequireStatus(ts_tensor_release(snapshot), TS_OK, "release snapshot");
   RequireStatus(ts_tensor_release(target_a), TS_OK, "release target a");
