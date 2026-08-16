@@ -11,6 +11,13 @@ final class NamedModule {
   final Module module;
 }
 
+final class _MoveRecord {
+  const _MoveRecord(this.module, this.originalDevice);
+
+  final Module module;
+  final core.Device originalDevice;
+}
+
 /// Base class for composable neural-network modules.
 abstract base class Module {
   Module();
@@ -93,7 +100,12 @@ abstract base class Module {
   /// Puts this full module tree into evaluation mode.
   void eval() => _setTraining(false);
 
-  /// Moves this full module tree to [device] after a capability preflight.
+  /// Transactionally moves every stateful leaf in this tree to [device].
+  ///
+  /// The full tree is preflighted before the first mutation. If any leaf fails
+  /// while moving, every leaf already attempted is moved back in reverse order.
+  /// A rollback failure is surfaced explicitly instead of leaving a silent
+  /// partially-moved model.
   void to(core.Device device) {
     _ensureLive('to');
     internalEnsureMaterialized();
@@ -103,8 +115,34 @@ abstract base class Module {
         operation: 'module.to',
       );
     }
-    _preflightMove(device, <Module>{});
-    _applyMove(device, <Module>{});
+
+    final plan = <_MoveRecord>[];
+    _buildMovePlan(device, <Module>{}, plan);
+    var attempted = 0;
+    try {
+      for (final record in plan) {
+        attempted += 1;
+        record.module.internalOnMove(device);
+      }
+    } catch (error, stackTrace) {
+      Object? rollbackError;
+      for (var index = attempted - 1; index >= 0; index--) {
+        final record = plan[index];
+        try {
+          record.module.internalOnMove(record.originalDevice);
+        } catch (error) {
+          rollbackError ??= error;
+        }
+      }
+      if (rollbackError != null) {
+        throw core.NativeRuntimeException(
+          'Module move failed ($error) and rollback also failed '
+          '($rollbackError). The model device state is indeterminate.',
+          operation: 'module.to',
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   /// Captures parameters and persistent buffers without copying values to Dart.
@@ -246,6 +284,11 @@ abstract base class Module {
   /// @nodoc
   Module? get internalOwner => _owner;
 
+  /// Device currently owning this module's mutable native state, or null when
+  /// the module is stateless and therefore absent from the move plan.
+  /// @nodoc
+  core.Device? get internalMoveDevice => null;
+
   /// @nodoc
   void internalEnsureMaterialized() {}
 
@@ -316,20 +359,20 @@ abstract base class Module {
     }
   }
 
-  void _preflightMove(core.Device device, Set<Module> visited) {
+  void _buildMovePlan(
+    core.Device target,
+    Set<Module> visited,
+    List<_MoveRecord> plan,
+  ) {
     if (!visited.add(this)) return;
     internalEnsureMaterialized();
-    internalPreflightMove(device);
-    for (final child in internalRegisteredChildren) {
-      child.module._preflightMove(device, visited);
+    internalPreflightMove(target);
+    final originalDevice = internalMoveDevice;
+    if (originalDevice != null) {
+      plan.add(_MoveRecord(this, originalDevice));
     }
-  }
-
-  void _applyMove(core.Device device, Set<Module> visited) {
-    if (!visited.add(this)) return;
-    internalOnMove(device);
     for (final child in internalRegisteredChildren) {
-      child.module._applyMove(device, visited);
+      child.module._buildMovePlan(target, visited, plan);
     }
   }
 
