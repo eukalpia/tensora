@@ -142,124 +142,121 @@ void main() {
     },
   );
 
-  test(
-    'optimizer and ParameterGroup validators reject every invalid hyperparameter',
-    () {
-      expect(
-        () => optim.SGD.groups(
-          groups: const <optim.ParameterGroup>[],
-          learningRate: 0,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.SGD.groups(
-          groups: const <optim.ParameterGroup>[],
-          momentum: -1,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.SGD.groups(
-          groups: const <optim.ParameterGroup>[],
-          weightDecay: double.nan,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.Adam.groups(
-          groups: const <optim.ParameterGroup>[],
-          learningRate: double.infinity,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.Adam.groups(
-          groups: const <optim.ParameterGroup>[],
-          beta1: 1,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.Adam.groups(
-          groups: const <optim.ParameterGroup>[],
-          beta2: -0.1,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.Adam.groups(
-          groups: const <optim.ParameterGroup>[],
-          epsilon: 0,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.AdamW.groups(
-          groups: const <optim.ParameterGroup>[],
-          weightDecay: -0.1,
-        ),
-        throwsArgumentError,
-      );
+  test('optimizer and ParameterGroup validators reject every invalid hyperparameter', () {
+    expect(
+      () => optim.SGD.groups(
+        groups: const <optim.ParameterGroup>[],
+        learningRate: 0,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.SGD.groups(
+        groups: const <optim.ParameterGroup>[],
+        momentum: -1,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.SGD.groups(
+        groups: const <optim.ParameterGroup>[],
+        weightDecay: double.nan,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.Adam.groups(
+        groups: const <optim.ParameterGroup>[],
+        learningRate: double.infinity,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.Adam.groups(
+        groups: const <optim.ParameterGroup>[],
+        beta1: 1,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.Adam.groups(
+        groups: const <optim.ParameterGroup>[],
+        beta2: -0.1,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.Adam.groups(
+        groups: const <optim.ParameterGroup>[],
+        epsilon: 0,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.AdamW.groups(
+        groups: const <optim.ParameterGroup>[],
+        weightDecay: -0.1,
+      ),
+      throwsArgumentError,
+    );
 
-      final layer = nn.Linear(inFeatures: 1, outFeatures: 1, bias: false);
-      addTearDown(layer.dispose);
-      final parameter = layer.parameters.single;
+    final layer = nn.Linear(inFeatures: 1, outFeatures: 1, bias: false);
+    addTearDown(layer.dispose);
+    final parameter = layer.parameters.single;
 
-      expect(
-        () => optim.ParameterGroup(
-          parameters: <Parameter>[parameter, parameter],
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.ParameterGroup(
-          parameters: <Parameter>[parameter],
-          learningRate: 0,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.ParameterGroup(
-          parameters: <Parameter>[parameter],
-          momentum: -1,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.ParameterGroup(
-          parameters: <Parameter>[parameter],
-          beta1: 1,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.ParameterGroup(
-          parameters: <Parameter>[parameter],
-          beta2: double.nan,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.ParameterGroup(
-          parameters: <Parameter>[parameter],
-          epsilon: 0,
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => optim.ParameterGroup(
-          parameters: <Parameter>[parameter],
-          weightDecay: -1,
-        ),
-        throwsArgumentError,
-      );
+    expect(
+      () => optim.ParameterGroup(
+        parameters: <Parameter>[parameter, parameter],
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.ParameterGroup(
+        parameters: <Parameter>[parameter],
+        learningRate: 0,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.ParameterGroup(
+        parameters: <Parameter>[parameter],
+        momentum: -1,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.ParameterGroup(
+        parameters: <Parameter>[parameter],
+        beta1: 1,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.ParameterGroup(
+        parameters: <Parameter>[parameter],
+        beta2: double.nan,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.ParameterGroup(
+        parameters: <Parameter>[parameter],
+        epsilon: 0,
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => optim.ParameterGroup(
+        parameters: <Parameter>[parameter],
+        weightDecay: -1,
+      ),
+      throwsArgumentError,
+    );
 
-      parameter.dispose();
-      expect(
-        () => optim.ParameterGroup(parameters: <Parameter>[parameter]),
-        throwsArgumentError,
-      );
-    },
-  );
+    parameter.dispose();
+    expect(
+      () => optim.ParameterGroup(parameters: <Parameter>[parameter]),
+      throwsArgumentError,
+    );
+  });
 }
