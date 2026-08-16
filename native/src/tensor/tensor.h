@@ -15,10 +15,6 @@ namespace tensora {
 
 struct AutogradMeta;
 
-struct TensorVersionCounter {
-  std::atomic<uint64_t> value{0};
-};
-
 /// Lifetime-owned opaque identity shared only by intentional tensor aliases.
 ///
 /// The value is process-local and monotonically allocated. It is never derived
@@ -29,6 +25,14 @@ struct TensorIdentityAnchor {
 };
 
 std::shared_ptr<TensorIdentityAnchor> NewTensorIdentityAnchor();
+
+struct TensorVersionCounter {
+  explicit TensorVersionCounter(
+      std::shared_ptr<TensorIdentityAnchor> identity = nullptr);
+
+  std::atomic<uint64_t> value{0};
+  std::shared_ptr<TensorIdentityAnchor> identity;
+};
 
 enum class DType : uint32_t {
   kFloat32 = TS_DTYPE_FLOAT32,
@@ -71,9 +75,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   void increment_version();
 
   const std::shared_ptr<TensorIdentityAnchor>& identity_anchor() const {
-    return identity_anchor_;
+    return version_counter_->identity;
   }
-  uint64_t identity() const { return identity_anchor_->value; }
+  uint64_t identity() const { return version_counter_->identity->value; }
 
   Status CopyToHostF32(float* out_values,
                        size_t capacity,
@@ -94,7 +98,6 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   int32_t device_index_;
   uint64_t storage_offset_;
   std::shared_ptr<TensorVersionCounter> version_counter_;
-  std::shared_ptr<TensorIdentityAnchor> identity_anchor_;
   std::shared_ptr<AutogradMeta> autograd_meta_;
 };
 
