@@ -17,27 +17,28 @@
 #endif
 
 namespace tensora::training::nn_v2_parameter_control {
+namespace internal {
 
-inline Status SetRequiresGrad(Tensor& tensor, bool requires_grad) {
 #if defined(TENSORA_WITH_TORCH)
-  if (tensor.storage()->kind() == StorageKind::kTorch) {
-    torch::Tensor value;
-    Status status = TensorToTorch(tensor, &value);
-    if (!status.ok()) return status;
-    return training::internal::GuardTorch("tensor_set_requires_grad", [&]() {
-      if (!value.is_leaf()) {
-        return InvalidArgument(
-            "tensor_set_requires_grad: only leaf tensors may change requiresGrad");
-      }
-      value.set_requires_grad(requires_grad);
-      if (!requires_grad && value.grad().defined()) {
-        value.mutable_grad() = torch::Tensor();
-      }
-      return Status::Ok();
-    });
-  }
+inline Status SetTorchRequiresGrad(Tensor& tensor, bool requires_grad) {
+  torch::Tensor value;
+  Status status = TensorToTorch(tensor, &value);
+  if (!status.ok()) return status;
+  return training::internal::GuardTorch("tensor_set_requires_grad", [&]() {
+    if (!value.is_leaf()) {
+      return InvalidArgument(
+          "tensor_set_requires_grad: only leaf tensors may change requiresGrad");
+    }
+    value.set_requires_grad(requires_grad);
+    if (!requires_grad && value.grad().defined()) {
+      value.mutable_grad() = torch::Tensor();
+    }
+    return Status::Ok();
+  });
+}
 #endif
 
+inline Status SetCoreRequiresGrad(Tensor& tensor, bool requires_grad) {
   auto meta = tensor.autograd_meta();
   if (!meta) {
     if (!requires_grad) return Status::Ok();
@@ -60,6 +61,17 @@ inline Status SetRequiresGrad(Tensor& tensor, bool requires_grad) {
     meta->gradient.reset();
   }
   return Status::Ok();
+}
+
+}  // namespace internal
+
+inline Status SetRequiresGrad(Tensor& tensor, bool requires_grad) {
+#if defined(TENSORA_WITH_TORCH)
+  if (tensor.storage()->kind() == StorageKind::kTorch) {
+    return internal::SetTorchRequiresGrad(tensor, requires_grad);
+  }
+#endif
+  return internal::SetCoreRequiresGrad(tensor, requires_grad);
 }
 
 }  // namespace tensora::training::nn_v2_parameter_control
