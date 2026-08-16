@@ -190,6 +190,7 @@ Status RequiresGrad(const Tensor& tensor, uint8_t* out_requires_grad) {
   }
   *out_requires_grad = 0;
   if (tensor.storage()->kind() != StorageKind::kTorch) {
+    *out_requires_grad = autograd::RequiresGrad(tensor) ? 1 : 0;
     return Status::Ok();
   }
 
