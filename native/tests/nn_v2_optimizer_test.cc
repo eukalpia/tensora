@@ -94,31 +94,64 @@ int main() {
                 TS_INVALID_ARGUMENT, "duplicate tensor rejected");
   Require(optimizer == 0, "duplicate failure clears output handle");
 
-  const float frozen_value = 7.0f;
-  const int64_t dims[1] = {1};
-  ts_tensor_t frozen = 0;
-  RequireStatus(ts_tensor_from_f32(&frozen_value, 1, dims, 1, &frozen), TS_OK,
-                "create frozen tensor");
-  const ts_tensor_t all_frozen[1] = {frozen};
+  ts_tensor_t freeze_probe = MakeLeaf(7.0f);
+  uint64_t identity_before = 0;
+  uint64_t identity_after = 0;
+  RequireStatus(ts_tensor_identity(freeze_probe, &identity_before), TS_OK,
+                "identity before freeze");
+  RequireStatus(ts_tensor_set_requires_grad(freeze_probe, 0), TS_OK,
+                "freeze leaf parameter");
+  uint8_t requires_grad = 1;
+  RequireStatus(ts_tensor_requires_grad(freeze_probe, &requires_grad), TS_OK,
+                "query frozen parameter");
+  Require(requires_grad == 0, "freeze clears requiresGrad");
+  RequireStatus(ts_tensor_identity(freeze_probe, &identity_after), TS_OK,
+                "identity after freeze");
+  Require(identity_before == identity_after,
+          "freeze preserves opaque parameter identity");
+
+  const ts_tensor_t all_frozen[1] = {freeze_probe};
   RequireStatus(ts_adam_create_for_tensors(all_frozen, 1, 0.001, 0.9, 0.999,
                                            1e-8, 0.0, &optimizer),
                 TS_INVALID_ARGUMENT, "all-frozen collection rejected");
 
-  const ts_tensor_t mixed[2] = {second, frozen};
+  const ts_tensor_t mixed[2] = {second, freeze_probe};
   RequireStatus(ts_adamw_create_for_tensors(mixed, 2, 0.001, 0.9, 0.999, 1e-8,
                                             0.01, &optimizer),
                 TS_OK, "frozen tensor is skipped when trainable tensors exist");
   RequireStatus(ts_parameter_optimizer_release(optimizer), TS_OK,
                 "release AdamW parameter optimizer");
 
+  RequireStatus(ts_tensor_set_requires_grad(freeze_probe, 1), TS_OK,
+                "unfreeze leaf parameter");
+  RequireStatus(ts_tensor_requires_grad(freeze_probe, &requires_grad), TS_OK,
+                "query unfrozen parameter");
+  Require(requires_grad == 1, "unfreeze restores requiresGrad");
+  RequireStatus(ts_adam_create_for_tensors(all_frozen, 1, 0.001, 0.9, 0.999,
+                                           1e-8, 0.0, &optimizer),
+                TS_OK, "unfrozen parameter is optimizer eligible");
+  RequireStatus(ts_parameter_optimizer_release(optimizer), TS_OK,
+                "release Adam parameter optimizer");
+
+  SeedUnitGradient(freeze_probe);
+  ts_tensor_t non_leaf = 0;
+  RequireStatus(ts_tensor_sum(freeze_probe, &non_leaf), TS_OK,
+                "create non-leaf tensor");
+  RequireStatus(ts_tensor_set_requires_grad(non_leaf, 0), TS_INVALID_ARGUMENT,
+                "non-leaf requiresGrad mutation rejected");
+  RequireStatus(ts_tensor_release(non_leaf), TS_OK, "release non-leaf tensor");
+
   const ts_tensor_t invalid[1] = {UINT64_C(0xffffffffffffffff)};
   optimizer = 0;
   RequireStatus(ts_sgd_create_for_tensors(invalid, 1, 0.1, 0.0, 0.0,
                                           &optimizer),
                 TS_INVALID_HANDLE, "invalid tensor handle rejected");
+  RequireStatus(ts_tensor_set_requires_grad(UINT64_C(0xffffffffffffffff), 0),
+                TS_INVALID_HANDLE, "invalid freeze handle rejected");
 
   RequireStatus(ts_tensor_release(second), TS_OK, "release second parameter");
-  RequireStatus(ts_tensor_release(frozen), TS_OK, "release frozen tensor");
+  RequireStatus(ts_tensor_release(freeze_probe), TS_OK,
+                "release freeze probe");
 
   std::puts("NN V2 optimizer parameter-collection contract passed");
   return 0;
