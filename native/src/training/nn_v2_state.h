@@ -82,9 +82,6 @@ inline Status TorchIdentity(const Tensor& tensor, uint64_t* out_identity) {
   if (!status.ok()) return status;
   const TorchTensorImplPtr& tensor_impl = value.getIntrusivePtr();
   const uintptr_t key = reinterpret_cast<uintptr_t>(tensor_impl.get());
-  if (key == 0) {
-    return InternalError("tensor_identity: provider returned null tensor identity");
-  }
 
   std::lock_guard<std::mutex> lock(TorchIdentityMutex());
   PruneExpiredTorchIdentitiesLocked();
@@ -142,6 +139,36 @@ inline bool RollbackTorch(const std::vector<torch::Tensor>& targets,
   } catch (...) {
     return false;
   }
+}
+
+template <typename CopyOperation>
+inline Status CommitTorchAssignments(
+    std::vector<torch::Tensor>& targets,
+    const std::vector<torch::Tensor>& staged_sources,
+    const std::vector<torch::Tensor>& backups,
+    CopyOperation&& copy_operation) {
+  size_t committed = 0;
+  try {
+    torch::NoGradGuard no_grad;
+    for (; committed < targets.size(); ++committed) {
+      copy_operation(targets[committed], staged_sources[committed], committed);
+    }
+  } catch (const c10::Error& error) {
+    const bool rolled_back = RollbackTorch(targets, backups, committed);
+    if (!rolled_back) {
+      return InternalError(
+          "tensor_assign_many: provider mutation failed and rollback failed");
+    }
+    return training::internal::TorchFailure("tensor_assign_many", error);
+  } catch (const std::bad_alloc&) {
+    const bool rolled_back = RollbackTorch(targets, backups, committed);
+    if (!rolled_back) {
+      return InternalError(
+          "tensor_assign_many: allocation failed and rollback failed");
+    }
+    return OutOfMemory("tensor_assign_many: provider allocation failed");
+  }
+  return Status::Ok();
 }
 #endif
 
@@ -298,29 +325,12 @@ inline Status AssignMany(const uint64_t* target_handles,
     });
     if (!status.ok()) return status;
 
-    size_t committed = 0;
-    try {
-      torch::NoGradGuard no_grad;
-      for (; committed < count; ++committed) {
-        torch_targets[committed].copy_(staged_sources[committed]);
-      }
-    } catch (const c10::Error& error) {
-      const bool rolled_back =
-          internal::RollbackTorch(torch_targets, backups, committed);
-      if (!rolled_back) {
-        return InternalError(
-            "tensor_assign_many: provider mutation failed and rollback failed");
-      }
-      return training::internal::TorchFailure("tensor_assign_many", error);
-    } catch (const std::bad_alloc&) {
-      const bool rolled_back =
-          internal::RollbackTorch(torch_targets, backups, committed);
-      if (!rolled_back) {
-        return InternalError(
-            "tensor_assign_many: allocation failed and rollback failed");
-      }
-      return OutOfMemory("tensor_assign_many: provider allocation failed");
-    }
+    status = internal::CommitTorchAssignments(
+        torch_targets, staged_sources, backups,
+        [](torch::Tensor& target, const torch::Tensor& source, size_t) {
+          target.copy_(source);
+        });
+    if (!status.ok()) return status;
 
     for (const auto& target : targets) {
       autograd::IncrementVersion(*target);
