@@ -9,6 +9,7 @@
 
 #include "core/status.h"
 #include "memory/tensor_storage.h"
+#include "tensor/dtype.h"
 #include "tensor/shape.h"
 
 namespace tensora {
@@ -32,10 +33,6 @@ struct TensorVersionCounter {
 
   std::atomic<uint64_t> value{0};
   std::shared_ptr<TensorIdentityAnchor> identity;
-};
-
-enum class DType : uint32_t {
-  kFloat32 = TS_DTYPE_FLOAT32,
 };
 
 enum class Device : uint32_t {
@@ -64,6 +61,11 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   int32_t device_index() const { return device_index_; }
   uint64_t numel() const { return shape_.numel; }
   uint64_t storage_offset() const { return storage_offset_; }
+  size_t element_width() const { return DTypeByteWidth(dtype_); }
+  uint64_t byte_size() const {
+    return static_cast<uint64_t>(numel()) *
+           static_cast<uint64_t>(element_width());
+  }
 
   bool is_contiguous() const;
   uint64_t logical_storage_index(uint64_t logical_index) const;
@@ -82,6 +84,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
     version_counter_->identity = std::move(identity);
   }
 
+  Status CopyToHostRaw(void* out_data,
+                       size_t capacity_bytes,
+                       size_t* out_written_bytes) const;
   Status CopyToHostF32(float* out_values,
                        size_t capacity,
                        size_t* out_written) const;
