@@ -30,13 +30,27 @@ namespace tensora::training::nn_v2_state {
 namespace internal {
 
 #if defined(TENSORA_WITH_TORCH)
+using TorchTensorImplPtr =
+    c10::intrusive_ptr<at::TensorImpl, at::UndefinedTensorImpl>;
+using TorchTensorImplWeakPtr =
+    c10::weak_intrusive_ptr<at::TensorImpl, at::UndefinedTensorImpl>;
+
+struct TorchIdentityEntry {
+  TorchIdentityEntry(uint64_t identity_value,
+                     const TorchTensorImplPtr& tensor_impl_value)
+      : identity(identity_value), tensor_impl(tensor_impl_value) {}
+
+  uint64_t identity;
+  TorchTensorImplWeakPtr tensor_impl;
+};
+
 inline std::mutex& TorchIdentityMutex() {
   static std::mutex mutex;
   return mutex;
 }
 
-inline std::unordered_map<uintptr_t, uint64_t>& TorchIdentityMap() {
-  static std::unordered_map<uintptr_t, uint64_t> identities;
+inline std::unordered_map<uintptr_t, TorchIdentityEntry>& TorchIdentityMap() {
+  static std::unordered_map<uintptr_t, TorchIdentityEntry> identities;
   return identities;
 }
 
@@ -45,21 +59,39 @@ inline uint64_t& NextTorchIdentity() {
   return next;
 }
 
+inline void PruneExpiredTorchIdentitiesLocked() {
+  auto& identities = TorchIdentityMap();
+  for (auto iterator = identities.begin(); iterator != identities.end();) {
+    if (iterator->second.tensor_impl.expired()) {
+      iterator = identities.erase(iterator);
+    } else {
+      ++iterator;
+    }
+  }
+}
+
+inline size_t TorchIdentityCacheSizeForTesting() {
+  std::lock_guard<std::mutex> lock(TorchIdentityMutex());
+  PruneExpiredTorchIdentitiesLocked();
+  return TorchIdentityMap().size();
+}
+
 inline Status TorchIdentity(const Tensor& tensor, uint64_t* out_identity) {
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);
   if (!status.ok()) return status;
-  const uintptr_t key =
-      reinterpret_cast<uintptr_t>(value.unsafeGetTensorImpl());
+  const TorchTensorImplPtr& tensor_impl = value.getIntrusivePtr();
+  const uintptr_t key = reinterpret_cast<uintptr_t>(tensor_impl.get());
   if (key == 0) {
     return InternalError("tensor_identity: provider returned null tensor identity");
   }
 
   std::lock_guard<std::mutex> lock(TorchIdentityMutex());
+  PruneExpiredTorchIdentitiesLocked();
   auto& identities = TorchIdentityMap();
   const auto existing = identities.find(key);
   if (existing != identities.end()) {
-    *out_identity = existing->second;
+    *out_identity = existing->second.identity;
     return Status::Ok();
   }
   uint64_t& next = NextTorchIdentity();
@@ -68,7 +100,7 @@ inline Status TorchIdentity(const Tensor& tensor, uint64_t* out_identity) {
   }
   const uint64_t assigned = next++;
   status = AllocationGuard("tensor_identity", [&]() -> Status {
-    identities.emplace(key, assigned);
+    identities.emplace(key, TorchIdentityEntry(assigned, tensor_impl));
     return Status::Ok();
   });
   if (!status.ok()) return status;
