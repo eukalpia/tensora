@@ -53,6 +53,12 @@ ts_status_t ts_tensor_assign_many(const ts_tensor_t* targets,
   return TS_OK;
 }
 
+ts_status_t ts_tensor_set_requires_grad(ts_tensor_t tensor,
+                                        uint8_t requires_grad) {
+  (void)requires_grad;
+  return tensor == 0 ? TS_INVALID_HANDLE : TS_OK;
+}
+
 ts_status_t ts_tensor_gelu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
   return nn_v2_unary_tensor(tensor, out_tensor);
 }
