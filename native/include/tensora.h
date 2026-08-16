@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define TS_ABI_VERSION 4u
+#define TS_ABI_VERSION 5u
 
 typedef uint64_t ts_tensor_t;
 typedef uint64_t ts_module_t;
@@ -85,7 +85,7 @@ TS_API ts_status_t ts_tensor_full_f32(const int64_t* dims,
                                       float value,
                                       ts_tensor_t* out_tensor);
 
-/* Tensor metadata. */
+/* Tensor metadata and state identity. */
 TS_API ts_status_t ts_tensor_rank(ts_tensor_t tensor, size_t* out_rank);
 TS_API ts_status_t ts_tensor_shape(ts_tensor_t tensor,
                                    int64_t* out_dims,
@@ -96,6 +96,13 @@ TS_API ts_status_t ts_tensor_device(ts_tensor_t tensor, uint32_t* out_device);
 TS_API ts_status_t ts_tensor_device_index(ts_tensor_t tensor,
                                           int32_t* out_device_index);
 TS_API ts_status_t ts_tensor_numel(ts_tensor_t tensor, uint64_t* out_numel);
+TS_API ts_status_t ts_tensor_identity(ts_tensor_t tensor,
+                                      uint64_t* out_identity);
+TS_API ts_status_t ts_tensor_clone_detached(ts_tensor_t tensor,
+                                            ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_assign_many(const ts_tensor_t* targets,
+                                         const ts_tensor_t* sources,
+                                         size_t count);
 
 /* Device transfer. */
 TS_API ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
@@ -127,6 +134,8 @@ TS_API ts_status_t ts_tensor_with_requires_grad(ts_tensor_t tensor,
                                                 ts_tensor_t* out_tensor);
 TS_API ts_status_t ts_tensor_requires_grad(ts_tensor_t tensor,
                                            uint8_t* out_requires_grad);
+TS_API ts_status_t ts_tensor_set_requires_grad(ts_tensor_t tensor,
+                                               uint8_t requires_grad);
 TS_API ts_status_t ts_tensor_backward(ts_tensor_t tensor);
 TS_API ts_status_t ts_tensor_grad(ts_tensor_t tensor,
                                   ts_tensor_t* out_tensor);
@@ -136,6 +145,12 @@ TS_API ts_status_t ts_tensor_sigmoid(ts_tensor_t tensor,
                                      ts_tensor_t* out_tensor);
 TS_API ts_status_t ts_tensor_tanh(ts_tensor_t tensor,
                                   ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_gelu(ts_tensor_t tensor,
+                                  ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_silu(ts_tensor_t tensor,
+                                  ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_swiglu(ts_tensor_t tensor,
+                                    ts_tensor_t* out_tensor);
 TS_API ts_status_t ts_mse_loss(ts_tensor_t prediction,
                                ts_tensor_t target,
                                ts_tensor_t* out_tensor);
@@ -170,7 +185,7 @@ TS_API ts_status_t ts_module_save(ts_module_t module, const char* path);
 TS_API ts_status_t ts_module_load(ts_module_t module, const char* path);
 TS_API ts_status_t ts_module_release(ts_module_t module);
 
-/* Optimizers. */
+/* Legacy module-bound optimizers. */
 TS_API ts_status_t ts_sgd_create(ts_module_t module,
                                  double learning_rate,
                                  double momentum,
@@ -193,6 +208,36 @@ TS_API ts_status_t ts_adamw_create(ts_module_t module,
 TS_API ts_status_t ts_optimizer_zero_grad(ts_optimizer_t optimizer);
 TS_API ts_status_t ts_optimizer_step(ts_optimizer_t optimizer);
 TS_API ts_status_t ts_optimizer_release(ts_optimizer_t optimizer);
+
+/* NN V2 optimizers over arbitrary trainable tensor collections. */
+TS_API ts_status_t ts_sgd_create_for_tensors(
+    const ts_tensor_t* parameters,
+    size_t count,
+    double learning_rate,
+    double momentum,
+    double weight_decay,
+    ts_optimizer_t* out_optimizer);
+TS_API ts_status_t ts_adam_create_for_tensors(
+    const ts_tensor_t* parameters,
+    size_t count,
+    double learning_rate,
+    double beta1,
+    double beta2,
+    double epsilon,
+    double weight_decay,
+    ts_optimizer_t* out_optimizer);
+TS_API ts_status_t ts_adamw_create_for_tensors(
+    const ts_tensor_t* parameters,
+    size_t count,
+    double learning_rate,
+    double beta1,
+    double beta2,
+    double epsilon,
+    double weight_decay,
+    ts_optimizer_t* out_optimizer);
+TS_API ts_status_t ts_parameter_optimizer_zero_grad(ts_optimizer_t optimizer);
+TS_API ts_status_t ts_parameter_optimizer_step(ts_optimizer_t optimizer);
+TS_API ts_status_t ts_parameter_optimizer_release(ts_optimizer_t optimizer);
 
 /* ONNX Runtime provider discovery. Names are UTF-8 and NUL-terminated. */
 TS_API ts_status_t ts_onnx_provider_count(size_t* out_count);

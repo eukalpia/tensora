@@ -18,12 +18,18 @@ typedef _TensorBoolTransformNative =
 typedef _TensorBoolTransformDart = int Function(int, int, Pointer<Uint64>);
 typedef _TensorBoolMetadataNative = Int32 Function(Uint64, Pointer<Uint8>);
 typedef _TensorBoolMetadataDart = int Function(int, Pointer<Uint8>);
+typedef _TensorBoolStatusNative = Int32 Function(Uint64, Uint8);
+typedef _TensorBoolStatusDart = int Function(int, int);
 typedef _TensorStatusNative = Int32 Function(Uint64);
 typedef _TensorStatusDart = int Function(int);
 typedef _TensorUnaryNative = Int32 Function(Uint64, Pointer<Uint64>);
 typedef _TensorUnaryDart = int Function(int, Pointer<Uint64>);
 typedef _TensorBinaryNative = Int32 Function(Uint64, Uint64, Pointer<Uint64>);
 typedef _TensorBinaryDart = int Function(int, int, Pointer<Uint64>);
+typedef _TensorAssignManyNative =
+    Int32 Function(Pointer<Uint64>, Pointer<Uint64>, Size);
+typedef _TensorAssignManyDart =
+    int Function(Pointer<Uint64>, Pointer<Uint64>, int);
 
 typedef _LinearCreateNative =
     Int32 Function(Int64, Int64, Uint8, Pointer<Uint64>);
@@ -60,6 +66,40 @@ typedef _AdamCreateNative =
 typedef _AdamCreateDart =
     int Function(int, double, double, double, double, double, Pointer<Uint64>);
 
+typedef _ParameterSgdCreateNative =
+    Int32 Function(
+      Pointer<Uint64>,
+      Size,
+      Double,
+      Double,
+      Double,
+      Pointer<Uint64>,
+    );
+typedef _ParameterSgdCreateDart =
+    int Function(Pointer<Uint64>, int, double, double, double, Pointer<Uint64>);
+typedef _ParameterAdamCreateNative =
+    Int32 Function(
+      Pointer<Uint64>,
+      Size,
+      Double,
+      Double,
+      Double,
+      Double,
+      Double,
+      Pointer<Uint64>,
+    );
+typedef _ParameterAdamCreateDart =
+    int Function(
+      Pointer<Uint64>,
+      int,
+      double,
+      double,
+      double,
+      double,
+      double,
+      Pointer<Uint64>,
+    );
+
 final class NativeTrainingBindings {
   NativeTrainingBindings(DynamicLibrary library)
     : lastErrorMessage = library
@@ -77,6 +117,18 @@ final class NativeTrainingBindings {
       manualSeed = library.lookupFunction<_ManualSeedNative, _ManualSeedDart>(
         'ts_manual_seed',
       ),
+      tensorIdentity = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_identity',
+          ),
+      tensorCloneDetached = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_clone_detached',
+          ),
+      tensorAssignMany = library
+          .lookupFunction<_TensorAssignManyNative, _TensorAssignManyDart>(
+            'ts_tensor_assign_many',
+          ),
       tensorWithRequiresGrad = library
           .lookupFunction<_TensorBoolTransformNative, _TensorBoolTransformDart>(
             'ts_tensor_with_requires_grad',
@@ -84,6 +136,10 @@ final class NativeTrainingBindings {
       tensorRequiresGrad = library
           .lookupFunction<_TensorBoolMetadataNative, _TensorBoolMetadataDart>(
             'ts_tensor_requires_grad',
+          ),
+      tensorSetRequiresGrad = library
+          .lookupFunction<_TensorBoolStatusNative, _TensorBoolStatusDart>(
+            'ts_tensor_set_requires_grad',
           ),
       tensorBackward = library
           .lookupFunction<_TensorStatusNative, _TensorStatusDart>(
@@ -102,6 +158,16 @@ final class NativeTrainingBindings {
       tensorTanh = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
         'ts_tensor_tanh',
       ),
+      tensorGelu = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+        'ts_tensor_gelu',
+      ),
+      tensorSilu = library.lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+        'ts_tensor_silu',
+      ),
+      tensorSwiGlu = library
+          .lookupFunction<_TensorUnaryNative, _TensorUnaryDart>(
+            'ts_tensor_swiglu',
+          ),
       mseLoss = library.lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
         'ts_mse_loss',
       ),
@@ -172,6 +238,30 @@ final class NativeTrainingBindings {
           .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
             'ts_optimizer_release',
           ),
+      parameterSgdCreate = library
+          .lookupFunction<_ParameterSgdCreateNative, _ParameterSgdCreateDart>(
+            'ts_sgd_create_for_tensors',
+          ),
+      parameterAdamCreate = library
+          .lookupFunction<_ParameterAdamCreateNative, _ParameterAdamCreateDart>(
+            'ts_adam_create_for_tensors',
+          ),
+      parameterAdamWCreate = library
+          .lookupFunction<_ParameterAdamCreateNative, _ParameterAdamCreateDart>(
+            'ts_adamw_create_for_tensors',
+          ),
+      parameterOptimizerZeroGrad = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_parameter_optimizer_zero_grad',
+          ),
+      parameterOptimizerStep = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_parameter_optimizer_step',
+          ),
+      parameterOptimizerRelease = library
+          .lookupFunction<_HandleReleaseNative, _HandleReleaseDart>(
+            'ts_parameter_optimizer_release',
+          ),
       liveModuleCount = library
           .lookupFunction<_Uint64OutputNative, _Uint64OutputDart>(
             'ts_runtime_live_module_count',
@@ -185,13 +275,20 @@ final class NativeTrainingBindings {
   final _ByteOutputDart trainingAvailable;
   final _Uint32OutputDart cudaDeviceCount;
   final _ManualSeedDart manualSeed;
+  final _TensorUnaryDart tensorIdentity;
+  final _TensorUnaryDart tensorCloneDetached;
+  final _TensorAssignManyDart tensorAssignMany;
   final _TensorBoolTransformDart tensorWithRequiresGrad;
   final _TensorBoolMetadataDart tensorRequiresGrad;
+  final _TensorBoolStatusDart tensorSetRequiresGrad;
   final _TensorStatusDart tensorBackward;
   final _TensorUnaryDart tensorGrad;
   final _TensorUnaryDart tensorRelu;
   final _TensorUnaryDart tensorSigmoid;
   final _TensorUnaryDart tensorTanh;
+  final _TensorUnaryDart tensorGelu;
+  final _TensorUnaryDart tensorSilu;
+  final _TensorUnaryDart tensorSwiGlu;
   final _TensorBinaryDart mseLoss;
   final _TensorBinaryDart crossEntropyLoss;
   final _LinearCreateDart linearCreate;
@@ -211,6 +308,12 @@ final class NativeTrainingBindings {
   final _HandleReleaseDart optimizerZeroGrad;
   final _HandleReleaseDart optimizerStep;
   final _HandleReleaseDart optimizerRelease;
+  final _ParameterSgdCreateDart parameterSgdCreate;
+  final _ParameterAdamCreateDart parameterAdamCreate;
+  final _ParameterAdamCreateDart parameterAdamWCreate;
+  final _HandleReleaseDart parameterOptimizerZeroGrad;
+  final _HandleReleaseDart parameterOptimizerStep;
+  final _HandleReleaseDart parameterOptimizerRelease;
   final _Uint64OutputDart liveModuleCount;
   final _Uint64OutputDart liveOptimizerCount;
 }

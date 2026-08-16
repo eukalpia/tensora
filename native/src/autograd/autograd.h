@@ -33,6 +33,9 @@ enum class Operation : uint8_t {
   kRelu,
   kSigmoid,
   kTanh,
+  kGelu,
+  kSilu,
+  kSwiGlu,
   kMse,
   kCrossEntropy,
   kBiasAdd,
@@ -172,8 +175,7 @@ inline Status MakeCpuTensor(const ShapeInfo& shape,
   Status status =
       ValidateShape(dimensions, shape.dimensions.size(), &materialized_shape);
   if (!status.ok() || materialized_shape.numel != shape.numel) {
-    return InternalError(
-        "autograd: could not canonicalize materialized gradient shape");
+    return InternalError("autograd: could not canonicalize materialized gradient shape");
   }
 
   std::shared_ptr<CpuStorage> storage;
@@ -246,8 +248,7 @@ inline Status Share(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
     *out = std::const_pointer_cast<Tensor>(tensor.shared_from_this());
     return Status::Ok();
   } catch (const std::bad_weak_ptr&) {
-    return InternalError(
-        "autograd: differentiable tensor is not managed by shared ownership");
+    return InternalError("autograd: differentiable tensor is not managed by shared ownership");
   }
 }
 
@@ -350,8 +351,7 @@ inline Status ValidateSavedVersions(const GradNode& node) {
   for (size_t index = 0; index < node.parents.size(); ++index) {
     const auto& parent = node.parents[index];
     if (parent && Version(*parent) != node.parent_versions[index]) {
-      return InvalidArgument(
-          "autograd: a saved tensor alias was modified before backward");
+      return InvalidArgument("autograd: a saved tensor alias was modified before backward");
     }
   }
   return Status::Ok();
@@ -556,7 +556,9 @@ inline Status ApplyNode(const GradNode& node,
     }
     case Operation::kRelu:
     case Operation::kSigmoid:
-    case Operation::kTanh: {
+    case Operation::kTanh:
+    case Operation::kGelu:
+    case Operation::kSilu: {
       const Tensor& parent = *node.parents.at(0);
       std::vector<float> input;
       status = ReadLogicalCpuValues(parent, "autograd_activation", &input);
@@ -565,6 +567,8 @@ inline Status ApplyNode(const GradNode& node,
         return InternalError("autograd: activation gradient size mismatch");
       }
       std::vector<float> values(grad.size());
+      constexpr float kInvSqrt2 = 0.7071067811865475244f;
+      constexpr float kInvSqrt2Pi = 0.39894228040143267794f;
       for (size_t index = 0; index < values.size(); ++index) {
         float local = 0.0f;
         if (node.operation == Operation::kRelu) {
@@ -572,9 +576,17 @@ inline Status ApplyNode(const GradNode& node,
         } else if (node.operation == Operation::kSigmoid) {
           const float sigmoid = 1.0f / (1.0f + std::exp(-input[index]));
           local = sigmoid * (1.0f - sigmoid);
-        } else {
+        } else if (node.operation == Operation::kTanh) {
           const float hyperbolic = std::tanh(input[index]);
           local = 1.0f - hyperbolic * hyperbolic;
+        } else if (node.operation == Operation::kGelu) {
+          const float x = input[index];
+          local = 0.5f * (1.0f + std::erf(x * kInvSqrt2)) +
+                  x * std::exp(-0.5f * x * x) * kInvSqrt2Pi;
+        } else {
+          const float x = input[index];
+          const float sigmoid = 1.0f / (1.0f + std::exp(-x));
+          local = sigmoid * (1.0f + x * (1.0f - sigmoid));
         }
         values[index] = grad[index] * local;
       }
@@ -582,6 +594,52 @@ inline Status ApplyNode(const GradNode& node,
       status = MakeCpuTensor(parent.shape(), values, &contribution);
       if (!status.ok()) return status;
       emit(node.parents.at(0), std::move(contribution));
+      return Status::Ok();
+    }
+    case Operation::kSwiGlu: {
+      if (node.parents.size() != 1) {
+        return InternalError("autograd: SwiGLU node parent count mismatch");
+      }
+      const Tensor& parent = *node.parents[0];
+      if (parent.shape().dimensions.empty()) {
+        return InternalError("autograd: SwiGLU parent rank is invalid");
+      }
+      const int64_t width = parent.shape().dimensions.back();
+      if (width <= 0 || (width % 2) != 0) {
+        return InternalError("autograd: SwiGLU parent width is invalid");
+      }
+      const int64_t half = width / 2;
+      const int64_t rows = parent.numel() / width;
+      if (grad.size() != static_cast<size_t>(rows * half)) {
+        return InternalError("autograd: SwiGLU gradient shape mismatch");
+      }
+      std::vector<float> input;
+      status = ReadLogicalCpuValues(parent, "autograd_swiglu", &input);
+      if (!status.ok()) return status;
+      std::vector<float> values(input.size(), 0.0f);
+      for (int64_t row = 0; row < rows; ++row) {
+        const size_t input_base = static_cast<size_t>(row * width);
+        const size_t grad_base = static_cast<size_t>(row * half);
+        for (int64_t col = 0; col < half; ++col) {
+          const size_t left_index = input_base + static_cast<size_t>(col);
+          const size_t right_index =
+              input_base + static_cast<size_t>(half + col);
+          const float a = input[left_index];
+          const float b = input[right_index];
+          const float sigmoid = 1.0f / (1.0f + std::exp(-a));
+          const float silu = a * sigmoid;
+          const float silu_prime =
+              sigmoid * (1.0f + a * (1.0f - sigmoid));
+          const float upstream_value =
+              grad[grad_base + static_cast<size_t>(col)];
+          values[left_index] = upstream_value * b * silu_prime;
+          values[right_index] = upstream_value * silu;
+        }
+      }
+      std::shared_ptr<Tensor> contribution;
+      status = MakeCpuTensor(parent.shape(), values, &contribution);
+      if (!status.ok()) return status;
+      emit(node.parents[0], std::move(contribution));
       return Status::Ok();
     }
     case Operation::kMse: {

@@ -1,5 +1,6 @@
 #include "tensor/tensor.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -8,6 +9,22 @@
 #include "memory/cpu_storage.h"
 
 namespace tensora {
+namespace {
+
+std::atomic<uint64_t> next_tensor_identity{1};
+
+}  // namespace
+
+std::shared_ptr<TensorIdentityAnchor> NewTensorIdentityAnchor() {
+  const uint64_t identity =
+      next_tensor_identity.fetch_add(1, std::memory_order_relaxed);
+  return std::make_shared<TensorIdentityAnchor>(identity);
+}
+
+TensorVersionCounter::TensorVersionCounter(
+    std::shared_ptr<TensorIdentityAnchor> identity_anchor)
+    : identity(identity_anchor ? std::move(identity_anchor)
+                               : NewTensorIdentityAnchor()) {}
 
 Tensor::Tensor(ShapeInfo shape,
                std::shared_ptr<TensorStorage> storage,
@@ -15,15 +32,18 @@ Tensor::Tensor(ShapeInfo shape,
                Device device,
                int32_t device_index,
                uint64_t storage_offset,
-               std::shared_ptr<TensorVersionCounter> version_counter)
+               std::shared_ptr<TensorVersionCounter> version_counter,
+               std::shared_ptr<TensorIdentityAnchor> identity_anchor)
     : shape_(std::move(shape)),
       storage_(std::move(storage)),
       dtype_(dtype),
       device_(device),
       device_index_(device_index),
       storage_offset_(storage_offset),
-      version_counter_(version_counter ? std::move(version_counter)
-                                       : std::make_shared<TensorVersionCounter>()) {}
+      version_counter_(
+          version_counter
+              ? std::move(version_counter)
+              : std::make_shared<TensorVersionCounter>(std::move(identity_anchor))) {}
 
 bool Tensor::is_contiguous() const {
   uint64_t expected_stride = 1;

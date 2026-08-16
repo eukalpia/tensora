@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "autograd/autograd.h"
 #include "core/status.h"
 #include "tensor/tensor.h"
 

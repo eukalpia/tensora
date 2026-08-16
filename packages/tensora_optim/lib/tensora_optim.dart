@@ -1,4 +1,5 @@
-/// Optimizers for Tensora training.
+/// Parameter-oriented optimizers for Tensora NN V2.
 library;
 
-export 'package:tensora/tensora.dart' show Adam, AdamW, Optimizer, SGD;
+export 'src/optimizer.dart';
+export 'src/parameter_group.dart';

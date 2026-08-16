@@ -207,7 +207,11 @@ jobs:
 
       - name: Verify Dart formatting
         working-directory: packages/tensora
-        run: dart format --output=none --set-exit-if-changed lib integration_test
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format lib integration_test
+          git diff --exit-code -- lib integration_test
 
       - name: Analyze Dart training surface
         working-directory: packages/tensora

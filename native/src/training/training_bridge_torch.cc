@@ -190,6 +190,7 @@ Status RequiresGrad(const Tensor& tensor, uint8_t* out_requires_grad) {
   }
   *out_requires_grad = 0;
   if (tensor.storage()->kind() != StorageKind::kTorch) {
+    *out_requires_grad = autograd::RequiresGrad(tensor) ? 1 : 0;
     return Status::Ok();
   }
 
@@ -201,6 +202,9 @@ Status RequiresGrad(const Tensor& tensor, uint8_t* out_requires_grad) {
 }
 
 Status Backward(const Tensor& tensor) {
+  if (tensor.storage()->kind() != StorageKind::kTorch) {
+    return autograd::Backward(tensor);
+  }
   if (tensor.numel() != 1) {
     return InvalidShape("tensor_backward: loss tensor must contain one value");
   }
@@ -222,6 +226,9 @@ Status Gradient(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
     return InvalidArgument("tensor_grad: output tensor pointer is null");
   }
   *out = nullptr;
+  if (tensor.storage()->kind() != StorageKind::kTorch) {
+    return autograd::GradientSnapshot(tensor, out);
+  }
 
   torch::Tensor value;
   Status status = TensorToTorch(tensor, &value);

@@ -10,11 +10,14 @@
 #include "runtime/device_codec.h"
 #include "runtime/handle_registry.h"
 #include "tensor/tensor.h"
+#include "training/nn_v2_optimizer.h"
+#include "training/nn_v2_parameter_control.h"
+#include "training/nn_v2_runtime.h"
+#include "training/nn_v2_state.h"
 #include "training/training_bridge.h"
 
 namespace tensora {
 namespace {
-
 
 Status LookupTrainingTensor(ts_tensor_t handle, std::shared_ptr<Tensor>* out) {
   return HandleRegistry::Instance().Lookup<Tensor>(
@@ -101,6 +104,41 @@ ts_status_t ts_manual_seed(uint64_t seed) {
   });
 }
 
+ts_status_t ts_tensor_identity(ts_tensor_t tensor, uint64_t* out_identity) {
+  return tensora::AbiGuard("tensor_identity", [&] {
+    if (out_identity == nullptr) {
+      return tensora::InvalidArgument(
+          "tensor_identity: output identity pointer is null");
+    }
+    *out_identity = 0;
+    std::shared_ptr<tensora::Tensor> object;
+    tensora::Status status = tensora::LookupTrainingTensor(tensor, &object);
+    if (!status.ok()) return status;
+    return tensora::training::nn_v2_state::TensorIdentity(
+        *object, out_identity);
+  });
+}
+
+ts_status_t ts_tensor_clone_detached(ts_tensor_t tensor,
+                                     ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_clone_detached", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2_state::CloneDetached(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_assign_many(const ts_tensor_t* targets,
+                                  const ts_tensor_t* sources,
+                                  size_t count) {
+  return tensora::AbiGuard("tensor_assign_many", [&] {
+    return tensora::training::nn_v2_state::AssignMany(targets, sources, count);
+  });
+}
+
 ts_status_t ts_tensor_with_requires_grad(ts_tensor_t tensor,
                                          uint8_t requires_grad,
                                          ts_tensor_t* out_tensor) {
@@ -127,6 +165,17 @@ ts_status_t ts_tensor_requires_grad(ts_tensor_t tensor,
     tensora::Status status = tensora::LookupTrainingTensor(tensor, &object);
     if (!status.ok()) return status;
     return tensora::training::RequiresGrad(*object, out_requires_grad);
+  });
+}
+
+ts_status_t ts_tensor_set_requires_grad(ts_tensor_t tensor,
+                                        uint8_t requires_grad) {
+  return tensora::AbiGuard("tensor_set_requires_grad", [&] {
+    std::shared_ptr<tensora::Tensor> object;
+    tensora::Status status = tensora::LookupTrainingTensor(tensor, &object);
+    if (!status.ok()) return status;
+    return tensora::training::nn_v2_parameter_control::SetRequiresGrad(
+        *object, requires_grad != 0);
   });
 }
 
@@ -179,6 +228,39 @@ ts_status_t ts_tensor_tanh(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
         [](const tensora::Tensor& value,
            std::shared_ptr<tensora::Tensor>* out) {
           return tensora::training::Tanh(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_gelu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_gelu", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2::Gelu(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_silu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_silu", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2::Silu(value, out);
+        });
+  });
+}
+
+ts_status_t ts_tensor_swiglu(ts_tensor_t tensor, ts_tensor_t* out_tensor) {
+  return tensora::AbiGuard("tensor_swiglu", [&] {
+    return tensora::RunTrainingUnary(
+        tensor, out_tensor,
+        [](const tensora::Tensor& value,
+           std::shared_ptr<tensora::Tensor>* out) {
+          return tensora::training::nn_v2::SwiGlu(value, out);
         });
   });
 }
@@ -379,6 +461,67 @@ ts_status_t ts_optimizer_release(ts_optimizer_t optimizer) {
   });
 }
 
+ts_status_t ts_sgd_create_for_tensors(const ts_tensor_t* parameters,
+                                      size_t count,
+                                      double learning_rate,
+                                      double momentum,
+                                      double weight_decay,
+                                      ts_optimizer_t* out_optimizer) {
+  return tensora::AbiGuard("sgd_create_for_tensors", [&] {
+    return tensora::training::nn_v2_optimizer::SgdCreate(
+        parameters, count, learning_rate, momentum, weight_decay,
+        out_optimizer);
+  });
+}
+
+ts_status_t ts_adam_create_for_tensors(const ts_tensor_t* parameters,
+                                       size_t count,
+                                       double learning_rate,
+                                       double beta1,
+                                       double beta2,
+                                       double epsilon,
+                                       double weight_decay,
+                                       ts_optimizer_t* out_optimizer) {
+  return tensora::AbiGuard("adam_create_for_tensors", [&] {
+    return tensora::training::nn_v2_optimizer::AdamCreate(
+        parameters, count, learning_rate, beta1, beta2, epsilon, weight_decay,
+        out_optimizer);
+  });
+}
+
+ts_status_t ts_adamw_create_for_tensors(const ts_tensor_t* parameters,
+                                        size_t count,
+                                        double learning_rate,
+                                        double beta1,
+                                        double beta2,
+                                        double epsilon,
+                                        double weight_decay,
+                                        ts_optimizer_t* out_optimizer) {
+  return tensora::AbiGuard("adamw_create_for_tensors", [&] {
+    return tensora::training::nn_v2_optimizer::AdamWCreate(
+        parameters, count, learning_rate, beta1, beta2, epsilon, weight_decay,
+        out_optimizer);
+  });
+}
+
+ts_status_t ts_parameter_optimizer_zero_grad(ts_optimizer_t optimizer) {
+  return tensora::AbiGuard("parameter_optimizer_zero_grad", [&] {
+    return tensora::training::nn_v2_optimizer::ZeroGrad(optimizer);
+  });
+}
+
+ts_status_t ts_parameter_optimizer_step(ts_optimizer_t optimizer) {
+  return tensora::AbiGuard("parameter_optimizer_step", [&] {
+    return tensora::training::nn_v2_optimizer::Step(optimizer);
+  });
+}
+
+ts_status_t ts_parameter_optimizer_release(ts_optimizer_t optimizer) {
+  return tensora::AbiGuard("parameter_optimizer_release", [&] {
+    return tensora::training::nn_v2_optimizer::Release(optimizer);
+  });
+}
+
 ts_status_t ts_runtime_live_module_count(uint64_t* out_count) {
   return tensora::AbiGuard("runtime_live_module_count", [&] {
     if (out_count == nullptr) {
@@ -397,8 +540,11 @@ ts_status_t ts_runtime_live_optimizer_count(uint64_t* out_count) {
       return tensora::InvalidArgument(
           "runtime_live_optimizer_count: output pointer is null");
     }
-    *out_count = tensora::HandleRegistry::Instance().Count(
-        tensora::HandleType::kOptimizer);
+    *out_count =
+        tensora::HandleRegistry::Instance().Count(
+            tensora::HandleType::kOptimizer) +
+        tensora::HandleRegistry::Instance().Count(
+            tensora::HandleType::kParameterOptimizer);
     return tensora::Status::Ok();
   });
 }

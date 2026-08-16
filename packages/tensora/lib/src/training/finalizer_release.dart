@@ -5,7 +5,12 @@ void releaseModuleHandleFromFinalizer(int handle) {
   NativeTrainingRuntime.instance.moduleReleaseFromFinalizer(handle);
 }
 
-/// Best-effort optimizer release used by the Dart finalizer safety net.
+/// Best-effort legacy optimizer release used by the Dart finalizer safety net.
 void releaseOptimizerHandleFromFinalizer(int handle) {
   NativeTrainingRuntime.instance.optimizerReleaseFromFinalizer(handle);
+}
+
+/// Best-effort parameter optimizer release used by the Dart finalizer safety net.
+void releaseParameterOptimizerHandleFromFinalizer(int handle) {
+  NativeTrainingRuntime.instance.parameterOptimizerReleaseFromFinalizer(handle);
 }

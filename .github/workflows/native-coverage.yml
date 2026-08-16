@@ -102,6 +102,22 @@ jobs:
             -o build/native-coverage-core/tensora_training_c_api_coverage_tests
           ./build/native-coverage-core/tensora_training_c_api_coverage_tests
 
+          for test in \
+            nn_v2_optimizer \
+            nn_v2_state \
+            nn_v2_activation \
+            nn_v2_parameter_control; do
+            c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+              --coverage -O0 -g \
+              -Inative/include -Inative/src \
+              "native/tests/${test}_test.cc" \
+              -Lbuild/native-coverage-core -ltensora_native \
+              -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-core" \
+              --coverage \
+              -o "build/native-coverage-core/tensora_${test}_coverage_tests"
+            "./build/native-coverage-core/tensora_${test}_coverage_tests"
+          done
+
           ctest --test-dir build/native-coverage-core --build-config Debug --output-on-failure
           gcovr build/native-coverage-core \
             --root "$GITHUB_WORKSPACE" \
@@ -136,6 +152,22 @@ jobs:
             -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-training" \
             -o build/native-coverage-training/tensora_training_bridge_internal_contract_tests
           ./build/native-coverage-training/tensora_training_bridge_internal_contract_tests
+
+          for test in \
+            nn_v2_optimizer \
+            nn_v2_state \
+            nn_v2_activation \
+            nn_v2_parameter_control; do
+            c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+              --coverage -O0 -g \
+              -Inative/include -Inative/src \
+              "native/tests/${test}_test.cc" \
+              -Lbuild/native-coverage-training -ltensora_native \
+              -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-training" \
+              --coverage \
+              -o "build/native-coverage-training/tensora_${test}_coverage_tests"
+            "./build/native-coverage-training/tensora_${test}_coverage_tests"
+          done
 
           python3 - <<'PY'
           import json

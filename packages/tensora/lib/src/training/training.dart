@@ -1,5 +1,6 @@
 import '../device/device.dart';
 import '../errors/tensora_exception.dart';
+import '../native/native_runtime.dart';
 import '../native/native_training_runtime.dart';
 import '../tensor/native_adoption.dart';
 import '../tensor/tensor.dart';
@@ -78,6 +79,9 @@ abstract final class TensoraRuntime {
   /// Sets the native training random seed.
   static void manualSeed(int seed) =>
       NativeTrainingRuntime.instance.manualSeed(seed);
+
+  /// Number of live native Tensor handles owned through the ABI.
+  static int get liveTensorCount => NativeRuntime.instance.liveTensorCount();
 
   /// Number of live native Module handles owned through the ABI.
   static int get liveModuleCount =>
