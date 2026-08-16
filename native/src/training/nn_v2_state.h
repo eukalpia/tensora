@@ -313,11 +313,7 @@ inline Status AssignMany(const uint64_t* target_handles,
         conversion = TensorToTorch(*sources[index], &source);
         if (!conversion.ok()) return conversion;
         torch_targets.push_back(target);
-        Status clone_status = training::internal::GuardTorch("tensor_assign_many", [&]() -> Status {
-          staged_sources.push_back(source.detach().clone());
-          backups.push_back(target.detach().clone());
-          return Status::Ok();
-        });
+        Status clone_status = training::internal::GuardTorch("tensor_assign_many", [&]() -> Status { staged_sources.push_back(source.detach().clone()); backups.push_back(target.detach().clone()); return Status::Ok(); });
         if (!clone_status.ok()) return clone_status;
       }
       return Status::Ok();
