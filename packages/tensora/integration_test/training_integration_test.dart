@@ -60,16 +60,8 @@ void main() {
     addTearDown(gelu.dispose);
     addTearDown(silu.dispose);
 
-    expectValues(
-      gelu.toList(),
-      [-0.15865526, 0, 0.8413447],
-      tolerance: 2e-5,
-    );
-    expectValues(
-      silu.toList(),
-      [-0.26894143, 0, 0.7310586],
-      tolerance: 2e-5,
-    );
+    expectValues(gelu.toList(), [-0.15865526, 0, 0.8413447], tolerance: 2e-5);
+    expectValues(silu.toList(), [-0.26894143, 0, 0.7310586], tolerance: 2e-5);
   });
 
   test('GELU and SiLU autograd match analytical derivatives', () {
@@ -95,16 +87,16 @@ void main() {
     final siluGradient = siluLeaf.grad();
     addTearDown(geluGradient.dispose);
     addTearDown(siluGradient.dispose);
-    expectValues(
-      geluGradient.toList(),
-      [-0.08331547, 0.5, 1.0833155],
-      tolerance: 3e-5,
-    );
-    expectValues(
-      siluGradient.toList(),
-      [0.07232949, 0.5, 0.9276705],
-      tolerance: 3e-5,
-    );
+    expectValues(geluGradient.toList(), [
+      -0.08331547,
+      0.5,
+      1.0833155,
+    ], tolerance: 3e-5);
+    expectValues(siluGradient.toList(), [
+      0.07232949,
+      0.5,
+      0.9276705,
+    ], tolerance: 3e-5);
   });
 
   test('SwiGLU halves the final dimension and has exact backward', () {
@@ -123,11 +115,12 @@ void main() {
     loss.backward();
     final gradient = leaf.grad();
     addTearDown(gradient.dispose);
-    expectValues(
-      gradient.toList(),
-      [1.855341, 0.21698847, 0.7310586, -0.26894143],
-      tolerance: 4e-5,
-    );
+    expectValues(gradient.toList(), [
+      1.855341,
+      0.21698847,
+      0.7310586,
+      -0.26894143,
+    ], tolerance: 4e-5);
   });
 
   test('SwiGLU rejects rank-zero and odd final dimensions', () {
