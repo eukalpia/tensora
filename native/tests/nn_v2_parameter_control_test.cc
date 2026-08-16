@@ -41,6 +41,9 @@ int main() {
   RequireStatus(ts_tensor_from_f32(&value, 1, dims, 1, &parameter), TS_OK,
                 "create parameter");
 
+  RequireStatus(ts_tensor_identity(parameter, nullptr), TS_INVALID_ARGUMENT,
+                "identity rejects null output pointer");
+
   uint8_t requires_grad = 99;
   RequireStatus(ts_tensor_requires_grad(parameter, &requires_grad), TS_OK,
                 "initial requiresGrad query");
