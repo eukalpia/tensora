@@ -4,8 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
+#include "autograd/autograd.h"
 #include "core/status.h"
 #include "tensor/tensor.h"
 
@@ -24,6 +26,27 @@ Status WithRequiresGrad(const Tensor& tensor,
                         bool requires_grad,
                         std::shared_ptr<Tensor>* out);
 Status RequiresGrad(const Tensor& tensor, uint8_t* out_requires_grad);
+#if defined(TENSORA_WITH_TORCH)
+// A Torch-enabled runtime can still own canonical Tensora CPU tensors. Route
+// those tensors through their native AutogradMeta instead of treating every
+// non-Torch storage object as frozen. Torch-backed tensors continue through the
+// provider implementation above.
+inline Status RequiresGrad(Tensor& tensor, uint8_t* out_requires_grad) {
+  if (out_requires_grad == nullptr) {
+    return InvalidArgument("tensor_requires_grad: output pointer is null");
+  }
+  *out_requires_grad = 0;
+  if (tensor.storage()->kind() == StorageKind::kTorch) {
+    return RequiresGrad(static_cast<const Tensor&>(tensor), out_requires_grad);
+  }
+
+  const auto& meta = tensor.autograd_meta();
+  if (!meta) return Status::Ok();
+  std::lock_guard<std::mutex> lock(meta->mutex);
+  *out_requires_grad = meta->requires_grad ? 1 : 0;
+  return Status::Ok();
+}
+#endif
 Status Backward(const Tensor& tensor);
 Status Gradient(const Tensor& tensor, std::shared_ptr<Tensor>* out);
 Status Relu(const Tensor& tensor, std::shared_ptr<Tensor>* out);
