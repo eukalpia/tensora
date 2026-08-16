@@ -22,6 +22,33 @@ final class ToyMlp extends nn.Model {
   }
 }
 
+final class TrackingMoveLeaf extends nn.Module {
+  TrackingMoveLeaf({this.failFirstMove = false});
+
+  final bool failFirstMove;
+  Device _device = Device.cpu;
+  bool _failed = false;
+  int moveCalls = 0;
+
+  Device get currentDevice => _device;
+
+  @override
+  Device get internalMoveDevice => _device;
+
+  @override
+  void internalOnMove(Device device) {
+    moveCalls += 1;
+    _device = device;
+    if (failFirstMove && !_failed) {
+      _failed = true;
+      throw StateError('synthetic late move failure');
+    }
+  }
+
+  @override
+  Tensor forward(Tensor input) => input;
+}
+
 void expectValues(
   List<double> actual,
   List<double> expected, {
@@ -119,5 +146,46 @@ void main() {
     model.dispose();
     expect(TensoraRuntime.liveOptimizerCount, liveOptimizersBefore);
     expect(TensoraRuntime.liveModuleCount, liveModulesBefore);
+  });
+
+  test('parameter freeze and device refresh preserve opaque identity', () {
+    final layer = nn.Linear(inFeatures: 2, outFeatures: 2);
+    addTearDown(layer.dispose);
+    final parameters = layer.parameters;
+    expect(parameters, hasLength(2));
+    final identities = parameters.map((parameter) => parameter.identity).toList();
+
+    final weight = parameters.first;
+    expect(weight.requiresGrad, isTrue);
+    weight.freeze();
+    expect(weight.requiresGrad, isFalse);
+    expect(weight.identity, identities.first);
+    weight.unfreeze();
+    expect(weight.requiresGrad, isTrue);
+    expect(weight.identity, identities.first);
+
+    layer.to(Device.cpu);
+    expect(
+      layer.parameters.map((parameter) => parameter.identity),
+      identities,
+    );
+    expect(layer.parameters.every((parameter) => parameter.device == Device.cpu),
+        isTrue);
+  });
+
+  test('module move rolls back every attempted leaf after a late failure', () {
+    final first = TrackingMoveLeaf();
+    final failing = TrackingMoveLeaf(failFirstMove: true);
+    final tree = nn.Sequential(children: <nn.Module>[first, failing]);
+    addTearDown(tree.dispose);
+
+    expect(
+      () => tree.to(Device.cpu),
+      throwsA(isA<StateError>()),
+    );
+    expect(first.currentDevice, Device.cpu);
+    expect(failing.currentDevice, Device.cpu);
+    expect(first.moveCalls, 2, reason: 'first leaf must be rolled back');
+    expect(failing.moveCalls, 2, reason: 'failing leaf must also be rolled back');
   });
 }
