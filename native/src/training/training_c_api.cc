@@ -11,6 +11,7 @@
 #include "runtime/handle_registry.h"
 #include "tensor/tensor.h"
 #include "training/nn_v2_optimizer.h"
+#include "training/nn_v2_parameter_control.h"
 #include "training/nn_v2_runtime.h"
 #include "training/nn_v2_state.h"
 #include "training/training_bridge.h"
@@ -164,6 +165,17 @@ ts_status_t ts_tensor_requires_grad(ts_tensor_t tensor,
     tensora::Status status = tensora::LookupTrainingTensor(tensor, &object);
     if (!status.ok()) return status;
     return tensora::training::RequiresGrad(*object, out_requires_grad);
+  });
+}
+
+ts_status_t ts_tensor_set_requires_grad(ts_tensor_t tensor,
+                                        uint8_t requires_grad) {
+  return tensora::AbiGuard("tensor_set_requires_grad", [&] {
+    std::shared_ptr<tensora::Tensor> object;
+    tensora::Status status = tensora::LookupTrainingTensor(tensor, &object);
+    if (!status.ok()) return status;
+    return tensora::training::nn_v2_parameter_control::SetRequiresGrad(
+        *object, requires_grad != 0);
   });
 }
 
