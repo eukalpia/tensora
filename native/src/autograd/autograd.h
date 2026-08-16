@@ -175,8 +175,7 @@ inline Status MakeCpuTensor(const ShapeInfo& shape,
   Status status =
       ValidateShape(dimensions, shape.dimensions.size(), &materialized_shape);
   if (!status.ok() || materialized_shape.numel != shape.numel) {
-    return InternalError(
-        "autograd: could not canonicalize materialized gradient shape");
+    return InternalError("autograd: could not canonicalize materialized gradient shape");
   }
 
   std::shared_ptr<CpuStorage> storage;
@@ -249,8 +248,7 @@ inline Status Share(const Tensor& tensor, std::shared_ptr<Tensor>* out) {
     *out = std::const_pointer_cast<Tensor>(tensor.shared_from_this());
     return Status::Ok();
   } catch (const std::bad_weak_ptr&) {
-    return InternalError(
-        "autograd: differentiable tensor is not managed by shared ownership");
+    return InternalError("autograd: differentiable tensor is not managed by shared ownership");
   }
 }
 
@@ -353,8 +351,7 @@ inline Status ValidateSavedVersions(const GradNode& node) {
   for (size_t index = 0; index < node.parents.size(); ++index) {
     const auto& parent = node.parents[index];
     if (parent && Version(*parent) != node.parent_versions[index]) {
-      return InvalidArgument(
-          "autograd: a saved tensor alias was modified before backward");
+      return InvalidArgument("autograd: a saved tensor alias was modified before backward");
     }
   }
   return Status::Ok();
