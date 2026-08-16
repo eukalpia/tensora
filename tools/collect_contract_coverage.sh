@@ -8,6 +8,8 @@ mkdir -p "$root_dir/build"
 
 cc -std=c11 -fPIC -shared -Wall -Wextra -Werror \
   -DTENSORA_NATIVE_BUILD \
+  -Dts_test_set_training_mode=ts_fixture_base_set_training_mode \
+  -Dts_module_parameter_count=ts_fixture_base_module_parameter_count \
   -I "$root_dir/native/include" \
   "$root_dir/native/tests/dart_contract_fixture.c" \
   "$root_dir/native/tests/dart_contract_nn_v2_fixture.c" \
