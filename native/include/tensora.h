@@ -134,6 +134,8 @@ TS_API ts_status_t ts_tensor_with_requires_grad(ts_tensor_t tensor,
                                                 ts_tensor_t* out_tensor);
 TS_API ts_status_t ts_tensor_requires_grad(ts_tensor_t tensor,
                                            uint8_t* out_requires_grad);
+TS_API ts_status_t ts_tensor_set_requires_grad(ts_tensor_t tensor,
+                                               uint8_t requires_grad);
 TS_API ts_status_t ts_tensor_backward(ts_tensor_t tensor);
 TS_API ts_status_t ts_tensor_grad(ts_tensor_t tensor,
                                   ts_tensor_t* out_tensor);
