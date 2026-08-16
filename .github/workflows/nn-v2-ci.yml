@@ -89,6 +89,21 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/nn-v2-core
         run: ./build/nn_v2_activation_test
 
+      - name: Compile parameter freeze and unfreeze proof
+        run: >-
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror
+          native/tests/nn_v2_parameter_control_test.cc
+          -Inative/include
+          -Lbuild/nn-v2-core
+          -Wl,-rpath,$PWD/build/nn-v2-core
+          -ltensora_native
+          -o build/nn_v2_parameter_control_test
+
+      - name: Run parameter freeze and unfreeze proof
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/nn-v2-core
+        run: ./build/nn_v2_parameter_control_test
+
       - name: Resolve Dart workspace
         run: dart pub get
 
