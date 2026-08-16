@@ -29,57 +29,53 @@
 namespace tensora::training::nn_v2_state {
 namespace internal {
 
-struct IdentityKey {
-  StorageKind kind = StorageKind::kCpu;
-  uintptr_t object = 0;
-
-  bool operator==(const IdentityKey& other) const {
-    return kind == other.kind && object == other.object;
-  }
-};
-
-struct IdentityKeyHash {
-  size_t operator()(const IdentityKey& key) const {
-    const size_t first = std::hash<uintptr_t>{}(key.object);
-    const size_t second =
-        std::hash<unsigned int>{}(static_cast<unsigned int>(key.kind));
-    return first ^ (second + static_cast<size_t>(0x9e3779b9U) + (first << 6U) +
-                    (first >> 2U));
-  }
-};
-
-inline std::mutex& IdentityMutex() {
+#if defined(TENSORA_WITH_TORCH)
+inline std::mutex& TorchIdentityMutex() {
   static std::mutex mutex;
   return mutex;
 }
 
-inline std::unordered_map<IdentityKey, uint64_t, IdentityKeyHash>& IdentityMap() {
-  static std::unordered_map<IdentityKey, uint64_t, IdentityKeyHash> identities;
+inline std::unordered_map<uintptr_t, uint64_t>& TorchIdentityMap() {
+  static std::unordered_map<uintptr_t, uint64_t> identities;
   return identities;
 }
 
-inline uint64_t& NextIdentity() {
-  static uint64_t next = 1;
+inline uint64_t& NextTorchIdentity() {
+  static uint64_t next = UINT64_C(1) << 63U;
   return next;
 }
 
-inline Status KeyForTensor(const Tensor& tensor, IdentityKey* out) {
-  if (out == nullptr) {
-    return InvalidArgument("tensor_identity: key output pointer is null");
+inline Status TorchIdentity(const Tensor& tensor, uint64_t* out_identity) {
+  torch::Tensor value;
+  Status status = TensorToTorch(tensor, &value);
+  if (!status.ok()) return status;
+  const uintptr_t key =
+      reinterpret_cast<uintptr_t>(value.unsafeGetTensorImpl());
+  if (key == 0) {
+    return InternalError("tensor_identity: provider returned null tensor identity");
   }
-  out->kind = tensor.storage()->kind();
-#if defined(TENSORA_WITH_TORCH)
-  if (out->kind == StorageKind::kTorch) {
-    torch::Tensor value;
-    Status status = TensorToTorch(tensor, &value);
-    if (!status.ok()) return status;
-    out->object = reinterpret_cast<uintptr_t>(value.unsafeGetTensorImpl());
+
+  std::lock_guard<std::mutex> lock(TorchIdentityMutex());
+  auto& identities = TorchIdentityMap();
+  const auto existing = identities.find(key);
+  if (existing != identities.end()) {
+    *out_identity = existing->second;
     return Status::Ok();
   }
-#endif
-  out->object = reinterpret_cast<uintptr_t>(&tensor);
+  uint64_t& next = NextTorchIdentity();
+  if (next == 0) {
+    return InternalError("tensor_identity: opaque identity space exhausted");
+  }
+  const uint64_t assigned = next++;
+  try {
+    identities.emplace(key, assigned);
+  } catch (const std::bad_alloc&) {
+    return OutOfMemory("tensor_identity: identity registry allocation failed");
+  }
+  *out_identity = assigned;
   return Status::Ok();
 }
+#endif
 
 inline Status ValidatePair(const Tensor& target,
                            const Tensor& source,
@@ -124,31 +120,15 @@ inline Status TensorIdentity(const Tensor& tensor, uint64_t* out_identity) {
     return InvalidArgument("tensor_identity: output pointer is null");
   }
   *out_identity = 0;
-  internal::IdentityKey key;
-  Status status = internal::KeyForTensor(tensor, &key);
-  if (!status.ok()) return status;
-  if (key.object == 0) {
-    return InternalError("tensor_identity: provider returned null tensor identity");
+#if defined(TENSORA_WITH_TORCH)
+  if (tensor.storage()->kind() == StorageKind::kTorch) {
+    return internal::TorchIdentity(tensor, out_identity);
   }
-
-  std::lock_guard<std::mutex> lock(internal::IdentityMutex());
-  auto& identities = internal::IdentityMap();
-  const auto existing = identities.find(key);
-  if (existing != identities.end()) {
-    *out_identity = existing->second;
-    return Status::Ok();
+#endif
+  *out_identity = tensor.identity();
+  if (*out_identity == 0) {
+    return InternalError("tensor_identity: opaque identity is zero");
   }
-  uint64_t& next = internal::NextIdentity();
-  if (next == 0) {
-    return InternalError("tensor_identity: opaque identity space exhausted");
-  }
-  const uint64_t assigned = next++;
-  try {
-    identities.emplace(key, assigned);
-  } catch (const std::bad_alloc&) {
-    return OutOfMemory("tensor_identity: identity registry allocation failed");
-  }
-  *out_identity = assigned;
   return Status::Ok();
 }
 
@@ -189,8 +169,7 @@ inline Status AssignMany(const uint64_t* target_handles,
   });
   if (!status.ok()) return status;
 
-  std::unordered_set<internal::IdentityKey, internal::IdentityKeyHash>
-      target_identities;
+  std::unordered_set<uint64_t> target_identities;
   bool have_kind = false;
   StorageKind batch_kind = StorageKind::kCpu;
   for (size_t index = 0; index < count; ++index) {
@@ -205,11 +184,11 @@ inline Status AssignMany(const uint64_t* target_handles,
     status = internal::ValidatePair(*target, *source, "tensor_assign_many");
     if (!status.ok()) return status;
 
-    internal::IdentityKey target_key;
-    status = internal::KeyForTensor(*target, &target_key);
+    uint64_t target_identity = 0;
+    status = TensorIdentity(*target, &target_identity);
     if (!status.ok()) return status;
     try {
-      if (!target_identities.insert(target_key).second) {
+      if (!target_identities.insert(target_identity).second) {
         return InvalidArgument("tensor_assign_many: duplicate target tensor");
       }
     } catch (const std::bad_alloc&) {
