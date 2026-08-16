@@ -138,7 +138,7 @@ void TestOptimizerValidation() {
   RequireCode(ValidateBetas(0.9, -1.0, "coverage"), TS_INVALID_ARGUMENT);
   RequireCode(ValidateEpsilon(0.0, "coverage"), TS_INVALID_ARGUMENT);
 
-  StorageKind kind = StorageKind::kCpu;
+  tensora::StorageKind kind = tensora::StorageKind::kCpu;
   std::vector<std::shared_ptr<tensora::Tensor>> output;
   RequireCode(CollectParameters(nullptr, 0, "coverage", nullptr, &kind),
               TS_INVALID_ARGUMENT);
@@ -234,7 +234,7 @@ void TestOptimizerDefensiveStates(const tensora::ShapeInfo& shape) {
               TS_UNSUPPORTED);
 
   std::vector<std::shared_ptr<tensora::Tensor>> collected;
-  StorageKind collected_kind = StorageKind::kCpu;
+  tensora::StorageKind collected_kind = tensora::StorageKind::kCpu;
   const ts_tensor_t mixed[2] = {parameter_handle, unsupported_handle};
   RequireCode(CollectParameters(mixed, 2, "coverage", &collected,
                                 &collected_kind),
