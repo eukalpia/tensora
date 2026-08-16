@@ -23,12 +23,16 @@ final class ToyMlp extends nn.Model {
 }
 
 final class TrackingMoveLeaf extends nn.Module {
-  TrackingMoveLeaf({this.failFirstMove = false});
+  TrackingMoveLeaf({
+    required Device initialDevice,
+    this.failFirstMove = false,
+  }) : _device = initialDevice;
 
   final bool failFirstMove;
-  Device _device = Device.cpu;
+  Device _device;
   bool _failed = false;
   int moveCalls = 0;
+  final List<Device> history = <Device>[];
 
   Device get currentDevice => _device;
 
@@ -39,6 +43,7 @@ final class TrackingMoveLeaf extends nn.Module {
   void internalOnMove(Device device) {
     moveCalls += 1;
     _device = device;
+    history.add(device);
     if (failFirstMove && !_failed) {
       _failed = true;
       throw StateError('synthetic late move failure');
@@ -179,19 +184,25 @@ void main() {
   });
 
   test('module move rolls back every attempted leaf after a late failure', () {
-    final first = TrackingMoveLeaf();
-    final failing = TrackingMoveLeaf(failFirstMove: true);
+    final original = Device.cuda(0);
+    final first = TrackingMoveLeaf(initialDevice: original);
+    final failing = TrackingMoveLeaf(
+      initialDevice: original,
+      failFirstMove: true,
+    );
     final tree = nn.Sequential(children: <nn.Module>[first, failing]);
     addTearDown(tree.dispose);
 
     expect(() => tree.to(Device.cpu), throwsA(isA<StateError>()));
-    expect(first.currentDevice, Device.cpu);
-    expect(failing.currentDevice, Device.cpu);
+    expect(first.currentDevice, original);
+    expect(failing.currentDevice, original);
     expect(first.moveCalls, 2, reason: 'first leaf must be rolled back');
     expect(
       failing.moveCalls,
       2,
       reason: 'failing leaf must also be rolled back',
     );
+    expect(first.history, <Device>[Device.cpu, original]);
+    expect(failing.history, <Device>[Device.cpu, original]);
   });
 }
