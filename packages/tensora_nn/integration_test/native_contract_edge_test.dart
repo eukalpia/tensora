@@ -88,24 +88,19 @@ void main() {
         'ts_test_set_training_mode',
       );
       reset();
-      setTrainingMode(1); // fixture exposes the expected weight + bias pair
+      setTrainingMode(0);
 
-      final layer = Linear(inFeatures: 1, outFeatures: 1, bias: true);
+      final layer = Linear(inFeatures: 1, outFeatures: 1, bias: false);
       addTearDown(layer.dispose);
-      final identities = layer.parameters
-          .map((parameter) => parameter.identity)
-          .toList(growable: false);
-      setTrainingMode(0); // native contract now violates the stable count
+      final identity = layer.parameters.single.identity;
+      setTrainingMode(2); // fixture exposes two valid parameters after move
 
       expect(
         () => layer.to(core.Device.cpu),
         throwsA(isA<core.NativeRuntimeException>()),
       );
-      setTrainingMode(1);
-      expect(
-        layer.parameters.map((parameter) => parameter.identity),
-        orderedEquals(identities),
-      );
+      setTrainingMode(0);
+      expect(layer.parameters.single.identity, identity);
       reset();
     },
     skip: fixtureSkip,
