@@ -95,10 +95,7 @@ class TorchBackend final : public Backend {
 };
 
 Status TensorToTorch(const Tensor& tensor, torch::Tensor* out);
-Status WrapTorchTensor(
-    torch::Tensor tensor,
-    std::shared_ptr<Tensor>* out,
-    std::shared_ptr<TensorIdentityAnchor> identity_anchor = nullptr);
+Status WrapTorchTensor(torch::Tensor tensor, std::shared_ptr<Tensor>* out);
 Status TorchDevice(Device device, int32_t device_index, torch::Device* out);
 
 }  // namespace tensora::training
