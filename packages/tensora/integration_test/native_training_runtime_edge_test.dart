@@ -152,7 +152,10 @@ void main() {
     );
     expect(() => runtime.tensorIdentity(0), throwsA(invalidHandleError));
     expect(() => runtime.cloneDetached(0), throwsA(invalidHandleError));
-    expect(() => runtime.setRequiresGrad(0, false), throwsA(invalidHandleError));
+    expect(
+      () => runtime.setRequiresGrad(0, false),
+      throwsA(invalidHandleError),
+    );
 
     expect(runtime.trainingAvailable(), isTrue);
     expect(runtime.liveModuleCount(), greaterThanOrEqualTo(0));
@@ -181,7 +184,10 @@ void main() {
     );
     expect(target.toList(), <double>[7, 8]);
 
-    NativeTensorState.assignMany(targets: const <Tensor>[], sources: const <Tensor>[]);
+    NativeTensorState.assignMany(
+      targets: const <Tensor>[],
+      sources: const <Tensor>[],
+    );
     expect(
       () => NativeTensorState.assignMany(
         targets: <Tensor>[target],
@@ -318,84 +324,87 @@ void main() {
     );
   });
 
-  test('Parameter covers state, replacement, freeze, and disposal contracts', () {
-    final module = Linear(1, 1);
-    addTearDown(module.dispose);
+  test(
+    'Parameter covers state, replacement, freeze, and disposal contracts',
+    () {
+      final module = Linear(1, 1);
+      addTearDown(module.dispose);
 
-    final initialViews = module.parameters();
-    final parameter = Parameter.fromTensor(initialViews.first);
-    for (final view in initialViews.skip(1)) {
-      view.dispose();
-    }
-    addTearDown(parameter.dispose);
+      final initialViews = module.parameters();
+      final parameter = Parameter.fromTensor(initialViews.first);
+      for (final view in initialViews.skip(1)) {
+        view.dispose();
+      }
+      addTearDown(parameter.dispose);
 
-    expect(parameter.shape, Shape(<int>[1, 1]));
-    expect(parameter.dtype, DType.float32);
-    expect(parameter.device, Device.cpu);
-    expect(parameter.requiresGrad, isTrue);
-    expect(parameter.isDisposed, isFalse);
+      expect(parameter.shape, Shape(<int>[1, 1]));
+      expect(parameter.dtype, DType.float32);
+      expect(parameter.device, Device.cpu);
+      expect(parameter.requiresGrad, isTrue);
+      expect(parameter.isDisposed, isFalse);
 
-    final identity = parameter.identity;
-    parameter.freeze();
-    expect(parameter.requiresGrad, isFalse);
-    parameter.unfreeze();
-    expect(parameter.requiresGrad, isTrue);
-    expect(parameter.identity, identity);
+      final identity = parameter.identity;
+      parameter.freeze();
+      expect(parameter.requiresGrad, isFalse);
+      parameter.unfreeze();
+      expect(parameter.requiresGrad, isTrue);
+      expect(parameter.identity, identity);
 
-    final loss = parameter.tensorForRuntime.sum();
-    loss.backward();
-    loss.dispose();
-    final gradient = parameter.grad();
-    expect(gradient.toList(), <double>[1]);
-    gradient.dispose();
+      final loss = parameter.tensorForRuntime.sum();
+      loss.backward();
+      loss.dispose();
+      final gradient = parameter.grad();
+      expect(gradient.toList(), <double>[1]);
+      gradient.dispose();
 
-    final snapshot = parameter.snapshot();
-    expect(snapshot.toList(), parameter.tensorForRuntime.toList());
-    expect(snapshot.requiresGrad, isFalse);
-    snapshot.dispose();
+      final snapshot = parameter.snapshot();
+      expect(snapshot.toList(), parameter.tensorForRuntime.toList());
+      expect(snapshot.requiresGrad, isFalse);
+      snapshot.dispose();
 
-    final refreshed = module.parameters();
-    final replacement = refreshed.first;
-    for (final view in refreshed.skip(1)) {
-      view.dispose();
-    }
-    parameter.internalReplaceTensor(replacement);
-    expect(parameter.identity, identity);
+      final refreshed = module.parameters();
+      final replacement = refreshed.first;
+      for (final view in refreshed.skip(1)) {
+        view.dispose();
+      }
+      parameter.internalReplaceTensor(replacement);
+      expect(parameter.identity, identity);
 
-    final mismatched = Tensor.ones(Shape(<int>[1]));
-    expect(
-      () => parameter.internalReplaceTensor(mismatched),
-      throwsA(isA<NativeRuntimeException>()),
-    );
-    expect(mismatched.isDisposed, isTrue);
-    expect(parameter.identity, identity);
+      final mismatched = Tensor.ones(Shape(<int>[1]));
+      expect(
+        () => parameter.internalReplaceTensor(mismatched),
+        throwsA(isA<NativeRuntimeException>()),
+      );
+      expect(mismatched.isDisposed, isTrue);
+      expect(parameter.identity, identity);
 
-    parameter.dispose();
-    parameter.dispose();
-    expect(parameter.isDisposed, isTrue);
-    expect(() => parameter.shape, throwsA(isA<DisposedTensorException>()));
-    expect(() => parameter.dtype, throwsA(isA<DisposedTensorException>()));
-    expect(() => parameter.device, throwsA(isA<DisposedTensorException>()));
-    expect(
-      () => parameter.requiresGrad,
-      throwsA(isA<DisposedTensorException>()),
-    );
-    expect(parameter.grad, throwsA(isA<DisposedTensorException>()));
-    expect(parameter.snapshot, throwsA(isA<DisposedTensorException>()));
-    expect(
-      () => parameter.tensorForRuntime,
-      throwsA(isA<DisposedTensorException>()),
-    );
-    expect(parameter.freeze, throwsA(isA<DisposedTensorException>()));
-    expect(parameter.unfreeze, throwsA(isA<DisposedTensorException>()));
+      parameter.dispose();
+      parameter.dispose();
+      expect(parameter.isDisposed, isTrue);
+      expect(() => parameter.shape, throwsA(isA<DisposedTensorException>()));
+      expect(() => parameter.dtype, throwsA(isA<DisposedTensorException>()));
+      expect(() => parameter.device, throwsA(isA<DisposedTensorException>()));
+      expect(
+        () => parameter.requiresGrad,
+        throwsA(isA<DisposedTensorException>()),
+      );
+      expect(parameter.grad, throwsA(isA<DisposedTensorException>()));
+      expect(parameter.snapshot, throwsA(isA<DisposedTensorException>()));
+      expect(
+        () => parameter.tensorForRuntime,
+        throwsA(isA<DisposedTensorException>()),
+      );
+      expect(parameter.freeze, throwsA(isA<DisposedTensorException>()));
+      expect(parameter.unfreeze, throwsA(isA<DisposedTensorException>()));
 
-    final unusableReplacement = Tensor.ones(Shape(<int>[1, 1]));
-    addTearDown(unusableReplacement.dispose);
-    expect(
-      () => parameter.internalReplaceTensor(unusableReplacement),
-      throwsA(isA<DisposedTensorException>()),
-    );
-  });
+      final unusableReplacement = Tensor.ones(Shape(<int>[1, 1]));
+      addTearDown(unusableReplacement.dispose);
+      expect(
+        () => parameter.internalReplaceTensor(unusableReplacement),
+        throwsA(isA<DisposedTensorException>()),
+      );
+    },
+  );
 
   test(
     'finalizer release paths return module and optimizer counters to baseline',
