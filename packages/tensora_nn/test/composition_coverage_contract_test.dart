@@ -57,18 +57,15 @@ void main() {
       SwiGLU(),
       Identity(),
     ];
-    expect(
-      modules.map((module) => module.toString()),
-      <String>[
-        'ReLU()',
-        'Sigmoid()',
-        'Tanh()',
-        'GELU()',
-        'SiLU()',
-        'SwiGLU()',
-        'Identity()',
-      ],
-    );
+    expect(modules.map((module) => module.toString()), <String>[
+      'ReLU()',
+      'Sigmoid()',
+      'Tanh()',
+      'GELU()',
+      'SiLU()',
+      'SwiGLU()',
+      'Identity()',
+    ]);
     expect(const MSELoss().toString(), 'MSELoss()');
     expect(const CrossEntropyLoss().toString(), 'CrossEntropyLoss()');
     for (final module in modules) {
@@ -77,14 +74,8 @@ void main() {
   });
 
   test('Linear rejects invalid dimensions before native materialization', () {
-    expect(
-      () => Linear(inFeatures: 0, outFeatures: 1),
-      throwsArgumentError,
-    );
-    expect(
-      () => Linear(inFeatures: 1, outFeatures: 0),
-      throwsArgumentError,
-    );
+    expect(() => Linear(inFeatures: 0, outFeatures: 1), throwsArgumentError);
+    expect(() => Linear(inFeatures: 1, outFeatures: 0), throwsArgumentError);
   });
 
   test('Model detects recursive, self, disposed, owned, and cyclic builds', () {
@@ -97,10 +88,7 @@ void main() {
     recursive.dispose();
 
     final self = SelfReturningModel();
-    expect(
-      () => self.modules,
-      throwsA(isA<core.InvalidArgumentException>()),
-    );
+    expect(() => self.modules, throwsA(isA<core.InvalidArgumentException>()));
     expect(self.isMaterialized, isFalse);
     self.dispose();
 
@@ -115,10 +103,7 @@ void main() {
     final ownedCandidate = Identity();
     final owner = Sequential(children: <Module>[ownedCandidate]);
     final owned = CandidateModel(ownedCandidate);
-    expect(
-      () => owned.children,
-      throwsA(isA<core.InvalidArgumentException>()),
-    );
+    expect(() => owned.children, throwsA(isA<core.InvalidArgumentException>()));
     owned.dispose();
     owner.dispose();
 
