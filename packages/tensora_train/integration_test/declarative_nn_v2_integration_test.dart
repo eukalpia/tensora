@@ -301,44 +301,50 @@ void main() {
     );
   });
 
-  test('persistent buffers round-trip through StateDict; transient ones do not', () {
-    final persistentTensor = Tensor.fromList([5], shape: Shape([1]));
-    final persistent = nn.Buffer.fromTensor(persistentTensor);
-    final holder = BufferHolder(persistent);
-    addTearDown(holder.dispose);
+  test(
+    'persistent buffers round-trip through StateDict; transient ones do not',
+    () {
+      final persistentTensor = Tensor.fromList([5], shape: Shape([1]));
+      final persistent = nn.Buffer.fromTensor(persistentTensor);
+      final holder = BufferHolder(persistent);
+      addTearDown(holder.dispose);
 
-    expect(holder.buffers, <nn.Buffer>[persistent]);
-    expect(holder.namedBuffers.single.name, 'running');
-    final state = holder.stateDict();
-    addTearDown(state.dispose);
-    expect(state.length, 1);
-    expect(state.isEmpty, isFalse);
-    expect(state.keys, <String>['running']);
-    expect(state['running'], isNotNull);
-    expect(state.entries.keys, <String>['running']);
-    expect(
-      () => state.entries['other'] = state['running']!,
-      throwsUnsupportedError,
-    );
+      expect(holder.buffers, <nn.Buffer>[persistent]);
+      expect(holder.namedBuffers.single.name, 'running');
+      final state = holder.stateDict();
+      addTearDown(state.dispose);
+      expect(state.length, 1);
+      expect(state.isEmpty, isFalse);
+      expect(state.keys, <String>['running']);
+      expect(state['running'], isNotNull);
+      expect(state.entries.keys, <String>['running']);
+      expect(
+        () => state.entries['other'] = state['running']!,
+        throwsUnsupportedError,
+      );
 
-    final replacement = Tensor.fromList([9], shape: Shape([1]));
-    addTearDown(replacement.dispose);
-    NativeTensorState.assignMany(
-      targets: <Tensor>[persistent.tensorForRuntime],
-      sources: <Tensor>[replacement],
-    );
-    expectValues(persistent.tensorForRuntime.toList(), <double>[9]);
-    expect(holder.loadStateDict(state).isSuccess, isTrue);
-    expectValues(persistent.tensorForRuntime.toList(), <double>[5]);
+      final replacement = Tensor.fromList([9], shape: Shape([1]));
+      addTearDown(replacement.dispose);
+      NativeTensorState.assignMany(
+        targets: <Tensor>[persistent.tensorForRuntime],
+        sources: <Tensor>[replacement],
+      );
+      expectValues(persistent.tensorForRuntime.toList(), <double>[9]);
+      expect(holder.loadStateDict(state).isSuccess, isTrue);
+      expectValues(persistent.tensorForRuntime.toList(), <double>[5]);
 
-    final transientTensor = Tensor.fromList([7], shape: Shape([1]));
-    final transient = nn.Buffer.fromTensor(transientTensor, persistent: false);
-    final transientHolder = BufferHolder(transient);
-    addTearDown(transientHolder.dispose);
-    final transientState = transientHolder.stateDict();
-    addTearDown(transientState.dispose);
-    expect(transientState.isEmpty, isTrue);
-  });
+      final transientTensor = Tensor.fromList([7], shape: Shape([1]));
+      final transient = nn.Buffer.fromTensor(
+        transientTensor,
+        persistent: false,
+      );
+      final transientHolder = BufferHolder(transient);
+      addTearDown(transientHolder.dispose);
+      final transientState = transientHolder.stateDict();
+      addTearDown(transientState.dispose);
+      expect(transientState.isEmpty, isTrue);
+    },
+  );
 
   test('StateDict strictness and metadata checks are deterministic', () {
     final layer = nn.Linear(inFeatures: 1, outFeatures: 1);
@@ -443,9 +449,6 @@ void main() {
     final tree = nn.Sequential(children: <nn.Module>[first, failing]);
     addTearDown(tree.dispose);
 
-    expect(
-      () => tree.to(Device.cpu),
-      throwsA(isA<NativeRuntimeException>()),
-    );
+    expect(() => tree.to(Device.cpu), throwsA(isA<NativeRuntimeException>()));
   });
 }
