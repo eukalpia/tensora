@@ -26,9 +26,6 @@ void main() {
 
   test('Sequential rejects a disposed child before ownership can attach', () {
     final disposed = Identity()..dispose();
-    expect(
-      () => Sequential(children: <Module>[disposed]),
-      throwsArgumentError,
-    );
+    expect(() => Sequential(children: <Module>[disposed]), throwsArgumentError);
   });
 }
