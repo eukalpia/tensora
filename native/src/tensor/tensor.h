@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "core/allocation_guard.h"
 #include "core/status.h"
 #include "memory/tensor_storage.h"
 #include "tensor/dtype.h"
@@ -62,10 +63,6 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   uint64_t numel() const { return shape_.numel; }
   uint64_t storage_offset() const { return storage_offset_; }
   size_t element_width() const { return DTypeByteWidth(dtype_); }
-  uint64_t byte_size() const {
-    return static_cast<uint64_t>(numel()) *
-           static_cast<uint64_t>(element_width());
-  }
 
   bool is_contiguous() const;
   uint64_t logical_storage_index(uint64_t logical_index) const;
