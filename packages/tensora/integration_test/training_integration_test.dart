@@ -144,6 +144,37 @@ void main() {
     expectValues(loss.toList(), [0.31326166], tolerance: 1e-5);
   });
 
+  test('Parameter freeze and view refresh preserve native identity', () {
+    final model = Linear(1, 1);
+    addTearDown(model.dispose);
+
+    final initialViews = model.parameters();
+    expect(initialViews, hasLength(2));
+    final parameter = Parameter.fromTensor(initialViews.first);
+    for (final view in initialViews.skip(1)) {
+      view.dispose();
+    }
+    addTearDown(parameter.dispose);
+
+    final identity = parameter.identity;
+    expect(parameter.requiresGrad, isTrue);
+    parameter.freeze();
+    expect(parameter.requiresGrad, isFalse);
+    expect(parameter.identity, identity);
+    parameter.unfreeze();
+    expect(parameter.requiresGrad, isTrue);
+    expect(parameter.identity, identity);
+
+    final refreshedViews = model.parameters();
+    final replacement = refreshedViews.first;
+    for (final view in refreshedViews.skip(1)) {
+      view.dispose();
+    }
+    parameter.internalReplaceTensor(replacement);
+    expect(parameter.identity, identity);
+    expect(parameter.device, Device.cpu);
+  });
+
   test('Linear trains y = 2x + 1 and checkpoint restores output', () {
     TensoraRuntime.manualSeed(42);
     final startModules = TensoraRuntime.liveModuleCount;
