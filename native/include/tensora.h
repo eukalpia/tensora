@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define TS_ABI_VERSION 4u
+#define TS_ABI_VERSION 5u
 
 typedef uint64_t ts_tensor_t;
 typedef uint64_t ts_module_t;
