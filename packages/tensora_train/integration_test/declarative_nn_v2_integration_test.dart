@@ -78,16 +78,24 @@ void main() {
     expect(model.isMaterialized, isTrue);
     expect(model.buildCount, 1);
     expect(parameters, hasLength(4));
-    expect(
-      model.namedParameters.map((entry) => entry.name),
-      <String>['0.weight', '0.bias', '2.weight', '2.bias'],
-    );
+    expect(model.namedParameters.map((entry) => entry.name), <String>[
+      '0.weight',
+      '0.bias',
+      '2.weight',
+      '2.bias',
+    ]);
 
     final tree = model.toTreeString();
     expect(tree, contains('ToyMlp'));
-    expect(tree, contains('0: Linear(inFeatures: 1, outFeatures: 4, bias: true)'));
+    expect(
+      tree,
+      contains('0: Linear(inFeatures: 1, outFeatures: 4, bias: true)'),
+    );
     expect(tree, contains('1: GELU()'));
-    expect(tree, contains('2: Linear(inFeatures: 4, outFeatures: 1, bias: true)'));
+    expect(
+      tree,
+      contains('2: Linear(inFeatures: 4, outFeatures: 1, bias: true)'),
+    );
     expect(tree, isNot(contains('handle')));
 
     final snapshot = model.stateDict();
@@ -99,10 +107,7 @@ void main() {
     beforeTensor.dispose();
 
     const lossFunction = nn.MSELoss();
-    final optimizer = optim.Adam(
-      parameters: parameters,
-      learningRate: 0.03,
-    );
+    final optimizer = optim.Adam(parameters: parameters, learningRate: 0.03);
     addTearDown(optimizer.dispose);
 
     var initialLoss = double.nan;
@@ -153,7 +158,8 @@ void main() {
     addTearDown(layer.dispose);
     final parameters = layer.parameters;
     expect(parameters, hasLength(2));
-    final identities = parameters.map((parameter) => parameter.identity).toList();
+    final identities =
+        parameters.map((parameter) => parameter.identity).toList();
 
     final weight = parameters.first;
     expect(weight.requiresGrad, isTrue);
@@ -165,12 +171,11 @@ void main() {
     expect(weight.identity, identities.first);
 
     layer.to(Device.cpu);
+    expect(layer.parameters.map((parameter) => parameter.identity), identities);
     expect(
-      layer.parameters.map((parameter) => parameter.identity),
-      identities,
+      layer.parameters.every((parameter) => parameter.device == Device.cpu),
+      isTrue,
     );
-    expect(layer.parameters.every((parameter) => parameter.device == Device.cpu),
-        isTrue);
   });
 
   test('module move rolls back every attempted leaf after a late failure', () {
@@ -179,13 +184,14 @@ void main() {
     final tree = nn.Sequential(children: <nn.Module>[first, failing]);
     addTearDown(tree.dispose);
 
-    expect(
-      () => tree.to(Device.cpu),
-      throwsA(isA<StateError>()),
-    );
+    expect(() => tree.to(Device.cpu), throwsA(isA<StateError>()));
     expect(first.currentDevice, Device.cpu);
     expect(failing.currentDevice, Device.cpu);
     expect(first.moveCalls, 2, reason: 'first leaf must be rolled back');
-    expect(failing.moveCalls, 2, reason: 'failing leaf must also be rolled back');
+    expect(
+      failing.moveCalls,
+      2,
+      reason: 'failing leaf must also be rolled back',
+    );
   });
 }
