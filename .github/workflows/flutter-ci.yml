@@ -1,0 +1,53 @@
+name: Flutter CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-package:
+    name: tensora_flutter / stable
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Record Flutter environment
+        run: flutter --version
+
+      - name: Resolve Flutter package
+        working-directory: packages/tensora_flutter
+        run: flutter pub get
+
+      - name: Verify formatting
+        working-directory: packages/tensora_flutter
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze Flutter package
+        working-directory: packages/tensora_flutter
+        run: flutter analyze
+
+      - name: Run Flutter package tests
+        working-directory: packages/tensora_flutter
+        run: flutter test --reporter expanded

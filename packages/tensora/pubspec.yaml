@@ -1,0 +1,23 @@
+name: tensora
+description: Native machine-learning tensor runtime for Dart.
+version: 0.1.0-dev.1
+repository: https://github.com/eukalpia/tensora
+
+funding: []
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+resolution: workspace
+
+dependencies:
+  ffi: ^2.2.0
+
+dev_dependencies:
+  test: ^1.27.0
+
+topics:
+  - machine-learning
+  - tensors
+  - native
+  - ffi

@@ -1,0 +1,190 @@
+name: Native CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-platform:
+    name: Native ${{ matrix.os }} / ${{ matrix.build_type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        build_type: [Debug, Release]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure native runtime on Unix
+        if: runner.os != 'Windows'
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=ON
+
+      - name: Configure native runtime on Windows
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_FLAGS=/wd4702
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=ON
+
+      - name: Build native runtime on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/diagnostics
+          cmake --build build/native --config ${{ matrix.build_type }} --parallel \
+            2>&1 | tee build/diagnostics/build-${{ matrix.os }}-${{ matrix.build_type }}.log
+
+      - name: Build native runtime on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force build/diagnostics | Out-Null
+          cmake --build build/native --config ${{ matrix.build_type }} --parallel *>&1 |
+            Tee-Object -FilePath "build/diagnostics/build-${{ matrix.os }}-${{ matrix.build_type }}.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run native tests on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p build/diagnostics
+          ctest --test-dir build/native --build-config ${{ matrix.build_type }} --output-on-failure
+          ctest_status=$?
+          if [ "$ctest_status" -ne 0 ]; then
+            {
+              echo "CTest failed; replaying individual native tests for exact exit codes"
+              for executable in \
+                tensora_native_tests \
+                tensora_handle_registry_tests \
+                tensora_device_codec_tests \
+                tensora_c_abi_tests \
+                tensora_cpu_training_tests \
+                tensora_autograd_finite_difference_tests; do
+                if [ -x "build/native/$executable" ]; then
+                  "build/native/$executable"
+                  code=$?
+                  echo "$executable exit_code=$code"
+                fi
+              done
+            } 2>&1 | tee build/diagnostics/test-replay-${{ matrix.os }}-${{ matrix.build_type }}.log
+            exit "$ctest_status"
+          fi
+
+      - name: Run native tests on Windows
+        if: runner.os == 'Windows'
+        run: ctest --test-dir build/native --build-config ${{ matrix.build_type }} --output-on-failure
+
+      - name: Copy CTest diagnostics on Unix
+        if: always() && runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p build/diagnostics
+          if [ -f build/native/Testing/Temporary/LastTest.log ]; then
+            cp build/native/Testing/Temporary/LastTest.log \
+              build/diagnostics/LastTest-${{ matrix.os }}-${{ matrix.build_type }}.log
+          fi
+
+      - name: Copy CTest diagnostics on Windows
+        if: always() && runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force build/diagnostics | Out-Null
+          if (Test-Path build/native/Testing/Temporary/LastTest.log) {
+            Copy-Item build/native/Testing/Temporary/LastTest.log \
+              "build/diagnostics/LastTest-${{ matrix.os }}-${{ matrix.build_type }}.log"
+          }
+
+      - name: Preserve native diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.os }}-${{ matrix.build_type }}-diagnostics
+          path: build/diagnostics
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run benchmark smoke on Unix
+        if: matrix.build_type == 'Release' && runner.os != 'Windows'
+        run: ./build/native/tensora_native_benchmark --smoke
+
+      - name: Run benchmark smoke on Windows
+        if: matrix.build_type == 'Release' && runner.os == 'Windows'
+        run: .\build\native\Release\tensora_native_benchmark.exe --smoke
+
+  native-sanitizers:
+    name: Native ASan + UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure sanitizer build
+        env:
+          CC: clang
+          CXX: clang++
+        run: >-
+          cmake -S native -B build/sanitizers
+          -DCMAKE_BUILD_TYPE=Debug
+          -DTENSORA_ENABLE_SANITIZERS=ON
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build sanitizer runtime
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/diagnostics
+          cmake --build build/sanitizers --parallel \
+            2>&1 | tee build/diagnostics/build-sanitizers.log
+
+      - name: Run sanitizer tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build/sanitizers --output-on-failure
+
+      - name: Copy sanitizer CTest diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p build/diagnostics
+          if [ -f build/sanitizers/Testing/Temporary/LastTest.log ]; then
+            cp build/sanitizers/Testing/Temporary/LastTest.log \
+              build/diagnostics/LastTest-sanitizers.log
+          fi
+
+      - name: Preserve sanitizer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-sanitizers-diagnostics
+          path: build/diagnostics
+          if-no-files-found: warn
+          retention-days: 14

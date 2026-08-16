@@ -1,0 +1,227 @@
+name: Coverage Snapshot
+
+on:
+  push:
+    branches:
+      - feature/coverage-snapshot-20260814
+      - feature/stability-100-tensor-core
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    name: Collect complete Dart coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ORT_VERSION: '1.26.0'
+      ORT_SHA256: '1254da24fb389cf39dc0ff3451ab48301740ffbfcbaf646849df92f80ee92c57'
+      TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install \
+            torch==2.13.0+cpu \
+            --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install onnx==1.21.0 numpy
+
+      - name: Generate deterministic ONNX fixture
+        run: python native/tests/generate_onnx_fixture.py "$TENSORA_ONNX_TEST_MODEL"
+
+      - name: Download and verify pinned ONNX Runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="build/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          mkdir -p build
+          curl --fail --location --retry 3 \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+            --output "$archive"
+          echo "${ORT_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C build
+          ort_root="${GITHUB_WORKSPACE}/build/onnxruntime-linux-x64-${ORT_VERSION}"
+          echo "ORT_ROOT=${ort_root}" >> "$GITHUB_ENV"
+          echo "ORT_LIBRARY_PATH=${ort_root}/lib" >> "$GITHUB_ENV"
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+          echo "TORCH_LIBRARY_PATH=$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')" >> "$GITHUB_ENV"
+
+      - name: Configure core runtime
+        run: >-
+          cmake -S native -B build/core-coverage
+          -DCMAKE_BUILD_TYPE=Debug
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build core runtime
+        run: cmake --build build/core-coverage --parallel 2
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Collect default discovery coverage
+        working-directory: packages/tensora
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/core-coverage
+        run: >-
+          env -u TENSORA_NATIVE_LIBRARY
+          dart test test/native_runtime_default_load_test.dart
+          --coverage-path=coverage/runtime-default-load.info
+          --reporter expanded
+
+      - name: Collect missing-library coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ runner.temp }}/definitely-missing/libtensora_native.so
+        run: >-
+          dart test test/native_runtime_missing_load_test.dart
+          --coverage-path=coverage/runtime-missing-load.info
+          --reporter expanded
+
+      - name: Collect core soak coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/core-coverage/libtensora_native.so
+        run: >-
+          dart test test/core_lifecycle_soak_test.dart
+          --coverage-path=coverage/core-soak.info
+          --reporter expanded
+
+      - name: Collect core coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/core-coverage/libtensora_native.so
+        run: >-
+          dart test test
+          --exclude-tags soak
+          --coverage-path=coverage/core.info
+          --reporter expanded
+
+      - name: Configure enabled runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/full-coverage
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_WITH_ONNXRUNTIME=ON
+          -DTENSORA_ONNXRUNTIME_ROOT="$ORT_ROOT"
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build enabled runtime
+        run: cmake --build build/full-coverage --parallel 2
+
+      - name: Collect training coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/training_integration_test.dart
+          --coverage-path=coverage/training.info
+          --reporter expanded
+
+      - name: Collect training edge coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/training_edge_integration_test.dart
+          --coverage-path=coverage/training-edge.info
+          --reporter expanded
+
+      - name: Collect training wrapper coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/native_training_runtime_edge_test.dart
+          --coverage-path=coverage/training-runtime.info
+          --reporter expanded
+
+      - name: Collect inference coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/inference_integration_test.dart
+          --coverage-path=coverage/inference.info
+          --reporter expanded
+
+      - name: Collect inference wrapper coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/native_inference_runtime_edge_test.dart
+          --coverage-path=coverage/inference-runtime.info
+          --reporter expanded
+
+      - name: Collect native contract fault coverage
+        run: bash tools/collect_contract_coverage.sh
+
+      - name: Enforce complete Dart production coverage
+        run: >-
+          python tools/merge_dart_coverage.py
+          packages/tensora/coverage
+          --output packages/tensora/coverage/merged.info
+          --summary packages/tensora/coverage/summary.md
+
+      - name: Package enabled runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p snapshot/runtime snapshot/onnxruntime snapshot/torch
+          cp build/full-coverage/libtensora_native.so snapshot/runtime/
+          cp -a "$ORT_LIBRARY_PATH"/. snapshot/onnxruntime/
+          cp -a "$TORCH_LIBRARY_PATH"/. snapshot/torch/
+          tar -C snapshot -czf /tmp/tensora-enabled-runtime.tar.gz .
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-coverage-reports
+          path: |
+            packages/tensora/coverage/*.info
+            packages/tensora/coverage/summary.md
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload enabled runtime
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-enabled-runtime
+          path: /tmp/tensora-enabled-runtime.tar.gz
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 1

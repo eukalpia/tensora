@@ -1,0 +1,336 @@
+name: Native Coverage
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Native owned-code coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ORT_VERSION: '1.26.0'
+      ORT_SHA256: '1254da24fb389cf39dc0ff3451ab48301740ffbfcbaf646849df92f80ee92c57'
+      TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned coverage and runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install gcovr==8.3 onnx==1.21.0 numpy
+          python -m pip install \
+            torch==2.13.0+cpu \
+            --index-url https://download.pytorch.org/whl/cpu
+          mkdir -p build/fixtures build/native-coverage-report
+          python native/tests/generate_onnx_fixture.py "$TENSORA_ONNX_TEST_MODEL"
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+          echo "TORCH_LIBRARY_PATH=$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')" >> "$GITHUB_ENV"
+
+      - name: Download and verify pinned ONNX Runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="build/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          curl --fail --location --retry 3 \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+            --output "$archive"
+          echo "${ORT_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C build
+          ort_root="${GITHUB_WORKSPACE}/build/onnxruntime-linux-x64-${ORT_VERSION}"
+          echo "ORT_ROOT=${ort_root}" >> "$GITHUB_ENV"
+          echo "ORT_LIBRARY_PATH=${ort_root}/lib" >> "$GITHUB_ENV"
+
+      - name: Build and test instrumented core runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/native-coverage-core \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DCMAKE_C_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_CXX_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+          cmake --build build/native-coverage-core --parallel 2
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include -Inative/src \
+            native/tests/training_bridge_internal_contract_test.cc \
+            -Lbuild/native-coverage-core -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-core" \
+            -o build/native-coverage-core/tensora_training_bridge_internal_contract_tests
+          ./build/native-coverage-core/tensora_training_bridge_internal_contract_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src \
+            native/tests/training_stub_coverage_test.cc \
+            -Lbuild/native-coverage-core -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-core" \
+            --coverage \
+            -o build/native-coverage-core/tensora_training_stub_coverage_tests
+          ./build/native-coverage-core/tensora_training_stub_coverage_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src \
+            native/tests/training_c_api_coverage_test.cc \
+            -Lbuild/native-coverage-core -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-core" \
+            --coverage \
+            -o build/native-coverage-core/tensora_training_c_api_coverage_tests
+          ./build/native-coverage-core/tensora_training_c_api_coverage_tests
+
+          ctest --test-dir build/native-coverage-core --build-config Debug --output-on-failure
+          gcovr build/native-coverage-core \
+            --root "$GITHUB_WORKSPACE" \
+            --filter 'native/src/' \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
+            --json build/native-coverage-report/core.json
+
+      - name: Build and test instrumented LibTorch CPU runtime
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: ${{ env.TORCH_LIBRARY_PATH }}
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/native-coverage-training \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX" \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            -DTENSORA_WITH_TORCH=ON \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DCMAKE_C_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_CXX_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+          cmake --build build/native-coverage-training --parallel 2
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include -Inative/src \
+            native/tests/training_bridge_internal_contract_test.cc \
+            -Lbuild/native-coverage-training -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-training" \
+            -o build/native-coverage-training/tensora_training_bridge_internal_contract_tests
+          ./build/native-coverage-training/tensora_training_bridge_internal_contract_tests
+
+          python3 - <<'PY'
+          import json
+          import shlex
+          import subprocess
+          from pathlib import Path
+
+          repo = Path.cwd()
+          build = repo / 'build' / 'native-coverage-training'
+          compile_db = json.loads((build / 'compile_commands.json').read_text())
+
+          def compile_like(source_suffix: str, test_source: str, output_name: str) -> Path:
+              entry = next(
+                  item for item in compile_db
+                  if item['file'].replace('\\', '/').endswith(source_suffix)
+              )
+              args = entry.get('arguments') or shlex.split(entry['command'])
+              output = build / output_name
+              rewritten = []
+              replace_output = False
+              for arg in args:
+                  normalized = arg.replace('\\', '/')
+                  if normalized.endswith(source_suffix):
+                      rewritten.append(str(repo / test_source))
+                  elif replace_output:
+                      rewritten.append(str(output))
+                      replace_output = False
+                  elif arg == '-o':
+                      rewritten.append(arg)
+                      replace_output = True
+                  else:
+                      rewritten.append(arg)
+              subprocess.run(rewritten, cwd=entry['directory'], check=True)
+              return output
+
+          def link_like(test_object: Path, binary_name: str, *, link_native: bool = False) -> None:
+              target_dir = build / 'CMakeFiles/tensora_training_backend_internal_tests.dir'
+              link_args = shlex.split((target_dir / 'link.txt').read_text())
+              existing_test_suffix = (
+                  'CMakeFiles/tensora_training_backend_internal_tests.dir/'
+                  'tests/training_backend_internal_test.cc.o'
+              )
+              linked = []
+              replace_binary = False
+              for arg in link_args:
+                  normalized = arg.replace('\\', '/')
+                  if normalized.endswith(existing_test_suffix):
+                      linked.append(str(test_object))
+                  elif replace_binary:
+                      linked.append(binary_name)
+                      replace_binary = False
+                  elif arg == '-o':
+                      linked.append(arg)
+                      replace_binary = True
+                  else:
+                      linked.append(arg)
+              if link_native:
+                  linked.extend([
+                      f'-L{build}',
+                      f'-Wl,-rpath,{build}',
+                      '-ltensora_native',
+                  ])
+              subprocess.run(linked, cwd=build, check=True)
+
+          policy_object = compile_like(
+              '/native/src/training/torch_backend.cc',
+              'native/tests/torch_backend_policy_test.cc',
+              'torch_backend_policy_test.o',
+          )
+          link_like(policy_object, 'tensora_torch_backend_policy_tests')
+
+          bridge_object = compile_like(
+              '/native/src/training/training_bridge_torch.cc',
+              'native/tests/training_torch_bridge_coverage_test.cc',
+              'training_torch_bridge_coverage_test.o',
+          )
+          link_like(
+              bridge_object,
+              'tensora_training_torch_bridge_coverage_tests',
+              link_native=True,
+          )
+          PY
+          ./build/native-coverage-training/tensora_torch_backend_policy_tests
+          ./build/native-coverage-training/tensora_training_torch_bridge_coverage_tests
+          ctest --test-dir build/native-coverage-training --build-config Debug --output-on-failure
+          gcovr build/native-coverage-training \
+            --root "$GITHUB_WORKSPACE" \
+            --filter 'native/src/' \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
+            --json build/native-coverage-report/training.json
+
+      - name: Build and test instrumented ONNX Runtime CPU runtime
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/native-coverage-inference \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=ON \
+            -DTENSORA_ONNXRUNTIME_ROOT="$ORT_ROOT" \
+            -DCMAKE_C_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_CXX_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+          cmake --build build/native-coverage-inference --parallel 2
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include -Inative/src \
+            native/tests/inference_bridge_internal_contract_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -o build/native-coverage-inference/tensora_inference_bridge_internal_contract_tests
+          ./build/native-coverage-inference/tensora_inference_bridge_internal_contract_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src \
+            native/tests/inference_c_api_coverage_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_inference_c_api_coverage_tests
+          ./build/native-coverage-inference/tensora_inference_c_api_coverage_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src -I"$ORT_ROOT/include" \
+            native/tests/onnx_policy_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -Wl,-rpath,"$ORT_LIBRARY_PATH" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_onnx_policy_tests
+          ./build/native-coverage-inference/tensora_onnx_policy_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src -I"$ORT_ROOT/include" \
+            native/tests/onnx_whitebox_contract_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -L"$ORT_LIBRARY_PATH" -lonnxruntime -pthread \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -Wl,-rpath,"$ORT_LIBRARY_PATH" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_onnx_whitebox_contract_tests
+          ./build/native-coverage-inference/tensora_onnx_whitebox_contract_tests
+
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            --coverage -O0 -g \
+            -Inative/include -Inative/src -I"$ORT_ROOT/include" \
+            native/tests/onnx_bridge_coverage_test.cc \
+            -Lbuild/native-coverage-inference -ltensora_native \
+            -L"$ORT_LIBRARY_PATH" -lonnxruntime -pthread \
+            -Wl,-rpath,"$GITHUB_WORKSPACE/build/native-coverage-inference" \
+            -Wl,-rpath,"$ORT_LIBRARY_PATH" \
+            --coverage \
+            -o build/native-coverage-inference/tensora_onnx_bridge_coverage_tests
+          ./build/native-coverage-inference/tensora_onnx_bridge_coverage_tests
+
+          ctest --test-dir build/native-coverage-inference --build-config Debug --output-on-failure
+          gcovr build/native-coverage-inference \
+            --root "$GITHUB_WORKSPACE" \
+            --filter 'native/src/' \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
+            --json build/native-coverage-report/inference.json
+
+      - name: Merge and enforce complete native owned-code coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcovr \
+            --root "$GITHUB_WORKSPACE" \
+            --filter 'native/src/' \
+            --json-add-tracefile build/native-coverage-report/core.json \
+            --json-add-tracefile build/native-coverage-report/training.json \
+            --json-add-tracefile build/native-coverage-report/inference.json \
+            --merge-mode-conditions=fold \
+            --txt build/native-coverage-report/summary.txt \
+            --html-details build/native-coverage-report/index.html \
+            --xml build/native-coverage-report/coverage.xml \
+            --xml-pretty \
+            --json build/native-coverage-report/coverage.json \
+            --json-pretty \
+            --print-summary \
+            --fail-under-line 100
+
+      - name: Upload native coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-native-coverage
+          path: build/native-coverage-report/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,221 @@
+name: CPU Training Engine CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpu-training-engine-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-only-training:
+    name: Core-only training / ${{ matrix.build_type }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure Tensora without LibTorch
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/diagnostics
+          cmake -S native -B build/cpu-training \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            2>&1 | tee build/diagnostics/configure-${{ matrix.build_type }}.log
+
+      - name: Build Tensora core
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build/cpu-training --parallel \
+            2>&1 | tee build/diagnostics/build-${{ matrix.build_type }}.log
+
+      - name: Compile CPU training proofs
+        shell: bash
+        run: |
+          set -o pipefail
+          for source in cpu_training_engine_test autograd_finite_difference_test training_abi_contract_test optimizer_checkpoint_test tensor_view_test; do
+            c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+              native/tests/${source}.cc \
+              -Inative/include \
+              -Lbuild/cpu-training \
+              -Wl,-rpath,$PWD/build/cpu-training \
+              -ltensora_native \
+              -o build/${source} \
+              2>&1 | tee build/diagnostics/compile-${source}-${{ matrix.build_type }}.log
+          done
+
+      - name: Run CPU training proofs
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/cpu-training
+        run: |
+          set -o pipefail
+          ./build/cpu_training_engine_test \
+            2>&1 | tee build/diagnostics/proof-training-${{ matrix.build_type }}.log
+          ./build/autograd_finite_difference_test \
+            2>&1 | tee build/diagnostics/proof-gradients-${{ matrix.build_type }}.log
+          ./build/training_abi_contract_test \
+            2>&1 | tee build/diagnostics/proof-abi-${{ matrix.build_type }}.log
+          ./build/optimizer_checkpoint_test \
+            2>&1 | tee build/diagnostics/proof-optimizer-checkpoint-${{ matrix.build_type }}.log
+          ./build/tensor_view_test \
+            2>&1 | tee build/diagnostics/proof-views-${{ matrix.build_type }}.log
+
+      - name: Preserve CPU training diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-training-${{ matrix.build_type }}-diagnostics
+          path: build/diagnostics
+          if-no-files-found: error
+          retention-days: 14
+
+  core-only-training-sanitizers:
+    name: Core-only training / ASan + UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure sanitized Tensora core
+        shell: bash
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          set -o pipefail
+          mkdir -p build/diagnostics
+          cmake -S native -B build/cpu-training-sanitized \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DTENSORA_ENABLE_SANITIZERS=ON \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF \
+            2>&1 | tee build/diagnostics/configure-sanitized.log
+
+      - name: Build sanitized Tensora core
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build/cpu-training-sanitized --parallel \
+            2>&1 | tee build/diagnostics/build-sanitized.log
+
+      - name: Compile sanitized CPU training proofs
+        shell: bash
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          set -o pipefail
+          for source in cpu_training_engine_test autograd_finite_difference_test training_abi_contract_test optimizer_checkpoint_test tensor_view_test; do
+            clang++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+              -fsanitize=address,undefined -fno-omit-frame-pointer \
+              native/tests/${source}.cc \
+              -Inative/include \
+              -Lbuild/cpu-training-sanitized \
+              -Wl,-rpath,$PWD/build/cpu-training-sanitized \
+              -ltensora_native \
+              -fsanitize=address,undefined \
+              -o build/${source}_sanitized \
+              2>&1 | tee build/diagnostics/compile-${source}-sanitized.log
+          done
+
+      - name: Run sanitized CPU training proofs
+        shell: bash
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/cpu-training-sanitized
+        run: |
+          set -o pipefail
+          ./build/cpu_training_engine_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-training-sanitized.log
+          ./build/autograd_finite_difference_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-gradients-sanitized.log
+          ./build/training_abi_contract_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-abi-sanitized.log
+          ./build/optimizer_checkpoint_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-optimizer-checkpoint-sanitized.log
+          ./build/tensor_view_test_sanitized \
+            2>&1 | tee build/diagnostics/proof-views-sanitized.log
+
+      - name: Preserve sanitized training diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-training-sanitized-diagnostics
+          path: build/diagnostics
+          if-no-files-found: error
+          retention-days: 14
+
+  dart-core-training:
+    name: Dart training / core-only runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/dart-core/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Configure core-only runtime
+        run: >-
+          cmake -S native -B build/dart-core
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_WITH_TORCH=OFF
+          -DTENSORA_WITH_ONNXRUNTIME=OFF
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build core-only runtime
+        run: cmake --build build/dart-core --parallel
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Verify Dart formatting
+        working-directory: packages/tensora
+        run: dart format --output=none --set-exit-if-changed lib integration_test
+
+      - name: Analyze Dart training surface
+        working-directory: packages/tensora
+        run: dart analyze --fatal-infos --fatal-warnings lib integration_test
+
+      - name: Run Dart autonomous training suite
+        working-directory: packages/tensora
+        run: |
+          dart test integration_test/training_integration_test.dart --reporter expanded
+          dart test integration_test/training_edge_integration_test.dart --reporter expanded
+          dart test integration_test/native_training_runtime_edge_test.dart --reporter expanded

@@ -1,0 +1,29 @@
+name: tensora_workspace
+description: Workspace definition for the Tensora Dart packages.
+version: 0.1.0-dev.1
+publish_to: none
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+workspace:
+  - packages/tensora
+  - packages/tensora_nn
+  - packages/tensora_optim
+  - packages/tensora_data
+  - packages/tensora_train
+  - packages/tensora_edge
+  - packages/tensora_vision
+  - packages/tensora_audio
+  - packages/tensora_text
+  - packages/tensora_transformers
+
+dev_dependencies:
+  test: ^1.27.0
+  yaml: ^3.1.3
+  tensora: ^0.1.0-dev.1
+  tensora_data: ^0.1.0-dev.1
+  tensora_vision: ^0.1.0-dev.1
+  tensora_audio: ^0.1.0-dev.1
+  tensora_text: ^0.1.0-dev.1
+  tensora_transformers: ^0.1.0-dev.1

@@ -1,301 +1,323 @@
 # Tensora Compatibility Policy
 
-This document defines how Tensora communicates platform, backend, device, dtype, API, ABI, and model-format support.
+This document defines the support contract for Tensora platforms, backends, devices, providers, dtypes, public APIs, and the native ABI.
 
-The central rule is simple:
+The central rule is:
 
-> **Support is a tested contract, not a build flag or roadmap item.**
+> **Support is a tested contract, not a build flag or an upstream capability.**
+
+Tensora is pre-1.0. Source-built functionality may be useful and well tested without constituting a published binary compatibility promise.
 
 ## 1. Support levels
 
-Every platform/backend feature should use one of these states.
-
-### Stable
-
-The feature:
-
-- is covered by automated tests;
-- has been exercised on representative real hardware where hardware behavior matters;
-- has documented semantics and limitations;
-- is covered by compatibility policy for the relevant release line;
-- has no known blocker preventing production use within documented constraints.
-
 ### Beta
 
-The feature is functional and meaningfully tested, but one or more of these may still change:
-
-- public API details;
-- packaging;
-- performance characteristics;
-- supported operator/device combinations;
-- operational limitations.
-
-Breaking changes should still be documented and minimized.
+A Beta surface is implemented, covered by meaningful automated tests, and has no known blocker within its documented scope. Packaging, API details, performance characteristics, or the validated platform matrix may still evolve before 1.0.
 
 ### Experimental
 
-The feature is available for evaluation but is not a compatibility commitment.
+An Experimental surface is implemented enough for evaluation but lacks one or more required qualification dimensions such as representative physical hardware, provider coverage, packaging validation, or a sufficiently broad operator/model matrix.
 
-Experimental status must be obvious in documentation and diagnostics.
+Experimental status is not a production compatibility commitment.
 
 ### Unsupported
 
-The feature is not supported. Do not imply otherwise because an upstream provider might theoretically support it.
+The feature is not implemented as a supported Tensora contract. Upstream libraries theoretically supporting a capability does not change this status.
 
-## 2. Machine-readable matrix
+Tensora does not currently label any public runtime surface Stable.
 
-Tensora should eventually maintain a machine-readable support matrix consumed by documentation and tests.
+## 2. Current source-build matrix
 
-Dimensions should include:
+| Surface | State | Validated scope | Current limitations |
+| --- | --- | --- | --- |
+| Dart core package | Beta | Dart 3.7 minimum compatibility plus current stable Dart | Native runtime is still source-built/provided separately |
+| C ABI | Beta | ABI v4, C11 consumer tests, typed opaque handles, fixed-width statuses/devices | Pre-1.0 ABI may evolve through explicit version changes |
+| CPU tensor backend | Beta | Linux, macOS, Windows native + Dart FFI | `float32` only; compact eager operation set |
+| `float32` | Beta | Tensor creation, transfer, transforms, elementwise ops, reduction, 2D matmul, training/inference paths where documented | No other public dtype yet |
+| LibTorch CPU training | Beta | Linux, macOS, Windows native + Dart integration | Optional build dependency; not a packaged binary contract |
+| Apple MPS training | Beta | Real Apple Silicon hosted CI: device transfer, matmul, module transfer, forward/loss/backward, optimizer steps, lifecycle checks | Validated operation surface is intentionally narrow |
+| NVIDIA CUDA training | Experimental | Device/runtime integration and manual hardware qualification workflow | Physical NVIDIA qualification still required |
+| Intel XPU training | Experimental | Device/runtime integration and manual hardware qualification workflow | Physical Intel qualification still required |
+| AMD HIP/ROCm training identity | Experimental | Device/runtime integration and manual ROCm qualification workflow | Physical AMD qualification still required; runtime behavior follows the linked LibTorch/ROCm build |
+| ONNX Runtime CPU / Linux | Beta | Native + Dart model load, metadata, inference, profiling, concurrency/lifecycle validation | Deterministic fixture, not a broad model-zoo compatibility claim |
+| ONNX Runtime CPU / Windows | Beta | Pinned ORT 1.26 native + Dart validation with sidecar DLL resolution | Source-built runtime; no binary installer contract yet |
+| CoreML inference / Apple Silicon | Beta | Real CoreML provider execution in hosted Apple Silicon CI | Current provider/operator coverage is limited to validated models |
+| CUDA ONNX provider | Experimental | Provider selection path implemented | Physical provider qualification pending |
+| DirectML ONNX provider | Experimental | Provider selection/session policy implemented | Physical DirectX 12 GPU qualification pending |
+| OpenVINO ONNX provider | Experimental | Provider selection path implemented | Provider/hardware qualification pending |
+| MIGraphX ONNX provider | Experimental | Provider selection path implemented | Provider/hardware qualification pending |
+| Flutter/mobile runtime | Unsupported | None | Separate future runtime integration work |
+| `.tmodel` | Unsupported | Design/roadmap only | No production parser/runtime/container implementation |
+| Additional public dtypes | Unsupported | None | Public tensor API currently exposes only `float32` |
+
+The matrix deliberately distinguishes **implemented** from **hardware-qualified**. A manual qualification workflow existing in the repository is not itself evidence that the target hardware has passed.
+
+## 3. Platform validation
+
+### Linux
+
+Hosted CI validates:
+
+- dependency-light native core;
+- Dart FFI core behavior;
+- LibTorch CPU training;
+- ONNX Runtime CPU inference;
+- sanitizers, fuzzing, concurrency and soak gates where applicable.
+
+Vendor GPU paths require matching physical hardware qualification.
+
+### macOS
+
+Hosted Apple Silicon CI validates:
+
+- dependency-light core;
+- Dart FFI core behavior;
+- LibTorch CPU training;
+- real MPS training execution;
+- real CoreML inference execution.
+
+The Apple hardware evidence is tied to the exact runtime/provider versions exercised in CI and is not a promise for arbitrary historical macOS devices.
+
+### Windows
+
+Hosted CI validates:
+
+- dependency-light core;
+- Dart FFI core behavior;
+- LibTorch CPU training;
+- ONNX Runtime CPU inference.
+
+Windows optional native dependencies are validated as **sidecar DLLs** beside `tensora_native.dll`. When the Dart bridge is given an explicit existing native-library path, it uses a restricted load policy that prioritizes dependencies from that runtime directory rather than depending on an unrelated system DLL or ambient PATH entry.
+
+## 4. Device semantics
+
+The public device vocabulary is:
 
 ```text
-Tensora version
-platform
-architecture
-backend
-provider version range
-dtype
-training/inference
-feature/operator group
-support state
-known limitations
+cpu
+cuda:<index>
+mps
+xpu:<index>
+hip:<index>
 ```
 
-Generated documentation should derive from this source where practical to avoid drift.
+Rules:
 
-## 3. Initial platform direction
+- CPU uses index zero.
+- MPS uses index zero.
+- indexed accelerators reject negative indices.
+- device discovery is explicit.
+- requesting an unavailable device fails through a structured error.
+- binary tensor operations require matching device kind **and** index.
+- Tensora does not silently move mixed-device inputs to make an operation succeed.
 
-The intended platform direction includes:
+`TensoraRuntime.availableDevices` reports visible devices for the loaded runtime. `preferredDevice` is a deterministic convenience query; it does not change default tensor construction. Tensor factories remain CPU-default unless the caller supplies `device:`.
+
+Accelerator factory creation currently performs host staging followed by device transfer. This is observable data movement, not a zero-copy creation guarantee.
+
+## 5. Training compatibility
+
+Training is an optional LibTorch-backed build surface.
+
+The validated public training subset includes:
+
+- autograd leaf creation;
+- gradient retrieval;
+- scalar backward;
+- ReLU, sigmoid, tanh;
+- MSE and cross-entropy;
+- `Linear`;
+- parameters and buffers;
+- train/eval mode;
+- module device transfer;
+- SGD, Adam, AdamW;
+- checkpoint save/load.
+
+A model/module must be moved to its target accelerator before creating the optimizer for the documented workflow.
+
+The tested PyTorch baseline is a validation baseline, not a promise that all LibTorch versions are ABI-compatible.
+
+## 6. ONNX provider semantics
+
+Public provider preferences are:
 
 ```text
-Linux x64
-Windows x64
-macOS arm64
-Android arm64
-iOS arm64
+auto
+CPUExecutionProvider
+CUDAExecutionProvider
+DmlExecutionProvider
+CoreMLExecutionProvider
+OpenVINOExecutionProvider
+MIGraphXExecutionProvider
 ```
 
-This list is directional only until concrete matrix entries are implemented and tested.
+An **explicit provider request never silently falls back**. Session creation fails if the requested provider cannot be attached.
 
-Additional architectures and platforms may be added through the normal compatibility process.
+`auto` is the only policy that permits deterministic platform-aware fallback. The selected provider is exposed on the session and must remain observable.
 
-## 4. Backend direction
+Current portable input binding materializes dense float32 input data on the host before creating ONNX Runtime input values. Therefore an accelerated execution provider does not imply zero-copy GPU input binding.
 
-Planned backend categories include:
+DirectML sessions use provider-compatible session settings rather than inheriting CPU assumptions that conflict with DirectML execution.
 
-- portable CPU execution;
-- ATen/LibTorch-backed tensor/training execution;
-- CUDA-capable native execution;
-- ONNX Runtime inference;
-- platform-specific acceleration providers where justified.
+## 7. DType compatibility
 
-A public compatibility matrix must distinguish backend support from platform support. For example, “Android supported” does not mean every Android device/provider/operator is supported.
+A dtype is supported only for the specific operation/backend/device combination that has executable coverage.
 
-## 5. DType compatibility
-
-A dtype is supported only for a specific operation/backend/device combination where tested.
-
-Planned dtype vocabulary:
+The current public dtype is:
 
 ```text
-bool
-uint8
-int8
-int16
-int32
-int64
-float16
-bfloat16
 float32
-float64
 ```
 
-Do not claim universal float16 or bfloat16 support across CPU/GPU/mobile providers.
+Do not infer float16, bfloat16, integer, quantized, or mixed-precision support from upstream backend capabilities.
 
-Capability queries should allow callers to inspect support before execution where practical.
+## 8. Public Dart API compatibility
 
-## 6. Public Dart API compatibility
+Tensora is pre-1.0, but public API changes still require compatibility review.
 
-Stable public Dart packages follow semantic versioning.
-
-Within a stable major version:
+Within a future stable major version:
 
 - avoid removing public symbols;
 - avoid changing method meaning silently;
-- avoid changing default semantics in behaviorally significant ways;
+- avoid behaviorally significant default changes;
 - deprecate before removal where feasible;
 - document migrations.
 
-Experimental namespaces may have weaker guarantees but must be clearly marked.
+Device defaults, provider fallback, disposal semantics, and ownership behavior are compatibility-sensitive even when type signatures do not change.
 
-## 7. Native ABI compatibility
+## 9. Native ABI compatibility
 
-The C ABI is versioned independently where necessary.
+The current native ABI is **version 4**.
 
-The runtime must expose an ABI version and reject incompatible callers cleanly.
+The Dart bridge checks the loaded runtime ABI before creating native objects. ABI changes must define whether they are additive or breaking and increment the contract when required.
 
-ABI changes must define:
+Public ABI rules:
 
-- old/new version relationship;
-- whether compatibility is additive or breaking;
-- minimum runtime expected by Dart bindings;
-- migration implications.
+- C-compatible fixed-width primitive types;
+- opaque `uint64_t` handles;
+- no C++ class layout across the boundary;
+- output handles are zeroed before fallible creation work;
+- native exceptions are contained and translated into structured statuses;
+- invalid, stale, duplicate-release, and wrong-type handles are rejected.
 
-Never rely on C++ class layout compatibility across releases.
+Do not assume ABI compatibility because two native libraries happen to export similarly named symbols.
 
-## 8. `.tmodel` compatibility
+## 10. Native dependency compatibility
 
-The `.tmodel` container has its own format version.
+Optional native dependencies are runtime implementation details, but their tested versions matter.
 
-A bundle declares at least:
+Current integration baselines include:
 
-- format version;
-- minimum supported Tensora runtime;
-- relevant backend/provider requirements;
-- model/task metadata.
+- PyTorch/LibTorch 2.13.0 family used by training validation;
+- ONNX Runtime 1.26.0 used by hosted inference validation.
 
-The loader must fail clearly when the current runtime cannot satisfy the bundle contract.
+These are **tested baselines**, not open-ended version ranges.
 
-Breaking format changes require a new format version and documented migration/conversion tooling where practical.
+On Windows, backend DLLs required by a source-built `tensora_native.dll` should be distributed side-by-side with that DLL. CI intentionally validates this layout to prevent accidental binding to an incompatible system installation.
 
-## 9. Compiler/IR compatibility
+## 11. Backend fallback
 
-Internal compiler IR is not automatically a public compatibility surface.
+Fallback is part of semantics and must be visible.
 
-Do not serialize or expose internal IR as a long-lived public format unless a deliberate compatibility contract is established.
+- Tensor/training device requests do not silently fall back to CPU.
+- Explicit ONNX provider requests do not silently fall back.
+- ONNX `auto` may fall back according to its deterministic provider policy.
 
-## 10. Provider versions
+Any future fallback mechanism must remain observable through diagnostics/profiling.
 
-Upstream provider versions can affect behavior materially.
+## 12. Model/operator compatibility
 
-The support matrix should record tested version ranges for major native dependencies such as:
+Successful loading of one ONNX model does not imply universal ONNX operator support across every provider.
 
-- CUDA toolkit/runtime;
-- cuDNN or related libraries where used;
-- LibTorch/ATen;
-- ONNX Runtime;
-- platform SDKs.
+A runtime should distinguish at least:
 
-Avoid accepting arbitrary provider versions without validation if known incompatibilities exist.
+- model/format error;
+- invalid input name/count/shape;
+- unsupported dtype;
+- provider unavailable;
+- operator/provider incompatibility as reported by the backend;
+- resource failure;
+- runtime/ABI incompatibility.
 
-## 11. Hardware claims
+The current CI fixture proves the complete load/run/lifetime path. Broader model families require their own compatibility evidence.
 
-Hardware-specific support requires real execution evidence.
+## 13. Ownership and lifetime compatibility
 
-Examples:
-
-- CUDA support requires actual NVIDIA GPU tests;
-- mobile accelerator support requires representative real-device tests;
-- camera zero/minimum-copy paths require real platform integration testing.
-
-Cross-compilation alone proves only that a build artifact can be produced.
-
-## 12. Backend fallback
-
-Fallback behavior must be part of compatibility semantics.
-
-A policy may allow:
+Creation follows this invariant:
 
 ```text
-requested backend unavailable
-        ↓
-explicitly allowed fallback
-        ↓
-alternative backend
+success => exactly one owned native reference escapes
+failure => zero owned native references escape
 ```
 
-But fallback must be observable in diagnostics/profiling.
+Public wrappers expose deterministic `dispose()` behavior. Finalizers are backup cleanup, not the primary lifetime strategy.
 
-Large implicit GPU↔CPU transfers must not be hidden.
+Live tensor/storage/module/optimizer/session counters are test diagnostics for Tensora-owned wrapper lifetime. They do not claim to measure all allocator caches maintained internally by third-party runtimes.
 
-Callers should be able to configure strict failure when fallback is undesirable.
+## 14. Concurrency compatibility
 
-## 13. Model/operator compatibility
+Immutable tensor operations and the documented reusable ONNX session path have dedicated concurrency validation.
 
-A model loader should distinguish:
+Mutable training objects are not automatically safe for arbitrary concurrent mutation. Threading guarantees must be established per mutable subsystem rather than inferred from the handle registry being synchronized.
 
-- format unsupported;
-- operator unsupported;
-- dtype unsupported;
-- shape unsupported;
-- provider unavailable;
-- resource limit exceeded;
-- model/runtime version incompatible.
+## 15. Reproducibility
 
-Avoid collapsing these into a generic “model failed” error.
-
-## 14. Reproducibility compatibility
-
-Tensora should document that identical seeds do not necessarily guarantee bitwise-identical floating-point results across:
+Identical seeds do not guarantee bitwise-identical floating-point results across:
 
 - different hardware;
 - different providers;
-- different kernel implementations;
-- different runtime versions.
+- different kernels;
+- different native runtime versions.
 
-Where deterministic modes exist, their scope and cost must be documented.
+Tests use mathematically known references and justified tolerances. Deterministic modes, when added, must document their exact scope and cost.
 
-## 15. Deprecation policy
+## 16. Hardware claims
 
-For stable APIs, prefer this sequence:
+Hardware-specific support requires actual execution evidence.
 
-```text
-introduce replacement
- ↓
-deprecate old API
- ↓
-document migration
- ↓
-retain through an appropriate compatibility window
- ↓
-remove in a major release if breaking
-```
+Compilation or provider discovery alone is insufficient. Hardware qualification must prove the selected device/provider is active and must reject CPU fallback where the test claims accelerator execution.
 
-Security-critical or fundamentally incorrect behavior may require faster action; such exceptions must be documented clearly.
+Current real-hardware automated evidence covers Apple MPS and Apple CoreML. Other vendor qualification remains pending until their manual hardware workflows complete on matching physical runners.
 
-## 16. Platform end-of-support
+## 17. Binary distribution scope
 
-Removing a stable platform/backend requires:
+Tensora currently validates **source-built** native runtimes. It does not yet promise that arbitrary compiler versions, OS revisions, CPU architectures, or third-party dependency layouts are binary-compatible.
 
-- documented reason;
-- advance notice when feasible;
-- final supported release identification;
-- migration alternatives where available.
+A future published native artifact matrix must name:
 
-## 17. Compatibility review
-
-Any pull request affecting one of these requires explicit compatibility review:
-
-- public Dart API;
-- C ABI;
-- `.tmodel` schema;
-- serialization/checkpoints;
-- provider requirements;
-- device semantics;
-- default fallback behavior;
-- package names/dependency boundaries.
+- target OS and architecture;
+- compiler/runtime ABI requirements;
+- bundled or external dependencies;
+- tested device/provider versions;
+- supported loading/packaging layout.
 
 ## 18. Documentation rule
 
-Never write statements such as:
+Never write broad claims such as:
 
 ```text
 Supports GPU
-Supports Android
-Supports training
+Supports Windows GPU
+Supports ONNX everywhere
 ```
 
-without enough qualification to identify the tested backend/platform scope.
+without naming the validated device/provider/platform scope.
 
-Prefer statements such as:
+Prefer precise statements such as:
 
 ```text
-CUDA training: beta on Linux x64 with tested runtime versions X–Y
-ONNX CPU inference: stable on listed desktop targets
+Apple MPS training is hardware-validated on hosted Apple Silicon CI for the documented training subset.
 ```
 
-once those facts are actually established.
+## 19. Promotion criteria
 
-## 19. Current state
+A surface can move from Experimental to Beta only after its missing qualification dimensions are closed. For hardware/provider work that normally includes:
 
-During the foundation phase, compatibility entries are **planned, not supported**. The repository should not publish a stable support matrix until executable implementations and tests exist.
+- representative physical execution;
+- no unintended fallback;
+- correctness reference;
+- lifecycle stability;
+- failure-path validation;
+- documented dependency/runtime versions.
+
+Promotion from Beta to Stable additionally requires a durable release and packaging contract appropriate for a post-1.0 compatibility promise.

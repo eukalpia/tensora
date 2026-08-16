@@ -1,0 +1,335 @@
+name: Dart FFI CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dart-ffi-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dart-quality:
+    name: Dart format + analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Format package in runner
+        working-directory: packages/tensora
+        run: dart format lib test benchmark
+
+      - name: Verify package formatting
+        working-directory: packages/tensora
+        run: git diff --exit-code -- lib test benchmark
+
+      - name: Analyze package
+        working-directory: packages/tensora
+        run: dart analyze --fatal-infos --fatal-warnings
+
+      - name: Resolve example dependencies
+        working-directory: examples/tensor_basics
+        run: dart pub get
+
+      - name: Format example in runner
+        working-directory: examples/tensor_basics
+        run: dart format bin
+
+      - name: Verify example formatting
+        working-directory: examples/tensor_basics
+        run: git diff --exit-code -- bin
+
+      - name: Analyze example
+        working-directory: examples/tensor_basics
+        run: dart analyze --fatal-infos --fatal-warnings
+
+  dart-minimum:
+    name: Dart 3.7 compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/native/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up minimum supported Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.7.0
+
+      - name: Configure native runtime
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build native runtime
+        run: cmake --build build/native --config Release --parallel
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Analyze package
+        working-directory: packages/tensora
+        run: dart analyze --fatal-infos --fatal-warnings
+
+      - name: Run package tests
+        working-directory: packages/tensora
+        run: dart test --exclude-tags soak --reporter expanded
+
+      - name: Run isolated core lifecycle soak
+        working-directory: packages/tensora
+        run: dart test test/core_lifecycle_soak_test.dart --reporter expanded
+
+      - name: Resolve example dependencies
+        working-directory: examples/tensor_basics
+        run: dart pub get
+
+      - name: Analyze example
+        working-directory: examples/tensor_basics
+        run: dart analyze --fatal-infos --fatal-warnings
+
+      - name: Run tensor basics example
+        working-directory: examples/tensor_basics
+        run: dart run bin/main.dart
+
+  dart-coverage:
+    name: Core Dart line coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/native/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Configure native runtime
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build native runtime
+        run: cmake --build build/native --config Release --parallel
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Collect core Dart coverage
+        working-directory: packages/tensora
+        run: >-
+          dart test
+          --exclude-tags soak
+          --coverage-path=coverage/core.info
+          --reporter expanded
+
+      - name: Collect isolated core soak coverage
+        working-directory: packages/tensora
+        run: >-
+          dart test test/core_lifecycle_soak_test.dart
+          --coverage-path=coverage/core-soak.info
+          --reporter expanded
+
+      - name: Enforce 80 percent core library line coverage
+        working-directory: packages/tensora
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          reports = [Path('coverage/core.info'), Path('coverage/core-soak.info')]
+          for report in reports:
+              if not report.exists():
+                  raise SystemExit(f'{report} was not produced')
+
+          excluded = (
+              '/lib/src/training/',
+              '/lib/src/inference/',
+              '/lib/src/native/native_training_',
+              '/lib/src/native/native_inference_',
+          )
+          lines: dict[str, dict[int, int]] = {}
+
+          def normalize_source(raw: str) -> str | None:
+              source = raw.replace('\\', '/')
+              marker = '/packages/tensora/lib/'
+              if marker in source:
+                  source = 'lib/' + source.split(marker, 1)[1]
+              if not source.startswith('lib/'):
+                  return None
+              normalized = '/' + source.lstrip('/')
+              if any(part in normalized for part in excluded):
+                  return None
+              return source
+
+          for report in reports:
+              current = None
+              for raw in report.read_text(encoding='utf-8').splitlines():
+                  if raw.startswith('SF:'):
+                      current = normalize_source(raw[3:])
+                      if current is not None:
+                          lines.setdefault(current, {})
+                  elif current is not None and raw.startswith('DA:'):
+                      payload = raw[3:].split(',')
+                      line_number = int(payload[0])
+                      hits = int(payload[1])
+                      previous = lines[current].get(line_number, 0)
+                      lines[current][line_number] = max(previous, hits)
+                  elif raw == 'end_of_record':
+                      current = None
+
+          found = sum(len(source_lines) for source_lines in lines.values())
+          hit = sum(
+              1
+              for source_lines in lines.values()
+              for count in source_lines.values()
+              if count > 0
+          )
+          if found == 0:
+              raise SystemExit('merged LCOV contains no Tensora core lib/ lines')
+
+          percent = hit * 100.0 / found
+          print(f'Core Dart library line coverage: {hit}/{found} = {percent:.2f}%')
+          if percent < 80.0:
+              raise SystemExit(f'core coverage {percent:.2f}% is below required 80.00%')
+          PY
+
+  benchmark-validation:
+    name: Benchmark validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/native/libtensora_native.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Record benchmark environment
+        shell: bash
+        run: |
+          uname -a
+          lscpu
+          cmake --version
+          c++ --version
+          dart --version
+
+      - name: Configure native Release benchmark
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=ON
+
+      - name: Build native Release benchmark
+        run: cmake --build build/native --config Release --parallel
+
+      - name: Run native benchmark baseline
+        run: ./build/native/tensora_native_benchmark --smoke
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run Dart FFI benchmark
+        working-directory: packages/tensora
+        run: dart run benchmark/tensor_benchmark.dart
+
+  ffi-platform:
+    name: Dart FFI ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            native_library: build/native/libtensora_native.so
+          - os: macos-latest
+            native_library: build/native/libtensora_native.dylib
+          - os: windows-latest
+            native_library: build/native/Release/tensora_native.dll
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/${{ matrix.native_library }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Configure native runtime
+        run: >-
+          cmake -S native -B build/native
+          -DCMAKE_BUILD_TYPE=Release
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build native runtime
+        run: cmake --build build/native --config Release --parallel
+
+      - name: Resolve package dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Run Dart FFI tests
+        working-directory: packages/tensora
+        run: dart test --exclude-tags soak --reporter expanded
+
+      - name: Run isolated core lifecycle soak
+        working-directory: packages/tensora
+        run: dart test test/core_lifecycle_soak_test.dart --reporter expanded
+
+      - name: Resolve example dependencies
+        working-directory: examples/tensor_basics
+        run: dart pub get
+
+      - name: Run tensor basics example
+        working-directory: examples/tensor_basics
+        run: dart run bin/main.dart
+
+      - name: Run Dart benchmark smoke
+        if: runner.os == 'Linux'
+        working-directory: packages/tensora
+        run: dart run benchmark/tensor_benchmark.dart --smoke

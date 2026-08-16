@@ -1,0 +1,17 @@
+name: tensora_train
+description: Training orchestration contracts for Tensora.
+version: 0.1.0-dev.1
+repository: https://github.com/eukalpia/tensora
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+resolution: workspace
+
+dependencies:
+  tensora: ^0.1.0-dev.1
+  tensora_nn: ^0.1.0-dev.1
+  tensora_optim: ^0.1.0-dev.1
+
+dev_dependencies:
+  test: ^1.27.0

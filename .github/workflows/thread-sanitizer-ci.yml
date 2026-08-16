@@ -1,0 +1,50 @@
+name: ThreadSanitizer CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tsan-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tsan:
+    name: Core ThreadSanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure ThreadSanitizer build
+        env:
+          CC: clang
+          CXX: clang++
+        run: >-
+          cmake -S native -B build/tsan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS='-fsanitize=thread -fno-omit-frame-pointer'
+          -DCMAKE_CXX_FLAGS='-fsanitize=thread -fno-omit-frame-pointer'
+          -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=thread'
+          -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=thread'
+          -DTENSORA_BUILD_TESTS=ON
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build ThreadSanitizer runtime and tests
+        run: cmake --build build/tsan --parallel 2
+
+      - name: Run ThreadSanitizer tests
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:history_size=7
+        run: ctest --test-dir build/tsan --output-on-failure

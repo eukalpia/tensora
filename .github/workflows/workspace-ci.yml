@@ -1,0 +1,109 @@
+name: Workspace CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dart-workspace:
+    name: Dart workspace / ${{ matrix.dart }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        dart:
+          - '3.7.0'
+          - stable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.dart }}
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: Validate dependency architecture
+        run: dart run tools/workspace_check.dart
+
+      - name: Verify formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          paths=(tools tests)
+          for package in \
+            tensora_nn \
+            tensora_optim \
+            tensora_data \
+            tensora_train \
+            tensora_edge \
+            tensora_vision \
+            tensora_audio \
+            tensora_text \
+            tensora_transformers; do
+            paths+=("packages/${package}/lib" "packages/${package}/test")
+          done
+          dart format "${paths[@]}"
+          git diff --exit-code -- "${paths[@]}"
+
+      - name: Analyze workspace utilities and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart analyze tools
+          dart analyze tests
+
+      - name: Analyze Dart packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in \
+            tensora_nn \
+            tensora_optim \
+            tensora_data \
+            tensora_train \
+            tensora_edge \
+            tensora_vision \
+            tensora_audio \
+            tensora_text \
+            tensora_transformers; do
+            (cd "packages/${package}" && dart analyze)
+          done
+
+      - name: Run Dart package tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in \
+            tensora_nn \
+            tensora_optim \
+            tensora_data \
+            tensora_train \
+            tensora_edge \
+            tensora_vision \
+            tensora_audio \
+            tensora_text \
+            tensora_transformers; do
+            (cd "packages/${package}" && dart test --reporter expanded)
+          done
+
+      - name: Run cross-package acceptance tests
+        run: dart test tests --reporter expanded

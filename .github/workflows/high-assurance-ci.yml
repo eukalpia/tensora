@@ -1,0 +1,354 @@
+name: High Assurance CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'perf/**'
+      - 'work/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: high-assurance-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-dart-coverage:
+    name: Full Dart coverage >= 99.9%
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ORT_VERSION: '1.26.0'
+      ORT_SHA256: '1254da24fb389cf39dc0ff3451ab48301740ffbfcbaf646849df92f80ee92c57'
+      TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned native-runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install \
+            torch==2.13.0+cpu \
+            --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install onnx==1.21.0 numpy
+
+      - name: Generate deterministic ONNX fixture
+        run: python native/tests/generate_onnx_fixture.py "$TENSORA_ONNX_TEST_MODEL"
+
+      - name: Download and verify pinned ONNX Runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="build/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          mkdir -p build
+          curl --fail --location --retry 3 \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+            --output "$archive"
+          echo "${ORT_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C build
+          ort_root="${GITHUB_WORKSPACE}/build/onnxruntime-linux-x64-${ORT_VERSION}"
+          echo "ORT_ROOT=${ort_root}" >> "$GITHUB_ENV"
+          echo "ORT_LIBRARY_PATH=${ort_root}/lib" >> "$GITHUB_ENV"
+          echo "TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')" >> "$GITHUB_ENV"
+
+      - name: Configure core runtime
+        run: >-
+          cmake -S native -B build/core-coverage
+          -DCMAKE_BUILD_TYPE=Debug
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build core runtime
+        run: cmake --build build/core-coverage --parallel 2
+
+      - name: Resolve Dart dependencies
+        working-directory: packages/tensora
+        run: dart pub get
+
+      - name: Collect adversarial native contract coverage
+        run: bash tools/collect_contract_coverage.sh
+
+      - name: Collect default native discovery coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/core-coverage
+        run: >-
+          env -u TENSORA_NATIVE_LIBRARY
+          dart test test/native_runtime_default_load_test.dart
+          --coverage-path=coverage/runtime-default-load.info
+          --reporter expanded
+
+      - name: Collect missing native override coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ runner.temp }}/definitely-missing/libtensora_native.so
+        run: >-
+          dart test test/native_runtime_missing_load_test.dart
+          --coverage-path=coverage/runtime-missing-load.info
+          --reporter expanded
+
+      - name: Collect isolated core soak coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/core-coverage/libtensora_native.so
+        run: >-
+          dart test test/core_lifecycle_soak_test.dart
+          --coverage-path=coverage/core-soak.info
+          --reporter expanded
+
+      - name: Collect disabled-backend core coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/core-coverage/libtensora_native.so
+        run: >-
+          dart test test
+          --exclude-tags soak
+          --coverage-path=coverage/core.info
+          --reporter expanded
+
+      - name: Configure fully enabled runtime
+        shell: bash
+        run: >-
+          cmake -S native -B build/full-coverage
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_PREFIX_PATH="$TORCH_CMAKE_PREFIX"
+          -DTENSORA_WITH_TORCH=ON
+          -DTENSORA_WITH_ONNXRUNTIME=ON
+          -DTENSORA_ONNXRUNTIME_ROOT="$ORT_ROOT"
+          -DTENSORA_BUILD_TESTS=OFF
+          -DTENSORA_BUILD_BENCHMARKS=OFF
+
+      - name: Build fully enabled runtime
+        run: cmake --build build/full-coverage --parallel 2
+
+      - name: Collect primary training coverage
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/training_integration_test.dart
+          --coverage-path=coverage/training.info
+          --reporter expanded
+
+      - name: Collect training edge coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/training_edge_integration_test.dart
+          --coverage-path=coverage/training-edge.info
+          --reporter expanded
+
+      - name: Collect training runtime wrapper coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/native_training_runtime_edge_test.dart
+          --coverage-path=coverage/training-runtime.info
+          --reporter expanded
+
+      - name: Collect inference coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/inference_integration_test.dart
+          --coverage-path=coverage/inference.info
+          --reporter expanded
+
+      - name: Collect inference runtime wrapper coverage in isolated process
+        working-directory: packages/tensora
+        env:
+          TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/full-coverage/libtensora_native.so
+          TENSORA_ONNX_TEST_MODEL: ${{ github.workspace }}/build/fixtures/reference.onnx
+          LD_LIBRARY_PATH: ${{ env.ORT_LIBRARY_PATH }}
+        run: >-
+          dart test integration_test/native_inference_runtime_edge_test.dart
+          --coverage-path=coverage/inference-runtime.info
+          --reporter expanded
+
+      - name: Enforce 99.9 percent merged production Dart coverage
+        working-directory: packages/tensora
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          reports = [
+              Path('coverage/core.info'),
+              Path('coverage/core-soak.info'),
+              Path('coverage/runtime-default-load.info'),
+              Path('coverage/runtime-missing-load.info'),
+              Path('coverage/native-contract.info'),
+              Path('coverage/native-contract-completion.info'),
+              Path('coverage/training.info'),
+              Path('coverage/training-edge.info'),
+              Path('coverage/training-runtime.info'),
+              Path('coverage/inference.info'),
+              Path('coverage/inference-runtime.info'),
+          ]
+          for report in reports:
+              if not report.exists():
+                  raise SystemExit(f'{report} was not produced')
+
+          lines: dict[str, dict[int, int]] = {}
+          ignored_lines: dict[str, set[int]] = {}
+
+          def normalize_source(raw: str) -> str | None:
+              source = raw.replace('\\', '/')
+              marker = '/packages/tensora/lib/'
+              if marker in source:
+                  return 'lib/' + source.split(marker, 1)[1]
+              if source.startswith('lib/'):
+                  return source
+              return None
+
+          def read_ignored_lines(source: str) -> set[int]:
+              source_path = Path(source)
+              if not source_path.exists():
+                  raise SystemExit(f'coverage source does not exist: {source}')
+
+              ignored: set[int] = set()
+              active = False
+              for line_number, text in enumerate(
+                  source_path.read_text(encoding='utf-8').splitlines(), start=1
+              ):
+                  has_start = '// coverage:ignore-start' in text
+                  has_end = '// coverage:ignore-end' in text
+                  has_line = '// coverage:ignore-line' in text
+                  has_next = '// coverage:ignore-next-line' in text
+
+                  if has_start:
+                      if active:
+                          raise SystemExit(
+                              f'nested coverage:ignore-start in {source}:{line_number}'
+                          )
+                      active = True
+
+                  if active or has_line:
+                      ignored.add(line_number)
+                  if has_next:
+                      ignored.add(line_number + 1)
+
+                  if has_end:
+                      if not active:
+                          raise SystemExit(
+                              f'coverage:ignore-end without start in {source}:{line_number}'
+                          )
+                      active = False
+
+              if active:
+                  raise SystemExit(
+                      f'unterminated coverage:ignore-start in {source}'
+                  )
+              return ignored
+
+          for report in reports:
+              current = None
+              for raw in report.read_text(encoding='utf-8').splitlines():
+                  if raw.startswith('SF:'):
+                      current = normalize_source(raw[3:])
+                      if current is not None:
+                          lines.setdefault(current, {})
+                          ignored_lines.setdefault(
+                              current, read_ignored_lines(current)
+                          )
+                  elif current is not None and raw.startswith('DA:'):
+                      payload = raw[3:].split(',')
+                      line_number = int(payload[0])
+                      if line_number in ignored_lines[current]:
+                          continue
+                      hits = int(payload[1])
+                      previous = lines[current].get(line_number, 0)
+                      lines[current][line_number] = max(previous, hits)
+                  elif raw == 'end_of_record':
+                      current = None
+
+          required_sources = {
+              path.as_posix()
+              for path in Path('lib/src').rglob('*.dart')
+          }
+          missing = sorted(source for source in required_sources if source not in lines)
+          if missing:
+              raise SystemExit(
+                  'coverage is missing production sources: ' + ', '.join(missing)
+              )
+
+          ignored_sources = sorted(
+              source for source, values in ignored_lines.items() if values
+          )
+          if ignored_sources != ['lib/src/native/native_runtime.dart']:
+              raise SystemExit(
+                  'coverage exclusions are allowed only for the validated '
+                  'Win32 loader: ' + ', '.join(ignored_sources)
+              )
+          ignored_total = sum(len(values) for values in ignored_lines.values())
+          if ignored_total > 48:
+              raise SystemExit(
+                  f'coverage exclusion budget grew from 48 to {ignored_total}'
+              )
+          print(f'Validated coverage-ignore source lines: {ignored_total}')
+
+          found = sum(len(source_lines) for source_lines in lines.values())
+          hit = sum(
+              1
+              for source_lines in lines.values()
+              for count in source_lines.values()
+              if count > 0
+          )
+          if found == 0:
+              raise SystemExit('merged LCOV contains no Tensora lib/ lines')
+
+          percent = hit * 100.0 / found
+          print(f'Merged Dart library line coverage: {hit}/{found} = {percent:.6f}%')
+          for source in sorted(lines):
+              source_found = len(lines[source])
+              source_hit = sum(1 for count in lines[source].values() if count > 0)
+              source_percent = source_hit * 100.0 / source_found if source_found else 100.0
+              print(f'  {source}: {source_hit}/{source_found} = {source_percent:.2f}%')
+              uncovered = sorted(
+                  line for line, count in lines[source].items() if count <= 0
+              )
+              if uncovered:
+                  print(f'    uncovered: {uncovered}')
+
+          if percent < 99.9:
+              raise SystemExit(
+                  f'merged coverage {percent:.6f}% is below required 99.900000%'
+              )
+          PY
+
+      - name: Upload merged Dart coverage inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-high-assurance-dart-coverage
+          path: packages/tensora/coverage/*.info
+          if-no-files-found: warn
+          retention-days: 7
