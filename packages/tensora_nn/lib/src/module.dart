@@ -129,11 +129,7 @@ abstract base class Module {
     }
   }
 
-  /// Validates and restores an in-memory state snapshot.
-  ///
-  /// The non-empty native assignment path is wired in the state-assignment ABI
-  /// task. Empty state is fully supported now so declarative containers have a
-  /// correct state contract before that native extension lands.
+  /// Validates and transactionally restores an in-memory state snapshot.
   StateLoadResult loadStateDict(StateDict state, {bool strict = true}) {
     _ensureLive('loadStateDict');
     final targets = <String, Object>{};
@@ -162,21 +158,26 @@ abstract base class Module {
     }
 
     final common = targetKeys.intersection(sourceKeys).toList()..sort();
+    final targetTensors = <core.Tensor>[];
+    final sourceTensors = <core.Tensor>[];
     for (final key in common) {
       final source = state[key]!;
       final target = targets[key]!;
       final core.Shape shape;
       final core.DType dtype;
       final core.Device device;
+      final core.Tensor targetTensor;
       if (target is Parameter) {
         shape = target.shape;
         dtype = target.dtype;
         device = target.device;
+        targetTensor = target.tensorForRuntime;
       } else {
         final buffer = target as Buffer;
         shape = buffer.shape;
         dtype = buffer.dtype;
         device = buffer.device;
+        targetTensor = buffer.tensorForRuntime;
       }
       if (source.shape != shape ||
           source.dtype != dtype ||
@@ -186,14 +187,14 @@ abstract base class Module {
           operation: 'module.loadStateDict',
         );
       }
+      targetTensors.add(targetTensor);
+      sourceTensors.add(source);
     }
 
-    if (common.isNotEmpty) {
-      throw core.UnsupportedOperationException(
-        'Transactional native StateDict assignment is not available yet.',
-        operation: 'module.loadStateDict',
-      );
-    }
+    core.NativeTensorState.assignMany(
+      targets: targetTensors,
+      sources: sourceTensors,
+    );
     return result;
   }
 
