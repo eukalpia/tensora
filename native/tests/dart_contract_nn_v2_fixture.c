@@ -3,6 +3,38 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// The NN V2 coverage fixture is linked with dart_contract_fixture.c after the
+// two symbols below are preprocessor-renamed. Keep all of the base fixture's
+// behavior for modes 0/1, while reserving mode 2 for a stable two-parameter
+// module whose second Tensor has valid metadata. This lets the Dart layer test
+// a post-move parameter-count contract violation without conflating it with the
+// separate malformed-metadata contract represented by mode 1.
+void ts_fixture_base_set_training_mode(int32_t mode);
+ts_status_t ts_fixture_base_module_parameter_count(ts_module_t module,
+                                                    size_t* out_count);
+
+#undef ts_test_set_training_mode
+#undef ts_module_parameter_count
+
+static int32_t g_nn_v2_training_mode = 0;
+
+TS_API void ts_test_set_training_mode(int32_t mode) {
+  g_nn_v2_training_mode = mode;
+  ts_fixture_base_set_training_mode(mode);
+}
+
+ts_status_t ts_module_parameter_count(ts_module_t module, size_t* out_count) {
+  if (g_nn_v2_training_mode == 2) {
+    (void)module;
+    if (out_count == NULL) {
+      return TS_INVALID_ARGUMENT;
+    }
+    *out_count = 2;
+    return TS_OK;
+  }
+  return ts_fixture_base_module_parameter_count(module, out_count);
+}
+
 static uint64_t g_nn_v2_next_handle = UINT64_C(900000);
 
 static ts_status_t nn_v2_unary_tensor(ts_tensor_t tensor,
