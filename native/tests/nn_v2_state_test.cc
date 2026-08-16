@@ -67,6 +67,29 @@ int main() {
   Require(identity_a == identity_b,
           "retained wrappers for one parameter share native identity");
 
+  ts_tensor_t weight_snapshot = 0;
+  RequireStatus(ts_tensor_clone_detached(weight_a, &weight_snapshot), TS_OK,
+                "clone module parameter state");
+  uint64_t weight_snapshot_identity = 0;
+  RequireStatus(ts_tensor_identity(weight_snapshot, &weight_snapshot_identity),
+                TS_OK, "module parameter snapshot identity");
+  Require(weight_snapshot_identity != identity_a,
+          "module parameter snapshot owns distinct identity");
+
+  ts_module_t source_linear = 0;
+  RequireStatus(ts_linear_create(1, 1, 0, &source_linear), TS_OK,
+                "create source linear module");
+  ts_tensor_t source_weight = 0;
+  RequireStatus(ts_module_parameter_at(source_linear, 0, &source_weight), TS_OK,
+                "source weight view");
+  const float source_weight_value = ReadScalar(source_weight);
+  const ts_tensor_t module_targets[1] = {weight_a};
+  const ts_tensor_t module_sources[1] = {source_weight};
+  RequireStatus(ts_tensor_assign_many(module_targets, module_sources, 1), TS_OK,
+                "assign module parameter state");
+  Require(std::fabs(ReadScalar(weight_a) - source_weight_value) < 1e-6f,
+          "module parameter state assigned transactionally");
+
   const float alias_values[2] = {1.0f, 2.0f};
   const int64_t alias_dims[2] = {1, 2};
   ts_tensor_t alias_source = 0;
@@ -139,11 +162,28 @@ int main() {
   RequireStatus(ts_tensor_assign_many(duplicate_targets, valid_sources, 2),
                 TS_INVALID_ARGUMENT, "duplicate assignment target rejected");
 
+  // In a core-only runtime both pairs are CPU-backed and the operation is
+  // valid. In a LibTorch-enabled runtime module parameters are Torch-backed,
+  // so a single transaction spanning the CPU scalar pair and Torch parameter
+  // pair must be rejected before mutation.
+  const ts_tensor_t mixed_targets[2] = {target_a, weight_a};
+  const ts_tensor_t mixed_sources[2] = {source_a, source_weight};
+  const ts_status_t mixed_status =
+      ts_tensor_assign_many(mixed_targets, mixed_sources, 2);
+  Require(mixed_status == TS_OK || mixed_status == TS_INVALID_ARGUMENT,
+          "mixed-backend transaction has deterministic provider policy");
+
   uint64_t invalid_identity = 0;
   RequireStatus(ts_tensor_identity(UINT64_C(0xffffffffffffffff),
                                    &invalid_identity),
                 TS_INVALID_HANDLE, "invalid identity handle rejected");
 
+  RequireStatus(ts_tensor_release(weight_snapshot), TS_OK,
+                "release weight snapshot");
+  RequireStatus(ts_tensor_release(source_weight), TS_OK,
+                "release source weight");
+  RequireStatus(ts_module_release(source_linear), TS_OK,
+                "release source linear module");
   RequireStatus(ts_tensor_release(weight_a), TS_OK, "release weight view a");
   RequireStatus(ts_tensor_release(weight_b), TS_OK, "release weight view b");
   RequireStatus(ts_module_release(linear), TS_OK, "release linear module");
