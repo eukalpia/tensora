@@ -23,10 +23,8 @@ final class ToyMlp extends nn.Model {
 }
 
 final class TrackingMoveLeaf extends nn.Module {
-  TrackingMoveLeaf({
-    required Device initialDevice,
-    this.failFirstMove = false,
-  }) : _device = initialDevice;
+  TrackingMoveLeaf({required Device initialDevice, this.failFirstMove = false})
+    : _device = initialDevice;
 
   final bool failFirstMove;
   Device _device;
