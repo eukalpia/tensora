@@ -302,19 +302,18 @@ final class NativeTrainingRuntime {
   }) => _withTensorHandles(
     parameterHandles,
     decoupled ? 'optimizer.parameterAdamW' : 'optimizer.parameterAdam',
-    (handles, count, out) =>
-        (decoupled
-            ? _bindings.parameterAdamWCreate
-            : _bindings.parameterAdamCreate)(
-          handles,
-          count,
-          learningRate,
-          beta1,
-          beta2,
-          epsilon,
-          weightDecay,
-          out,
-        ),
+    (handles, count, out) => (decoupled
+        ? _bindings.parameterAdamWCreate
+        : _bindings.parameterAdamCreate)(
+      handles,
+      count,
+      learningRate,
+      beta1,
+      beta2,
+      epsilon,
+      weightDecay,
+      out,
+    ),
   );
 
   void optimizerZeroGrad(int optimizer) {
