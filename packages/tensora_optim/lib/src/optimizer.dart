@@ -1,5 +1,4 @@
-import 'package:tensora/tensora.dart'
-    show NativeParameterOptimizer, Parameter;
+import 'package:tensora/tensora.dart' show NativeParameterOptimizer, Parameter;
 
 import 'parameter_group.dart';
 
