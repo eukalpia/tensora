@@ -21,6 +21,47 @@ typedef _TensorFullF32Native =
 typedef _TensorFullF32Dart =
     int Function(Pointer<Int64>, int, double, Pointer<Uint64>);
 
+typedef _TensorFromHostNative =
+    Int32 Function(
+      Pointer<Void>,
+      Size,
+      Uint32,
+      Pointer<Int64>,
+      Size,
+      Pointer<Uint64>,
+    );
+typedef _TensorFromHostDart =
+    int Function(
+      Pointer<Void>,
+      int,
+      int,
+      Pointer<Int64>,
+      int,
+      Pointer<Uint64>,
+    );
+
+typedef _TensorFullNative =
+    Int32 Function(
+      Pointer<Void>,
+      Size,
+      Uint32,
+      Pointer<Int64>,
+      Size,
+      Pointer<Uint64>,
+    );
+typedef _TensorFullDart =
+    int Function(
+      Pointer<Void>,
+      int,
+      int,
+      Pointer<Int64>,
+      int,
+      Pointer<Uint64>,
+    );
+
+typedef _TensorCastNative = Int32 Function(Uint64, Uint32, Pointer<Uint64>);
+typedef _TensorCastDart = int Function(int, int, Pointer<Uint64>);
+
 typedef _TensorRankNative = Int32 Function(Uint64, Pointer<Size>);
 typedef _TensorRankDart = int Function(int, Pointer<Size>);
 
@@ -53,10 +94,15 @@ typedef _TensorUnaryDart = int Function(int, Pointer<Uint64>);
 typedef _TensorBinaryNative = Int32 Function(Uint64, Uint64, Pointer<Uint64>);
 typedef _TensorBinaryDart = int Function(int, int, Pointer<Uint64>);
 
-typedef _TensorCopyToHostNative =
+typedef _TensorCopyToHostF32Native =
     Int32 Function(Uint64, Pointer<Float>, Size, Pointer<Size>);
-typedef _TensorCopyToHostDart =
+typedef _TensorCopyToHostF32Dart =
     int Function(int, Pointer<Float>, int, Pointer<Size>);
+
+typedef _TensorCopyToHostNative =
+    Int32 Function(Uint64, Pointer<Void>, Size, Pointer<Size>);
+typedef _TensorCopyToHostDart =
+    int Function(int, Pointer<Void>, int, Pointer<Size>);
 
 typedef _TensorLifetimeNative = Int32 Function(Uint64);
 typedef _TensorLifetimeDart = int Function(int);
@@ -96,6 +142,16 @@ final class NativeBindings {
           .lookupFunction<_TensorFullF32Native, _TensorFullF32Dart>(
             'ts_tensor_full_f32',
           ),
+      tensorFromHost = library
+          .lookupFunction<_TensorFromHostNative, _TensorFromHostDart>(
+            'ts_tensor_from_host',
+          ),
+      tensorFull = library.lookupFunction<_TensorFullNative, _TensorFullDart>(
+        'ts_tensor_full',
+      ),
+      tensorCast = library.lookupFunction<_TensorCastNative, _TensorCastDart>(
+        'ts_tensor_cast',
+      ),
       tensorRank = library.lookupFunction<_TensorRankNative, _TensorRankDart>(
         'ts_tensor_rank',
       ),
@@ -146,9 +202,13 @@ final class NativeBindings {
           .lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
             'ts_tensor_matmul',
           ),
-      tensorCopyToHostF32 = library
+      tensorCopyToHostF32 = library.lookupFunction<
+        _TensorCopyToHostF32Native,
+        _TensorCopyToHostF32Dart
+      >('ts_tensor_copy_to_host_f32'),
+      tensorCopyToHost = library
           .lookupFunction<_TensorCopyToHostNative, _TensorCopyToHostDart>(
-            'ts_tensor_copy_to_host_f32',
+            'ts_tensor_copy_to_host',
           ),
       tensorRetain = library
           .lookupFunction<_TensorLifetimeNative, _TensorLifetimeDart>(
@@ -174,6 +234,9 @@ final class NativeBindings {
   final _RuntimeUint32Dart runtimeCudaDeviceCount;
   final _TensorFromF32Dart tensorFromF32;
   final _TensorFullF32Dart tensorFullF32;
+  final _TensorFromHostDart tensorFromHost;
+  final _TensorFullDart tensorFull;
+  final _TensorCastDart tensorCast;
   final _TensorRankDart tensorRank;
   final _TensorShapeDart tensorShape;
   final _TensorUint32MetadataDart tensorDType;
@@ -187,7 +250,8 @@ final class NativeBindings {
   final _TensorBinaryDart tensorMultiply;
   final _TensorUnaryDart tensorSum;
   final _TensorBinaryDart tensorMatmul;
-  final _TensorCopyToHostDart tensorCopyToHostF32;
+  final _TensorCopyToHostF32Dart tensorCopyToHostF32;
+  final _TensorCopyToHostDart tensorCopyToHost;
   final _TensorLifetimeDart tensorRetain;
   final _TensorLifetimeDart tensorRelease;
   final _RuntimeCounterDart runtimeLiveTensorCount;
