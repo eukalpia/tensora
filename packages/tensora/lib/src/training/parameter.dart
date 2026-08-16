@@ -20,7 +20,7 @@ final class Parameter {
 
   Parameter._(this._tensor, this.identity);
 
-  final Tensor _tensor;
+  Tensor _tensor;
   bool _disposed = false;
 
   /// Opaque stable identity used for de-duplication across retained wrappers.
@@ -48,6 +48,12 @@ final class Parameter {
 
   bool get isDisposed => _disposed;
 
+  /// Freezes this parameter in-place while preserving its native identity.
+  void freeze() => _setRequiresGrad(false);
+
+  /// Unfreezes this parameter in-place while preserving its native identity.
+  void unfreeze() => _setRequiresGrad(true);
+
   Tensor grad() {
     _ensureLive('grad');
     return _tensor.grad();
@@ -70,10 +76,42 @@ final class Parameter {
     return _tensor;
   }
 
+  /// Replaces the retained Tensor view after an in-place native module move.
+  ///
+  /// The replacement must resolve to the same opaque parameter identity.
+  /// Ownership of [replacement] transfers to this Parameter on success.
+  /// @nodoc
+  void internalReplaceTensor(Tensor replacement) {
+    _ensureLive('replaceTensor');
+    final replacementHandle = replacement.nativeHandleForRuntime(
+      nativeTensorAdoptionToken,
+    );
+    final replacementIdentity = NativeTrainingRuntime.instance.tensorIdentity(
+      replacementHandle,
+    );
+    if (replacementIdentity != identity) {
+      replacement.dispose();
+      throw NativeRuntimeException(
+        'Native module move changed parameter identity.',
+        operation: 'parameter.replaceTensor',
+      );
+    }
+
+    final previous = _tensor;
+    _tensor = replacement;
+    previous.dispose();
+  }
+
   void dispose() {
     if (_disposed) return;
     _tensor.dispose();
     _disposed = true;
+  }
+
+  void _setRequiresGrad(bool value) {
+    _ensureLive(value ? 'unfreeze' : 'freeze');
+    final handle = _tensor.nativeHandleForRuntime(nativeTensorAdoptionToken);
+    NativeTrainingRuntime.instance.setRequiresGrad(handle, value);
   }
 
   void _ensureLive(String operation) {
