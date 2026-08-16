@@ -129,13 +129,29 @@ jobs:
         run: |
           set -euo pipefail
           coverage_dir="$GITHUB_WORKSPACE/build/nn-v2-dart-coverage"
+          contract_fixture="$GITHUB_WORKSPACE/build/libtensora_nn_contract_fixture.so"
           mkdir -p "$coverage_dir"
+
+          cc -std=c11 -fPIC -shared -Wall -Wextra -Werror \
+            -DTENSORA_NATIVE_BUILD \
+            -I "$GITHUB_WORKSPACE/native/include" \
+            "$GITHUB_WORKSPACE/native/tests/dart_contract_fixture.c" \
+            "$GITHUB_WORKSPACE/native/tests/dart_contract_nn_v2_fixture.c" \
+            -o "$contract_fixture"
 
           (
             cd packages/tensora_nn
             dart test test \
               --coverage-path="$coverage_dir/nn.info" \
               --reporter expanded
+          )
+          (
+            cd packages/tensora_nn
+            TENSORA_NATIVE_LIBRARY="$contract_fixture" \
+            TENSORA_NN_CONTRACT_FIXTURE="$contract_fixture" \
+              dart test integration_test/native_contract_edge_test.dart \
+                --coverage-path="$coverage_dir/nn-contract.info" \
+                --reporter expanded
           )
           (
             cd packages/tensora_optim
@@ -150,14 +166,19 @@ jobs:
               --reporter expanded
           )
 
+          nn_status=0
+          optim_status=0
           python tools/merge_dart_coverage.py "$coverage_dir" \
             --source-fragment '/packages/tensora_nn/lib/' \
             --output "$coverage_dir/tensora-nn-merged.info" \
-            --summary "$coverage_dir/tensora-nn-summary.md"
+            --summary "$coverage_dir/tensora-nn-summary.md" || nn_status=$?
           python tools/merge_dart_coverage.py "$coverage_dir" \
             --source-fragment '/packages/tensora_optim/lib/' \
             --output "$coverage_dir/tensora-optim-merged.info" \
-            --summary "$coverage_dir/tensora-optim-summary.md"
+            --summary "$coverage_dir/tensora-optim-summary.md" || optim_status=$?
+          if [ "$nn_status" -ne 0 ] || [ "$optim_status" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Upload NN V2 Dart coverage
         if: always()
