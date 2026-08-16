@@ -10,6 +10,7 @@
 #include "memory/tensor_storage.h"
 #include "tensor/shape.h"
 #include "training/nn_v2_parameter_control.h"
+#include "training/nn_v2_state.h"
 #include "training/torch_backend.h"
 #include "training/training_bridge.h"
 #include "training/torch_storage.h"
@@ -339,6 +340,62 @@ int CheckDirectTorchBackend() {
   return 0;
 }
 
+int CheckTorchIdentityLifetime() {
+  using tensora::Tensor;
+  using tensora::training::WrapTorchTensor;
+  using tensora::training::nn_v2_state::TensorIdentity;
+  using tensora::training::nn_v2_state::internal::TorchIdentityCacheSizeForTesting;
+
+  if (TorchIdentityCacheSizeForTesting() != 0) return 210;
+
+  uint64_t first_identity = 0;
+  {
+    torch::Tensor leaf = torch::tensor(
+        {3.0f}, torch::TensorOptions().dtype(torch::kFloat32));
+    std::shared_ptr<Tensor> first;
+    std::shared_ptr<Tensor> alias;
+    if (!ExpectStatus(WrapTorchTensor(leaf, &first), TS_OK,
+                      "wrap Torch identity leaf") ||
+        !first)
+      return 211;
+    if (!ExpectStatus(WrapTorchTensor(leaf, &alias), TS_OK,
+                      "wrap Torch identity alias") ||
+        !alias)
+      return 212;
+
+    uint64_t alias_identity = 0;
+    if (!ExpectStatus(TensorIdentity(*first, &first_identity), TS_OK,
+                      "Torch identity first") ||
+        first_identity == 0)
+      return 213;
+    if (!ExpectStatus(TensorIdentity(*alias, &alias_identity), TS_OK,
+                      "Torch identity alias") ||
+        alias_identity != first_identity)
+      return 214;
+    if (TorchIdentityCacheSizeForTesting() != 1) return 215;
+  }
+
+  if (TorchIdentityCacheSizeForTesting() != 0) return 216;
+
+  uint64_t second_identity = 0;
+  {
+    torch::Tensor leaf = torch::tensor(
+        {4.0f}, torch::TensorOptions().dtype(torch::kFloat32));
+    std::shared_ptr<Tensor> wrapped;
+    if (!ExpectStatus(WrapTorchTensor(leaf, &wrapped), TS_OK,
+                      "wrap second Torch identity leaf") ||
+        !wrapped)
+      return 217;
+    if (!ExpectStatus(TensorIdentity(*wrapped, &second_identity), TS_OK,
+                      "Torch identity second") ||
+        second_identity == 0 || second_identity == first_identity)
+      return 218;
+  }
+
+  if (TorchIdentityCacheSizeForTesting() != 0) return 219;
+  return 0;
+}
+
 int CheckTorchParameterControl() {
   using tensora::Tensor;
   using tensora::training::WrapTorchTensor;
@@ -389,5 +446,7 @@ int CheckTorchParameterControl() {
 int main() {
   const int backend = CheckDirectTorchBackend();
   if (backend != 0) return backend;
+  const int identity = CheckTorchIdentityLifetime();
+  if (identity != 0) return identity;
   return CheckTorchParameterControl();
 }
