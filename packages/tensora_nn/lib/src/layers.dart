@@ -148,6 +148,9 @@ final class Linear extends Module {
   List<NamedParameter> get internalRegisteredParameters => _parameters;
 
   @override
+  core.Device get internalMoveDevice => _parameters.first.parameter.device;
+
+  @override
   core.Tensor forward(core.Tensor input) => _native(input);
 
   @override
@@ -160,7 +163,41 @@ final class Linear extends Module {
   }
 
   @override
-  void internalOnMove(core.Device device) => _native.to(device);
+  void internalOnMove(core.Device device) {
+    _native.to(device);
+    final replacements = _native.parameters();
+    final expected = _parameters.length;
+    if (replacements.length != expected) {
+      for (final tensor in replacements) {
+        tensor.dispose();
+      }
+      throw core.NativeRuntimeException(
+        'Linear exposed ${replacements.length} parameters after move; '
+        'expected $expected.',
+        operation: 'nn.linear.to',
+      );
+    }
+
+    try {
+      for (var index = 0; index < expected; index++) {
+        final identity = core.NativeTensorState.identity(replacements[index]);
+        if (identity != _parameters[index].parameter.identity) {
+          throw core.NativeRuntimeException(
+            'Linear parameter identity changed during device move.',
+            operation: 'nn.linear.to',
+          );
+        }
+      }
+      for (var index = 0; index < expected; index++) {
+        _parameters[index].parameter.internalReplaceTensor(replacements[index]);
+      }
+    } catch (_) {
+      for (final tensor in replacements) {
+        if (!tensor.isDisposed) tensor.dispose();
+      }
+      rethrow;
+    }
+  }
 
   @override
   void internalOnDispose() => _native.dispose();
