@@ -222,9 +222,6 @@ void main() {
     expect(failure.isSuccess, isFalse);
     expect(failure.missingKeys, <String>['weight']);
     expect(failure.unexpectedKeys, <String>['extra']);
-    expect(
-      () => failure.missingKeys.add('x'),
-      throwsUnsupportedError,
-    );
+    expect(() => failure.missingKeys.add('x'), throwsUnsupportedError);
   });
 }
