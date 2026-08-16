@@ -402,7 +402,10 @@ void main() {
     layer.train();
     expect(layer.isTraining, isTrue);
     layer.to(Device.cpu);
-    expect(layer.parameters.map((parameter) => parameter.identity), identities);
+    expect(
+      layer.parameters.map((parameter) => parameter.identity),
+      identities,
+    );
     expect(
       layer.parameters.every((parameter) => parameter.device == Device.cpu),
       isTrue,
@@ -443,12 +446,18 @@ void main() {
     expect(failing.history, <Device>[Device.cpu, original]);
   });
 
-  test('rollback failures surface an explicit indeterminate-state error', () {
-    final first = TrackingMoveLeaf(initialDevice: Device.cuda(0));
-    final failing = RollbackFailLeaf(initialDevice: Device.cuda(0));
-    final tree = nn.Sequential(children: <nn.Module>[first, failing]);
-    addTearDown(tree.dispose);
+  test(
+    'rollback failures surface an explicit indeterminate-state error',
+    () {
+      final first = TrackingMoveLeaf(initialDevice: Device.cuda(0));
+      final failing = RollbackFailLeaf(initialDevice: Device.cuda(0));
+      final tree = nn.Sequential(children: <nn.Module>[first, failing]);
+      addTearDown(tree.dispose);
 
-    expect(() => tree.to(Device.cpu), throwsA(isA<NativeRuntimeException>()));
-  });
+      expect(
+        () => tree.to(Device.cpu),
+        throwsA(isA<NativeRuntimeException>()),
+      );
+    },
+  );
 }
