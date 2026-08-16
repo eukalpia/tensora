@@ -19,6 +19,17 @@ struct TensorVersionCounter {
   std::atomic<uint64_t> value{0};
 };
 
+/// Lifetime-owned opaque identity shared only by intentional tensor aliases.
+///
+/// The value is process-local and monotonically allocated. It is never derived
+/// from an address, so exposing it to Dart does not disclose native pointers.
+struct TensorIdentityAnchor {
+  explicit TensorIdentityAnchor(uint64_t identity) : value(identity) {}
+  uint64_t value;
+};
+
+std::shared_ptr<TensorIdentityAnchor> NewTensorIdentityAnchor();
+
 enum class DType : uint32_t {
   kFloat32 = TS_DTYPE_FLOAT32,
 };
@@ -39,7 +50,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
          Device device = Device::kCpu,
          int32_t device_index = 0,
          uint64_t storage_offset = 0,
-         std::shared_ptr<TensorVersionCounter> version_counter = nullptr);
+         std::shared_ptr<TensorVersionCounter> version_counter = nullptr,
+         std::shared_ptr<TensorIdentityAnchor> identity_anchor = nullptr);
 
   const ShapeInfo& shape() const { return shape_; }
   const std::shared_ptr<TensorStorage>& storage() const { return storage_; }
@@ -57,6 +69,11 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   }
   uint64_t version() const;
   void increment_version();
+
+  const std::shared_ptr<TensorIdentityAnchor>& identity_anchor() const {
+    return identity_anchor_;
+  }
+  uint64_t identity() const { return identity_anchor_->value; }
 
   Status CopyToHostF32(float* out_values,
                        size_t capacity,
@@ -77,6 +94,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   int32_t device_index_;
   uint64_t storage_offset_;
   std::shared_ptr<TensorVersionCounter> version_counter_;
+  std::shared_ptr<TensorIdentityAnchor> identity_anchor_;
   std::shared_ptr<AutogradMeta> autograd_meta_;
 };
 
