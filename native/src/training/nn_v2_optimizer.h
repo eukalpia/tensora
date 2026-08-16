@@ -360,8 +360,7 @@ inline Status CpuStep(State* state) {
         *gradient, "parameter_optimizer_step", &gradient_values);
     if (!status.ok()) return status;
     if (values->size() != gradient_values.size()) {
-      return InternalError(
-          "parameter_optimizer_step: gradient size mismatch");
+      return InternalError("parameter_optimizer_step: gradient size mismatch");
     }
 
     auto& first = state->first_moment[parameter_index];
