@@ -18,6 +18,8 @@ typedef _TensorBoolTransformNative =
 typedef _TensorBoolTransformDart = int Function(int, int, Pointer<Uint64>);
 typedef _TensorBoolMetadataNative = Int32 Function(Uint64, Pointer<Uint8>);
 typedef _TensorBoolMetadataDart = int Function(int, Pointer<Uint8>);
+typedef _TensorBoolStatusNative = Int32 Function(Uint64, Uint8);
+typedef _TensorBoolStatusDart = int Function(int, int);
 typedef _TensorStatusNative = Int32 Function(Uint64);
 typedef _TensorStatusDart = int Function(int);
 typedef _TensorUnaryNative = Int32 Function(Uint64, Pointer<Uint64>);
@@ -134,6 +136,10 @@ final class NativeTrainingBindings {
       tensorRequiresGrad = library
           .lookupFunction<_TensorBoolMetadataNative, _TensorBoolMetadataDart>(
             'ts_tensor_requires_grad',
+          ),
+      tensorSetRequiresGrad = library
+          .lookupFunction<_TensorBoolStatusNative, _TensorBoolStatusDart>(
+            'ts_tensor_set_requires_grad',
           ),
       tensorBackward = library
           .lookupFunction<_TensorStatusNative, _TensorStatusDart>(
@@ -274,6 +280,7 @@ final class NativeTrainingBindings {
   final _TensorAssignManyDart tensorAssignMany;
   final _TensorBoolTransformDart tensorWithRequiresGrad;
   final _TensorBoolMetadataDart tensorRequiresGrad;
+  final _TensorBoolStatusDart tensorSetRequiresGrad;
   final _TensorStatusDart tensorBackward;
   final _TensorUnaryDart tensorGrad;
   final _TensorUnaryDart tensorRelu;
