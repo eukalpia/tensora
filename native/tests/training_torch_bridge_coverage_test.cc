@@ -215,6 +215,63 @@ int CheckTorchTransactionHelpers() {
   return 0;
 }
 
+int CheckTorchAssignManyPath() {
+  std::shared_ptr<Tensor> target;
+  std::shared_ptr<Tensor> source;
+  if (!ExpectStatus(WrapTorchTensor(torch::zeros({2}, torch::kFloat32), &target),
+                    TS_OK, "wrap Torch assignment target") ||
+      !target) {
+    return 40;
+  }
+  if (!ExpectStatus(
+          WrapTorchTensor(torch::tensor({3.0f, 4.0f}, torch::kFloat32), &source),
+          TS_OK, "wrap Torch assignment source") ||
+      !source) {
+    return 41;
+  }
+
+  uint64_t target_handle = 0;
+  uint64_t source_handle = 0;
+  if (!ExpectStatus(HandleRegistry::Instance().Insert(
+                        HandleType::kTensor, target, &target_handle),
+                    TS_OK, "register Torch assignment target") ||
+      target_handle == 0) {
+    return 42;
+  }
+  if (!ExpectStatus(HandleRegistry::Instance().Insert(
+                        HandleType::kTensor, source, &source_handle),
+                    TS_OK, "register Torch assignment source") ||
+      source_handle == 0) {
+    HandleRegistry::Instance().Release(target_handle, HandleType::kTensor);
+    return 43;
+  }
+
+  const uint64_t targets[1] = {target_handle};
+  const uint64_t sources[1] = {source_handle};
+  const Status assign_status = nn_v2_state::AssignMany(targets, sources, 1);
+
+  torch::Tensor assigned;
+  const Status conversion_status = TensorToTorch(*target, &assigned);
+  const Status source_release = HandleRegistry::Instance().Release(
+      source_handle, HandleType::kTensor);
+  const Status target_release = HandleRegistry::Instance().Release(
+      target_handle, HandleType::kTensor);
+
+  if (!ExpectStatus(assign_status, TS_OK, "Torch assignment transaction") ||
+      !ExpectStatus(conversion_status, TS_OK,
+                    "read Torch assignment transaction result") ||
+      !assigned.defined() || assigned.numel() != 2 ||
+      assigned[0].item<float>() != 3.0f ||
+      assigned[1].item<float>() != 4.0f) {
+    return 44;
+  }
+  if (!ExpectStatus(source_release, TS_OK, "release Torch assignment source") ||
+      !ExpectStatus(target_release, TS_OK, "release Torch assignment target")) {
+    return 45;
+  }
+  return 0;
+}
+
 }  // namespace
 
 int RunBridgeCoverageContracts() {
@@ -252,6 +309,7 @@ int RunBridgeCoverageContracts() {
   if (const int code = CheckBridgeErrorPaths(); code != 0) return code;
   if (const int code = CheckTorchIdentityExhaustion(); code != 0) return code;
   if (const int code = CheckTorchTransactionHelpers(); code != 0) return code;
+  if (const int code = CheckTorchAssignManyPath(); code != 0) return code;
   return 0;
 }
 
