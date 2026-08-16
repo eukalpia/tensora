@@ -18,12 +18,19 @@ concurrency:
 
 jobs:
   core-contracts:
-    name: Core NN V2 native contracts
+    name: Core NN V2 native + declarative contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      TENSORA_NATIVE_LIBRARY: ${{ github.workspace }}/build/nn-v2-core/libtensora_native.so
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
 
       - name: Configure core-only Tensora
         run: >-
@@ -66,3 +73,38 @@ jobs:
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/nn-v2-core
         run: ./build/nn_v2_state_test
+
+      - name: Compile activation and autograd proof
+        run: >-
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror
+          native/tests/nn_v2_activation_test.cc
+          -Inative/include
+          -Lbuild/nn-v2-core
+          -Wl,-rpath,$PWD/build/nn-v2-core
+          -ltensora_native
+          -o build/nn_v2_activation_test
+
+      - name: Run activation and autograd proof
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/nn-v2-core
+        run: ./build/nn_v2_activation_test
+
+      - name: Resolve Dart workspace
+        run: dart pub get
+
+      - name: Verify declarative integration formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format packages/tensora_train/integration_test
+          git diff --exit-code -- packages/tensora_train/integration_test
+
+      - name: Analyze declarative integration proof
+        working-directory: packages/tensora_train
+        run: dart analyze --fatal-infos --fatal-warnings integration_test
+
+      - name: Run declarative MLP training and state proof
+        working-directory: packages/tensora_train
+        run: >-
+          dart test integration_test/declarative_nn_v2_integration_test.dart
+          --reporter expanded
