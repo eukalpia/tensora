@@ -110,6 +110,13 @@ final class NativeTrainingRuntime {
     }
   }
 
+  void setRequiresGrad(int tensor, bool requiresGrad) {
+    _check(
+      _bindings.tensorSetRequiresGrad(tensor, requiresGrad ? 1 : 0),
+      'tensor.setRequiresGrad',
+    );
+  }
+
   void backward(int tensor) {
     _check(_bindings.tensorBackward(tensor), 'tensor.backward');
   }
