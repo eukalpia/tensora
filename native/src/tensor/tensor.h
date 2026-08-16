@@ -78,6 +78,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
     return version_counter_->identity;
   }
   uint64_t identity() const { return version_counter_->identity->value; }
+  void set_identity_anchor(std::shared_ptr<TensorIdentityAnchor> identity) {
+    version_counter_->identity = std::move(identity);
+  }
 
   Status CopyToHostF32(float* out_values,
                        size_t capacity,
