@@ -41,6 +41,56 @@ final class NativeTrainingRuntime {
     _check(_bindings.manualSeed(seed), 'training.manualSeed');
   }
 
+  int tensorIdentity(int tensor) {
+    final value = calloc<Uint64>();
+    try {
+      _check(_bindings.tensorIdentity(tensor, value), 'tensor.identity');
+      if (value.value == 0) {
+        throw const NativeRuntimeException(
+          'Native runtime returned identity 0 on success.',
+          operation: 'tensor.identity',
+        );
+      }
+      return value.value;
+    } finally {
+      calloc.free(value);
+    }
+  }
+
+  int cloneDetached(int tensor) => _newTensorHandle(
+    'tensor.cloneDetached',
+    (out) => _bindings.tensorCloneDetached(tensor, out),
+  );
+
+  void assignMany(List<int> targets, List<int> sources) {
+    if (targets.length != sources.length) {
+      throw ArgumentError(
+        'Tensor state assignment requires equal target and source counts.',
+      );
+    }
+    if (targets.isEmpty) return;
+
+    final nativeTargets = calloc<Uint64>(targets.length);
+    final nativeSources = calloc<Uint64>(sources.length);
+    try {
+      for (var index = 0; index < targets.length; index++) {
+        nativeTargets[index] = targets[index];
+        nativeSources[index] = sources[index];
+      }
+      _check(
+        _bindings.tensorAssignMany(
+          nativeTargets,
+          nativeSources,
+          targets.length,
+        ),
+        'tensor.assignMany',
+      );
+    } finally {
+      calloc.free(nativeSources);
+      calloc.free(nativeTargets);
+    }
+  }
+
   int withRequiresGrad(int tensor, bool requiresGrad) => _newTensorHandle(
     'tensor.withRequiresGrad',
     (out) =>
