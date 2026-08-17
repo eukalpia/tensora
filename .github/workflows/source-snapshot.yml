@@ -19,11 +19,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar --exclude=.git --exclude=build -czf tensora-source.tgz .
+          tar --exclude=.git --exclude=build -czf ../tensora-source.tgz .
       - name: Upload source archive
         uses: actions/upload-artifact@v4
         with:
           name: tensora-source-snapshot
-          path: tensora-source.tgz
+          path: ../tensora-source.tgz
           if-no-files-found: error
           retention-days: 1
