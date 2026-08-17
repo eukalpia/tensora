@@ -1,0 +1,29 @@
+name: Source Snapshot
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Create source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git --exclude=build -czf tensora-source.tgz .
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensora-source-snapshot
+          path: tensora-source.tgz
+          if-no-files-found: error
+          retention-days: 1
