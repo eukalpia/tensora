@@ -1,9 +1,9 @@
 name: Source Snapshot
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - feature/p1-tensor-core-v2
   workflow_dispatch:
 
 permissions:
