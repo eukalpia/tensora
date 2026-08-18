@@ -1,0 +1,49 @@
+name: P1 Status Contract Cleanup
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/p1-tensor-core-v2
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p1-status-contract-cleanup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout P1 branch
+        uses: actions/checkout@v6
+        with:
+          ref: feature/p1-tensor-core-v2
+          fetch-depth: 0
+
+      - name: Verify native status contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/status-cleanup \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/status-cleanup --parallel 2
+          ctest --test-dir build/status-cleanup --output-on-failure
+          git diff --check
+
+      - name: Remove temporary status workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Tensora Qualification Bot'
+          git config user.email '120781817+eukalpia@users.noreply.github.com'
+          git rm \
+            .github/workflows/p1-status-contract-repair.yml \
+            .github/workflows/p1-status-contract-cleanup.yml
+          git commit -m 'ci(p1): remove temporary status repair'
+          git push origin HEAD:feature/p1-tensor-core-v2
