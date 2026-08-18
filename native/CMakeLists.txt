@@ -498,3 +498,13 @@ if(TENSORA_BUILD_BENCHMARKS)
     target_link_options(tensora_native_benchmark PRIVATE -fsanitize=address,undefined)
   endif()
 endif()
+
+# P1 Windows white-box linkage contract
+if(WIN32)
+  if(TARGET tensora_handle_registry_tests)
+    target_compile_definitions(tensora_handle_registry_tests PRIVATE TENSORA_NATIVE_BUILD)
+  endif()
+  if(TARGET tensora_training_core_internal_tests)
+    target_compile_definitions(tensora_training_core_internal_tests PRIVATE TENSORA_NATIVE_BUILD)
+  endif()
+endif()
