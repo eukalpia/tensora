@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define TS_ABI_VERSION 5u
+#define TS_ABI_VERSION 6u
 
 typedef uint64_t ts_tensor_t;
 typedef uint64_t ts_module_t;
@@ -74,7 +74,7 @@ TS_API ts_status_t ts_runtime_cuda_device_count(uint32_t* out_count);
 TS_API ts_status_t ts_manual_seed(uint64_t seed);
 TS_API ts_status_t ts_onnx_available(uint8_t* out_available);
 
-/* Tensor creation. */
+/* Tensor creation. ABI v5 float32 entry points remain supported. */
 TS_API ts_status_t ts_tensor_from_f32(const float* data,
                                       size_t data_length,
                                       const int64_t* dims,
@@ -84,6 +84,23 @@ TS_API ts_status_t ts_tensor_full_f32(const int64_t* dims,
                                       size_t rank,
                                       float value,
                                       ts_tensor_t* out_tensor);
+
+/* ABI v6 exact typed host creation. data_bytes/scalar_bytes are bytes. */
+TS_API ts_status_t ts_tensor_from_host(const void* data,
+                                       size_t data_bytes,
+                                       uint32_t dtype,
+                                       const int64_t* dims,
+                                       size_t rank,
+                                       ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_full(const void* scalar,
+                                  size_t scalar_bytes,
+                                  uint32_t dtype,
+                                  const int64_t* dims,
+                                  size_t rank,
+                                  ts_tensor_t* out_tensor);
+TS_API ts_status_t ts_tensor_cast(ts_tensor_t tensor,
+                                  uint32_t target_dtype,
+                                  ts_tensor_t* out_tensor);
 
 /* Tensor metadata and state identity. */
 TS_API ts_status_t ts_tensor_rank(ts_tensor_t tensor, size_t* out_rank);
@@ -295,6 +312,10 @@ TS_API ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,
                                               float* out_values,
                                               size_t capacity,
                                               size_t* out_written);
+TS_API ts_status_t ts_tensor_copy_to_host(ts_tensor_t tensor,
+                                          void* out_data,
+                                          size_t capacity_bytes,
+                                          size_t* out_written_bytes);
 
 /* Tensor lifetime. */
 TS_API ts_status_t ts_tensor_retain(ts_tensor_t tensor);

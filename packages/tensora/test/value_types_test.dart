@@ -19,7 +19,7 @@ void main() {
       ]);
       expect(
         DType.values.where((dtype) => dtype.nativeStorageImplemented).toList(),
-        [DType.float32],
+        DType.values,
       );
       expect(DType.float32.toString(), 'DType.float32');
     },

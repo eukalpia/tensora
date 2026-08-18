@@ -186,6 +186,7 @@ if(TENSORA_BUILD_TESTS)
     src/tensor/tensor.cc
   )
   target_compile_features(tensora_handle_registry_tests PRIVATE cxx_std_20)
+  target_compile_definitions(tensora_handle_registry_tests PRIVATE TENSORA_NATIVE_BUILD=1)
   target_include_directories(tensora_handle_registry_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -236,6 +237,14 @@ if(TENSORA_BUILD_TESTS)
   )
   target_link_libraries(tensora_tensor_view_tests PRIVATE tensora_native)
 
+  add_executable(tensora_dtype_storage_tests tests/dtype_storage_test.cc)
+  target_compile_features(tensora_dtype_storage_tests PRIVATE cxx_std_20)
+  target_include_directories(tensora_dtype_storage_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  target_link_libraries(tensora_dtype_storage_tests PRIVATE tensora_native)
+
   if(NOT TENSORA_WITH_ONNXRUNTIME)
     add_executable(tensora_inference_stub_internal_tests
       tests/inference_stub_internal_test.cc
@@ -276,6 +285,7 @@ if(TENSORA_BUILD_TESTS)
       src/training/training_bridge_stub.cc
     )
     target_compile_features(tensora_training_core_internal_tests PRIVATE cxx_std_20)
+    target_compile_definitions(tensora_training_core_internal_tests PRIVATE TENSORA_NATIVE_BUILD=1)
     target_include_directories(tensora_training_core_internal_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -302,12 +312,14 @@ if(TENSORA_BUILD_TESTS)
       tests/training_backend_internal_test.cc
       src/core/status.cc
       src/memory/cpu_storage.cc
+      src/runtime/handle_registry.cc
       src/tensor/shape.cc
       src/tensor/tensor.cc
       src/training/torch_backend.cc
       src/training/torch_storage.cc
     )
     target_compile_features(tensora_training_backend_internal_tests PRIVATE cxx_std_20)
+    target_compile_definitions(tensora_training_backend_internal_tests PRIVATE TENSORA_NATIVE_BUILD=1)
     target_compile_definitions(tensora_training_backend_internal_tests PRIVATE TENSORA_WITH_TORCH=1)
     target_include_directories(tensora_training_backend_internal_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -336,6 +348,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_cpu_training_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_autograd_finite_difference_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_tensor_view_tests PRIVATE /W4 /WX /permissive-)
+    target_compile_options(tensora_dtype_storage_tests PRIVATE /W4 /WX /permissive-)
     if(NOT TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_stub_internal_tests PRIVATE /W4 /WX /permissive-)
     endif()
@@ -360,6 +373,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_cpu_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_autograd_finite_difference_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_tensor_view_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(tensora_dtype_storage_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     if(NOT TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_stub_internal_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
@@ -393,6 +407,8 @@ if(TENSORA_BUILD_TESTS)
     target_link_options(tensora_autograd_finite_difference_tests PRIVATE -fsanitize=address,undefined)
     target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
     target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=address,undefined)
+    target_compile_options(tensora_dtype_storage_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
+    target_link_options(tensora_dtype_storage_tests PRIVATE -fsanitize=address,undefined)
     if(NOT TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_stub_internal_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
       target_link_options(tensora_inference_stub_internal_tests PRIVATE -fsanitize=address,undefined)
@@ -422,6 +438,8 @@ if(TENSORA_BUILD_TESTS)
     target_link_options(tensora_autograd_finite_difference_tests PRIVATE -fsanitize=thread)
     target_compile_options(tensora_tensor_view_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
     target_link_options(tensora_tensor_view_tests PRIVATE -fsanitize=thread)
+    target_compile_options(tensora_dtype_storage_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
+    target_link_options(tensora_dtype_storage_tests PRIVATE -fsanitize=thread)
     if(NOT TENSORA_WITH_ONNXRUNTIME)
       target_compile_options(tensora_inference_stub_internal_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
       target_link_options(tensora_inference_stub_internal_tests PRIVATE -fsanitize=thread)
@@ -443,6 +461,7 @@ if(TENSORA_BUILD_TESTS)
   add_test(NAME tensora_cpu_training_tests COMMAND tensora_cpu_training_tests)
   add_test(NAME tensora_autograd_finite_difference_tests COMMAND tensora_autograd_finite_difference_tests)
   add_test(NAME tensora_tensor_view_tests COMMAND tensora_tensor_view_tests)
+  add_test(NAME tensora_dtype_storage_tests COMMAND tensora_dtype_storage_tests)
   if(NOT TENSORA_WITH_ONNXRUNTIME)
     add_test(NAME tensora_inference_stub_internal_tests COMMAND tensora_inference_stub_internal_tests)
   endif()
@@ -477,5 +496,15 @@ if(TENSORA_BUILD_BENCHMARKS)
   if(TENSORA_ENABLE_SANITIZERS)
     target_compile_options(tensora_native_benchmark PRIVATE ${TENSORA_SANITIZER_FLAGS})
     target_link_options(tensora_native_benchmark PRIVATE -fsanitize=address,undefined)
+  endif()
+endif()
+
+# P1 Windows white-box linkage contract
+if(WIN32)
+  if(TARGET tensora_handle_registry_tests)
+    target_compile_definitions(tensora_handle_registry_tests PRIVATE TENSORA_NATIVE_BUILD)
+  endif()
+  if(TARGET tensora_training_core_internal_tests)
+    target_compile_definitions(tensora_training_core_internal_tests PRIVATE TENSORA_NATIVE_BUILD)
   endif()
 endif()

@@ -194,7 +194,7 @@ void main() {
 
     final parametersBefore = model.parameters();
     expect(parametersBefore, hasLength(2));
-    final firstWeightBefore = parametersBefore.first.toList().first;
+    final firstWeightBefore = parametersBefore.first.toList<double>().first;
     for (final parameter in parametersBefore) {
       parameter.dispose();
     }
@@ -206,7 +206,7 @@ void main() {
       optimizer.zeroGrad();
       final prediction = model(x);
       final loss = Losses.mse(prediction, y);
-      final value = loss.toList().single;
+      final value = loss.toList<double>().single;
       if (step == 0) initialLoss = value;
       finalLoss = value;
       loss.backward();
@@ -220,7 +220,7 @@ void main() {
     expect(finalLoss, lessThan(1e-3));
 
     final parametersAfter = model.parameters();
-    final firstWeightAfter = parametersAfter.first.toList().first;
+    final firstWeightAfter = parametersAfter.first.toList<double>().first;
     expect(firstWeightAfter, isNot(closeTo(firstWeightBefore, 1e-6)));
     for (final parameter in parametersAfter) {
       parameter.dispose();
@@ -237,7 +237,7 @@ void main() {
 
     model.eval();
     final savedOutputTensor = model(x);
-    final savedOutput = savedOutputTensor.toList();
+    final savedOutput = savedOutputTensor.toList<double>();
     savedOutputTensor.dispose();
     model.save(checkpoint.path);
     expect(checkpoint.existsSync(), isTrue);

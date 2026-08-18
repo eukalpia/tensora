@@ -67,7 +67,22 @@ enum DType {
   };
 
   /// Whether the current native tensor storage implements this dtype.
-  bool get nativeStorageImplemented => this == float32;
+  bool get nativeStorageImplemented => true;
+
+  /// Resolves a stable C ABI dtype code.
+  static DType fromNativeCode(int code) => switch (code) {
+    1 => float32,
+    2 => float16,
+    3 => bfloat16,
+    4 => float64,
+    5 => int8,
+    6 => uint8,
+    7 => int16,
+    8 => int32,
+    9 => int64,
+    10 => boolean,
+    _ => throw ArgumentError.value(code, 'code', 'Unknown native dtype code'),
+  };
 
   /// Returns the common dtype for a binary numerical operation.
   static DType promote(DType left, DType right) {

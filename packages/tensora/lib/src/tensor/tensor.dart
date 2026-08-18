@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../device/device.dart';
 import '../dtype/dtype.dart';
 import '../errors/tensora_exception.dart';
@@ -32,12 +34,11 @@ final class Tensor {
   /// Accelerator imports are staged through CPU storage and the staging handle
   /// is deterministically released before this factory returns.
   factory Tensor.fromList(
-    List<num> values, {
+    List<Object> values, {
     required Shape shape,
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype: dtype, operation: 'fromList');
     if (values.length != shape.numel) {
       throw InvalidShapeException(
         'Input contains ${values.length} values, but $shape requires '
@@ -46,33 +47,46 @@ final class Tensor {
       );
     }
 
-    final hostHandle = NativeRuntime.instance.createFromList(values, shape);
+    final hostHandle = NativeRuntime.instance.createFromList(
+      values,
+      shape,
+      dtype,
+    );
     return _adoptCreatedHandle(hostHandle, device);
   }
 
-  /// Creates a native float32 tensor initialized to zero on [device].
+  /// Creates a native tensor initialized to zero on [device].
   factory Tensor.zeros(
     Shape shape, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
-  }) => Tensor.full(shape, 0, dtype: dtype, device: device);
+  }) => Tensor.full(
+    shape,
+    dtype.isBoolean ? false : 0,
+    dtype: dtype,
+    device: device,
+  );
 
-  /// Creates a native float32 tensor initialized to one on [device].
+  /// Creates a native tensor initialized to one on [device].
   factory Tensor.ones(
     Shape shape, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
-  }) => Tensor.full(shape, 1, dtype: dtype, device: device);
+  }) => Tensor.full(
+    shape,
+    dtype.isBoolean ? true : 1,
+    dtype: dtype,
+    device: device,
+  );
 
-  /// Creates a native float32 tensor filled with [value] on [device].
+  /// Creates a native tensor filled with [value] on [device].
   factory Tensor.full(
     Shape shape,
-    num value, {
+    Object value, {
     DType dtype = DType.float32,
     Device device = Device.cpu,
   }) {
-    _validateCreation(dtype: dtype, operation: 'full');
-    final hostHandle = NativeRuntime.instance.full(shape, value.toDouble());
+    final hostHandle = NativeRuntime.instance.full(shape, value, dtype);
     return _adoptCreatedHandle(hostHandle, device);
   }
 
@@ -104,6 +118,12 @@ final class Tensor {
   Tensor to(Device target) {
     _ensureLive('to');
     return _adopt(NativeRuntime.instance.toDevice(_handle, target));
+  }
+
+  /// Returns an independent tensor converted to [targetDType].
+  Tensor cast(DType targetDType) {
+    _ensureLive('cast');
+    return _adopt(NativeRuntime.instance.cast(_handle, targetDType));
   }
 
   /// Returns a detached leaf tensor with the requested autograd state.
@@ -202,10 +222,32 @@ final class Tensor {
     return _adopt(NativeTrainingRuntime.instance.grad(_handle));
   }
 
-  /// Explicitly copies all native float32 values into Dart memory.
-  List<double> toList() {
+  /// Explicitly copies native values into a Dart list.
+  ///
+  /// Floating tensors materialize as `List<double>`, integer tensors as
+  /// `List<int>`, and boolean tensors as `List<bool>`. The optional type
+  /// argument lets strongly typed call sites state the expected host type.
+  List<T> toList<T extends Object>() {
     _ensureLive('toList');
-    return NativeRuntime.instance.copyToHost(_handle, numel);
+    final values = NativeRuntime.instance.copyToHostValues(
+      _handle,
+      numel,
+      dtype,
+    );
+    if (values is List<T>) return values;
+    throw InvalidArgumentException(
+      '$dtype cannot materialize as List<$T>.',
+      operation: 'tensor.toList',
+    );
+  }
+
+  /// Copies the exact native host representation into typed Dart memory.
+  ///
+  /// `float16` and `bfloat16` return their canonical bit patterns as a
+  /// [Uint16List]. Boolean tensors return canonical zero/one bytes.
+  TypedData toTypedData() {
+    _ensureLive('toTypedData');
+    return NativeRuntime.instance.copyToHostTyped(_handle, numel, dtype);
   }
 
   /// Deterministically releases this Tensor's native reference.
@@ -265,18 +307,6 @@ final class Tensor {
     } catch (_) {
       runtime.releaseFromFinalizer(handle);
       rethrow;
-    }
-  }
-
-  static void _validateCreation({
-    required DType dtype,
-    required String operation,
-  }) {
-    if (!dtype.nativeStorageImplemented) {
-      throw UnsupportedOperationException(
-        'Tensor creation currently supports only DType.float32 native storage.',
-        operation: 'tensor.$operation',
-      );
     }
   }
 
