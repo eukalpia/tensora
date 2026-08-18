@@ -1,0 +1,98 @@
+name: P1 Qualification Repair V3
+
+on:
+  push:
+    branches:
+      - feature/p1-tensor-core-v2
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p1-qualification-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/p1-tensor-core-v2
+          fetch-depth: 0
+
+      - name: Guard optional Windows white-box targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('native/CMakeLists.txt')
+          text = path.read_text()
+          marker = '# P1 Windows white-box linkage contract'
+          guarded = '''# P1 Windows white-box linkage contract
+          if(WIN32)
+            if(TARGET tensora_handle_registry_tests)
+              target_compile_definitions(tensora_handle_registry_tests PRIVATE TENSORA_NATIVE_BUILD)
+            endif()
+            if(TARGET tensora_training_core_internal_tests)
+              target_compile_definitions(tensora_training_core_internal_tests PRIVATE TENSORA_NATIVE_BUILD)
+            endif()
+          endif()'''
+
+          if marker in text:
+              pattern = re.compile(
+                  r'# P1 Windows white-box linkage contract\s*'
+                  r'if\(WIN32\)[\s\S]*?endif\(\)',
+                  re.MULTILINE,
+              )
+              text, count = pattern.subn(guarded, text, count=1)
+              if count != 1:
+                  raise SystemExit('Unable to replace existing Windows linkage block')
+          else:
+              text = text.rstrip() + '\n\n' + guarded + '\n'
+          path.write_text(text)
+          PY
+
+      - name: Verify tests-on and tests-off configurations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/p1-v3-tests-on \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/p1-v3-tests-on --parallel 2
+          ctest --test-dir build/p1-v3-tests-on --output-on-failure
+
+          cmake -S native -B build/p1-v3-tests-off \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTENSORA_BUILD_TESTS=OFF \
+            -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/p1-v3-tests-off --parallel 2
+          git diff --check
+
+      - name: Commit guarded linkage and remove temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/p1-qualification-repair.yml \
+            .github/workflows/p1-qualification-repair-v2.yml \
+            .github/workflows/p1-qualification-repair-v3.yml \
+            .github/workflows/source-snapshot.yml
+          git config user.name 'Tensora Qualification Bot'
+          git config user.email '120781817+eukalpia@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(p1): guard optional Windows qualification targets'
+          git push origin HEAD:feature/p1-tensor-core-v2
