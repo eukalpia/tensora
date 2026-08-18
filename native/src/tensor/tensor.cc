@@ -103,13 +103,36 @@ Status Tensor::CopyToHostRaw(void* out_data,
     return InvalidArgument("tensor copy: output data pointer is null");
   }
 
-  if (device_ != Device::kCpu || device_index_ != 0) {
-    return Unsupported(
-        "tensor copy: generic host copy is qualified for CPU tensors only");
-  }
   auto storage = std::dynamic_pointer_cast<CpuStorage>(storage_);
   if (!storage) {
-    return Unsupported("tensor copy: tensor is not backed by CPU storage");
+    if (dtype_ != DType::kFloat32) {
+      return Unsupported(
+          "tensor copy: generic provider copy is qualified for float32 only");
+    }
+    if (!storage_) {
+      return InternalError("tensor copy: tensor storage is null");
+    }
+    if (!is_contiguous() || storage_offset_ != 0 ||
+        storage_->byte_size() != expected_bytes) {
+      return Unsupported(
+          "tensor copy: non-contiguous provider views are not qualified yet");
+    }
+
+    size_t written_elements = 0;
+    status = storage_->CopyToHostF32(static_cast<float*>(out_data),
+                                     static_cast<size_t>(numel()),
+                                     &written_elements);
+    if (!status.ok()) return status;
+    if (written_elements != numel()) {
+      return InternalError(
+          "tensor copy: provider returned an inconsistent element count");
+    }
+    *out_written_bytes = written_elements * sizeof(float);
+    return Status::Ok();
+  }
+  if (device_ != Device::kCpu || device_index_ != 0) {
+    return Unsupported(
+        "tensor copy: typed CPU storage requires cpu:0 metadata");
   }
   if (storage->dtype() != dtype_) {
     return InternalError("tensor copy: tensor and storage dtype disagree");
