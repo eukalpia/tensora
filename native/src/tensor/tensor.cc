@@ -1,10 +1,12 @@
 #include "tensor/tensor.h"
+#include "tensor/typed_tensor_abi.h"
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "core/abi_guard.h"
 #include "core/integer_math.h"
@@ -159,7 +161,8 @@ Status Tensor::CopyToHostF32(float* out_values,
     return InvalidArgument("tensor copy: output values pointer is null");
   }
 
-  if (device_ == Device::kCpu && device_index_ == 0) {
+  if (device_ == Device::kCpu && device_index_ == 0 &&
+      std::dynamic_pointer_cast<CpuStorage>(storage_) != nullptr) {
     size_t written_bytes = 0;
     Status status = CopyToHostRaw(
         out_values, capacity * sizeof(float), &written_bytes);
@@ -222,13 +225,67 @@ Status MakeCpuTensor(ShapeInfo shape,
   });
 }
 
+Status CastCpuTensor(const Tensor& source,
+                     DType target_dtype,
+                     std::shared_ptr<Tensor>* out) {
+  *out = nullptr;
+
+  ShapeInfo result_shape = source.shape();
+  std::shared_ptr<CpuStorage> materialized_storage;
+  auto source_storage = std::dynamic_pointer_cast<CpuStorage>(source.storage());
+  const bool can_cast_storage_directly =
+      source_storage != nullptr && source_storage->dtype() == source.dtype() &&
+      source.is_contiguous() && source.storage_offset() == 0 &&
+      source_storage->numel() == source.numel();
+
+  const CpuStorage* cast_source = source_storage.get();
+  Status status = Status::Ok();
+  if (!can_cast_storage_directly) {
+    size_t source_bytes = 0;
+    status = CheckedByteSize(source.numel(), DTypeByteWidth(source.dtype()),
+                             "typed tensor cast", &source_bytes);
+    if (!status.ok()) return status;
+
+    std::vector<uint8_t> raw;
+    status = AllocationGuard("typed tensor cast", [&]() -> Status {
+      raw.resize(source_bytes);
+      return Status::Ok();
+    });
+    if (!status.ok()) return status;
+
+    size_t written_bytes = 0;
+    status = source.CopyToHostRaw(raw.data(), raw.size(), &written_bytes);
+    if (!status.ok()) return status;
+    if (written_bytes != source_bytes) {
+      return InternalError(
+          "typed tensor cast: source returned an inconsistent byte count");
+    }
+
+    status = CpuStorage::FromRaw(raw.data(), raw.size(), source.numel(),
+                                 source.dtype(), &materialized_storage);
+    if (!status.ok()) return status;
+    cast_source = materialized_storage.get();
+
+    const auto& dimensions = source.shape().dimensions;
+    status = ValidateShape(dimensions.empty() ? nullptr : dimensions.data(),
+                           dimensions.size(), &result_shape);
+    if (!status.ok()) return status;
+  }
+
+  std::shared_ptr<CpuStorage> target_storage;
+  status = CpuStorage::Cast(*cast_source, target_dtype, &target_storage);
+  if (!status.ok()) return status;
+  return MakeCpuTensor(
+      std::move(result_shape), target_dtype, std::move(target_storage), out);
+}
+
 }  // namespace typed_tensor_abi
 
 }  // namespace tensora
 
 extern "C" {
 
-ts_status_t ts_tensor_from_host(const void* data,
+TS_API ts_status_t ts_tensor_from_host(const void* data,
                                 size_t data_bytes,
                                 uint32_t dtype_code,
                                 const int64_t* dims,
@@ -276,7 +333,7 @@ ts_status_t ts_tensor_from_host(const void* data,
   });
 }
 
-ts_status_t ts_tensor_full(const void* scalar,
+TS_API ts_status_t ts_tensor_full(const void* scalar,
                            size_t scalar_bytes,
                            uint32_t dtype_code,
                            const int64_t* dims,
@@ -317,7 +374,7 @@ ts_status_t ts_tensor_full(const void* scalar,
   });
 }
 
-ts_status_t ts_tensor_cast(ts_tensor_t tensor,
+TS_API ts_status_t ts_tensor_cast(ts_tensor_t tensor,
                            uint32_t target_dtype_code,
                            ts_tensor_t* out_tensor) {
   return tensora::AbiGuard("tensor_cast", [&]() -> tensora::Status {
@@ -340,27 +397,15 @@ ts_status_t ts_tensor_cast(ts_tensor_t tensor,
       return tensora::Unsupported(
           "tensor_cast: P1A cast is qualified for CPU tensors only");
     }
-    auto source_storage =
-        std::dynamic_pointer_cast<tensora::CpuStorage>(source->storage());
-    if (!source_storage || source_storage->dtype() != source->dtype()) {
-      return tensora::InternalError(
-          "tensor_cast: CPU tensor storage metadata is inconsistent");
-    }
-
-    std::shared_ptr<tensora::CpuStorage> target_storage;
-    status = tensora::CpuStorage::Cast(
-        *source_storage, target_dtype, &target_storage);
-    if (!status.ok()) return status;
-
     std::shared_ptr<tensora::Tensor> result;
-    status = tensora::typed_tensor_abi::MakeCpuTensor(
-        source->shape(), target_dtype, std::move(target_storage), &result);
+    status = tensora::typed_tensor_abi::CastCpuTensor(
+        *source, target_dtype, &result);
     if (!status.ok()) return status;
     return tensora::typed_tensor_abi::Insert(std::move(result), out_tensor);
   });
 }
 
-ts_status_t ts_tensor_copy_to_host(ts_tensor_t tensor,
+TS_API ts_status_t ts_tensor_copy_to_host(ts_tensor_t tensor,
                                    void* out_data,
                                    size_t capacity_bytes,
                                    size_t* out_written_bytes) {

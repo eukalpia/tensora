@@ -80,12 +80,13 @@ Status EnsureCpu(const Tensor& tensor, const char* operation) {
 }
 
 Status EnsureCpuFloat32(const Tensor& tensor, const char* operation) {
-  Status status = EnsureCpu(tensor, operation);
-  if (!status.ok()) return status;
+  if (tensor.device() != Device::kCpu || tensor.device_index() != 0) {
+    return Unsupported(std::string(operation) + ": CPU backend requires cpu:0");
+  }
   if (tensor.dtype() != DType::kFloat32) {
     return Unsupported(std::string(operation) + ": only float32 is supported");
   }
-  return Status::Ok();
+  return EnsureCpu(tensor, operation);
 }
 
 Status LogicalValues(const Tensor& tensor,

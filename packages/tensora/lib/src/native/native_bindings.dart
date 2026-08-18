@@ -31,14 +31,7 @@ typedef _TensorFromHostNative =
       Pointer<Uint64>,
     );
 typedef _TensorFromHostDart =
-    int Function(
-      Pointer<Void>,
-      int,
-      int,
-      Pointer<Int64>,
-      int,
-      Pointer<Uint64>,
-    );
+    int Function(Pointer<Void>, int, int, Pointer<Int64>, int, Pointer<Uint64>);
 
 typedef _TensorFullNative =
     Int32 Function(
@@ -50,14 +43,7 @@ typedef _TensorFullNative =
       Pointer<Uint64>,
     );
 typedef _TensorFullDart =
-    int Function(
-      Pointer<Void>,
-      int,
-      int,
-      Pointer<Int64>,
-      int,
-      Pointer<Uint64>,
-    );
+    int Function(Pointer<Void>, int, int, Pointer<Int64>, int, Pointer<Uint64>);
 
 typedef _TensorCastNative = Int32 Function(Uint64, Uint32, Pointer<Uint64>);
 typedef _TensorCastDart = int Function(int, int, Pointer<Uint64>);
@@ -202,10 +188,10 @@ final class NativeBindings {
           .lookupFunction<_TensorBinaryNative, _TensorBinaryDart>(
             'ts_tensor_matmul',
           ),
-      tensorCopyToHostF32 = library.lookupFunction<
-        _TensorCopyToHostF32Native,
-        _TensorCopyToHostF32Dart
-      >('ts_tensor_copy_to_host_f32'),
+      tensorCopyToHostF32 = library
+          .lookupFunction<_TensorCopyToHostF32Native, _TensorCopyToHostF32Dart>(
+            'ts_tensor_copy_to_host_f32',
+          ),
       tensorCopyToHost = library
           .lookupFunction<_TensorCopyToHostNative, _TensorCopyToHostDart>(
             'ts_tensor_copy_to_host',

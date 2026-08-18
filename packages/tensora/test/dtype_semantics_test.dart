@@ -68,22 +68,9 @@ void main() {
     expect(DType.promote(DType.float64, DType.float32), DType.float64);
   });
 
-  test('only implemented native storage can be allocated today', () {
-    expect(DType.float32.nativeStorageImplemented, isTrue);
-    for (final dtype in DType.values.where((value) => value != DType.float32)) {
-      expect(dtype.nativeStorageImplemented, isFalse, reason: '$dtype');
-      expect(
-        () => Tensor.zeros(Shape([1]), dtype: dtype),
-        throwsA(
-          isA<UnsupportedOperationException>()
-              .having((error) => error.operation, 'operation', 'tensor.full')
-              .having(
-                (error) => error.message,
-                'message',
-                contains('only DType.float32'),
-              ),
-        ),
-      );
+  test('all public dtypes have real native CPU storage', () {
+    for (final dtype in DType.values) {
+      expect(dtype.nativeStorageImplemented, isTrue, reason: '$dtype');
     }
   });
 }

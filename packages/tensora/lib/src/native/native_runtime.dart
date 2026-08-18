@@ -157,11 +157,7 @@ final class NativeRuntime {
     }
   }
 
-  int full(
-    Shape shape,
-    Object value, [
-    DType dtype = DType.float32,
-  ]) {
+  int full(Shape shape, Object value, [DType dtype = DType.float32]) {
     final scalar = _encodeValues([value], dtype, 'tensor.full');
     try {
       return _withDimensions(shape, (dims, rank) {
@@ -411,7 +407,7 @@ final class NativeRuntime {
     final expectedBytes = numel * dtype.byteWidth;
     final written = calloc<Size>();
 
-    T copy<T extends NativeType, R extends TypedData>(
+    R copy<T extends NativeType, R extends TypedData>(
       Pointer<T> pointer,
       R Function() snapshot,
     ) {
@@ -504,22 +500,22 @@ final class NativeRuntime {
   List<Object> copyToHostValues(int handle, int numel, DType dtype) {
     final values = copyToHostTyped(handle, numel, dtype);
     return switch (dtype) {
-      DType.float16 => List<Object>.generate(
+      DType.float16 => List<double>.generate(
         numel,
         (index) => decodeFloat16((values as Uint16List)[index]),
       ),
-      DType.bfloat16 => List<Object>.generate(
+      DType.bfloat16 => List<double>.generate(
         numel,
         (index) => decodeBFloat16((values as Uint16List)[index]),
       ),
-      DType.float32 => List<Object>.from(values as Float32List),
-      DType.float64 => List<Object>.from(values as Float64List),
-      DType.int8 => List<Object>.from(values as Int8List),
-      DType.uint8 => List<Object>.from(values as Uint8List),
-      DType.int16 => List<Object>.from(values as Int16List),
-      DType.int32 => List<Object>.from(values as Int32List),
-      DType.int64 => List<Object>.from(values as Int64List),
-      DType.boolean => List<Object>.generate(
+      DType.float32 => List<double>.from(values as Float32List),
+      DType.float64 => List<double>.from(values as Float64List),
+      DType.int8 => List<int>.from(values as Int8List),
+      DType.uint8 => List<int>.from(values as Uint8List),
+      DType.int16 => List<int>.from(values as Int16List),
+      DType.int32 => List<int>.from(values as Int32List),
+      DType.int64 => List<int>.from(values as Int64List),
+      DType.boolean => List<bool>.generate(
         numel,
         (index) => (values as Uint8List)[index] != 0,
       ),
@@ -575,7 +571,7 @@ final class NativeRuntime {
     String operation,
   ) {
     T require<T>(Object value, int index) {
-      if (value is T) return value;
+      if (value is T) return value as T;
       throw InvalidArgumentException(
         '$dtype requires ${T.toString()} host values; value $index is '
         '${value.runtimeType}.',
@@ -600,7 +596,9 @@ final class NativeRuntime {
         final pointer = calloc<Uint16>(values.length);
         try {
           for (var index = 0; index < values.length; index++) {
-            pointer[index] = encodeFloat16(require<num>(values[index], index).toDouble());
+            pointer[index] = encodeFloat16(
+              require<num>(values[index], index).toDouble(),
+            );
           }
           return _NativeHostBuffer(
             pointer: pointer.cast<Void>(),
@@ -616,7 +614,9 @@ final class NativeRuntime {
         final pointer = calloc<Uint16>(values.length);
         try {
           for (var index = 0; index < values.length; index++) {
-            pointer[index] = encodeBFloat16(require<num>(values[index], index).toDouble());
+            pointer[index] = encodeBFloat16(
+              require<num>(values[index], index).toDouble(),
+            );
           }
           return _NativeHostBuffer(
             pointer: pointer.cast<Void>(),

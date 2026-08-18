@@ -201,6 +201,42 @@ ts_status_t ts_tensor_full_f32(const int64_t* dims,
   return TS_OK;
 }
 
+ts_status_t ts_tensor_from_host(const void* data,
+                                size_t data_bytes,
+                                uint32_t dtype,
+                                const int64_t* dims,
+                                size_t rank,
+                                ts_tensor_t* out_tensor) {
+  (void)data;
+  (void)data_bytes;
+  (void)dtype;
+  (void)dims;
+  (void)rank;
+  if (out_tensor == NULL) {
+    return TS_INVALID_ARGUMENT;
+  }
+  *out_tensor = next_handle();
+  return TS_OK;
+}
+
+ts_status_t ts_tensor_full(const void* scalar,
+                           size_t scalar_bytes,
+                           uint32_t dtype,
+                           const int64_t* dims,
+                           size_t rank,
+                           ts_tensor_t* out_tensor) {
+  (void)scalar;
+  (void)scalar_bytes;
+  (void)dtype;
+  (void)dims;
+  (void)rank;
+  if (out_tensor == NULL) {
+    return TS_INVALID_ARGUMENT;
+  }
+  *out_tensor = next_handle();
+  return TS_OK;
+}
+
 ts_status_t ts_tensor_rank(ts_tensor_t tensor, size_t* out_rank) {
   (void)tensor;
   if (out_rank == NULL) {
@@ -280,6 +316,13 @@ static ts_status_t binary_tensor(ts_tensor_t left,
   return unary_tensor(0, out_tensor);
 }
 
+ts_status_t ts_tensor_cast(ts_tensor_t tensor,
+                           uint32_t target_dtype,
+                           ts_tensor_t* out_tensor) {
+  (void)target_dtype;
+  return unary_tensor(tensor, out_tensor);
+}
+
 ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
                                 uint32_t device,
                                 int32_t device_index,
@@ -322,6 +365,22 @@ ts_status_t ts_tensor_matmul(ts_tensor_t left,
                              ts_tensor_t right,
                              ts_tensor_t* out_tensor) {
   return binary_tensor(left, right, out_tensor);
+}
+
+ts_status_t ts_tensor_copy_to_host(ts_tensor_t tensor,
+                                   void* out_data,
+                                   size_t capacity_bytes,
+                                   size_t* out_written_bytes) {
+  (void)tensor;
+  if (out_written_bytes == NULL) {
+    return TS_INVALID_ARGUMENT;
+  }
+  if (out_data != NULL && capacity_bytes > 0) {
+    memset(out_data, 0, capacity_bytes);
+  }
+  *out_written_bytes =
+      g_copy_written == SIZE_MAX ? capacity_bytes : g_copy_written;
+  return TS_OK;
 }
 
 ts_status_t ts_tensor_copy_to_host_f32(ts_tensor_t tensor,

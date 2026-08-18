@@ -17,6 +17,7 @@
 #include "runtime/handle_registry.h"
 #include "tensor/shape.h"
 #include "tensor/tensor.h"
+#include "tensor/typed_tensor_abi.h"
 #include "training/training_bridge.h"
 
 namespace tensora {
@@ -322,6 +323,26 @@ ts_status_t ts_tensor_to_device(ts_tensor_t tensor,
     std::shared_ptr<tensora::Tensor> object;
     status = tensora::LookupTensor(tensor, &object);
     if (!status.ok()) return status;
+
+    if (object->dtype() != tensora::DType::kFloat32) {
+      if (device_index < 0) {
+        return tensora::InvalidArgument(
+            "tensor_to_device: device index must be non-negative");
+      }
+      if (target != tensora::Device::kCpu) {
+        return tensora::Unsupported(
+            "tensor_to_device: non-float32 accelerator transfer is not qualified");
+      }
+      if (device_index != 0) {
+        return tensora::InvalidArgument(
+            "tensor_to_device: CPU device index must be zero");
+      }
+      std::shared_ptr<tensora::Tensor> result;
+      status = tensora::typed_tensor_abi::CastCpuTensor(
+          *object, object->dtype(), &result);
+      if (!status.ok()) return status;
+      return tensora::InsertTensor(std::move(result), out_tensor);
+    }
 
     std::shared_ptr<tensora::Tensor> result;
     status = tensora::training::Transfer(

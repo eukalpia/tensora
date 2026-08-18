@@ -196,6 +196,16 @@ CpuStorage::~CpuStorage() {
 Status CpuStorage::Filled(uint64_t numel,
                           float value,
                           std::shared_ptr<CpuStorage>* out) {
+  size_t bytes = 0;
+  Status status =
+      ExpectedBytes(numel, DType::kFloat32, "cpu storage full", &bytes);
+  if (!status.ok()) {
+    if (status.code() == TS_INVALID_SHAPE) {
+      return OutOfMemory(
+          "cpu storage full: requested float32 allocation is too large");
+    }
+    return status;
+  }
   return Full(&value, sizeof(value), numel, DType::kFloat32, out);
 }
 
@@ -205,7 +215,13 @@ Status CpuStorage::FromData(const float* data,
   size_t bytes = 0;
   Status status =
       ExpectedBytes(numel, DType::kFloat32, "cpu storage", &bytes);
-  if (!status.ok()) return status;
+  if (!status.ok()) {
+    if (status.code() == TS_INVALID_SHAPE) {
+      return OutOfMemory(
+          "cpu storage: requested float32 allocation is too large");
+    }
+    return status;
+  }
   return FromRaw(data, bytes, numel, DType::kFloat32, out);
 }
 

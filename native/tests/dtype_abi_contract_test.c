@@ -3,7 +3,7 @@
 #define TS_STATIC_ASSERT(name, expression) \
   typedef char name[(expression) ? 1 : -1]
 
-TS_STATIC_ASSERT(ts_abi_version_is_5, TS_ABI_VERSION == 5u);
+TS_STATIC_ASSERT(ts_abi_version_is_6, TS_ABI_VERSION == 6u);
 TS_STATIC_ASSERT(ts_dtype_float32_is_1, TS_DTYPE_FLOAT32 == 1u);
 TS_STATIC_ASSERT(ts_dtype_float16_is_2, TS_DTYPE_FLOAT16 == 2u);
 TS_STATIC_ASSERT(ts_dtype_bfloat16_is_3, TS_DTYPE_BFLOAT16 == 3u);

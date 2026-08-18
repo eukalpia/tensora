@@ -236,6 +236,14 @@ if(TENSORA_BUILD_TESTS)
   )
   target_link_libraries(tensora_tensor_view_tests PRIVATE tensora_native)
 
+  add_executable(tensora_dtype_storage_tests tests/dtype_storage_test.cc)
+  target_compile_features(tensora_dtype_storage_tests PRIVATE cxx_std_20)
+  target_include_directories(tensora_dtype_storage_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  target_link_libraries(tensora_dtype_storage_tests PRIVATE tensora_native)
+
   if(NOT TENSORA_WITH_ONNXRUNTIME)
     add_executable(tensora_inference_stub_internal_tests
       tests/inference_stub_internal_test.cc
@@ -443,6 +451,7 @@ if(TENSORA_BUILD_TESTS)
   add_test(NAME tensora_cpu_training_tests COMMAND tensora_cpu_training_tests)
   add_test(NAME tensora_autograd_finite_difference_tests COMMAND tensora_autograd_finite_difference_tests)
   add_test(NAME tensora_tensor_view_tests COMMAND tensora_tensor_view_tests)
+  add_test(NAME tensora_dtype_storage_tests COMMAND tensora_dtype_storage_tests)
   if(NOT TENSORA_WITH_ONNXRUNTIME)
     add_test(NAME tensora_inference_stub_internal_tests COMMAND tensora_inference_stub_internal_tests)
   endif()

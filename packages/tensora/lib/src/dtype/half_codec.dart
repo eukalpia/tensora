@@ -35,8 +35,7 @@ int encodeFloat16(double value) {
     final remainderMask = (1 << shift) - 1;
     final remainder = mantissa & remainderMask;
     final halfway = 1 << (shift - 1);
-    if (remainder > halfway ||
-        (remainder == halfway && (rounded & 1) != 0)) {
+    if (remainder > halfway || (remainder == halfway && (rounded & 1) != 0)) {
       rounded++;
     }
     return sign | rounded;
@@ -75,10 +74,7 @@ double decodeFloat16(int value) {
         adjustedExponent--;
       }
       mantissa &= 0x03ff;
-      bits =
-          sign |
-          ((adjustedExponent + 127) << 23) |
-          (mantissa << 13);
+      bits = sign | ((adjustedExponent + 127) << 23) | (mantissa << 13);
     }
   } else if (exponent == 0x1f) {
     bits = sign | 0x7f800000 | (mantissa << 13);
@@ -92,8 +88,7 @@ double decodeFloat16(int value) {
 /// Encodes [value] as a bfloat16 bit pattern using round-to-nearest-even.
 int encodeBFloat16(double value) {
   var bits = _float32Bits(value);
-  if ((bits & 0x7f800000) == 0x7f800000 &&
-      (bits & 0x007fffff) != 0) {
+  if ((bits & 0x7f800000) == 0x7f800000 && (bits & 0x007fffff) != 0) {
     return ((bits >> 16) | 0x0040) & 0xffff;
   }
   final leastSignificant = (bits >> 16) & 1;
@@ -103,5 +98,4 @@ int encodeBFloat16(double value) {
 
 /// Decodes a bfloat16 bit pattern into a Dart double containing the exactly
 /// representable float32 value.
-double decodeBFloat16(int value) =>
-    _float32FromBits((value & 0xffff) << 16);
+double decodeBFloat16(int value) => _float32FromBits((value & 0xffff) << 16);
