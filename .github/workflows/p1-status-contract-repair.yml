@@ -1,0 +1,201 @@
+name: P1 Status Contract Repair
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/p1-tensor-core-v2
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p1-status-contract-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preserve-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout P1 branch
+        uses: actions/checkout@v6
+        with:
+          ref: feature/p1-tensor-core-v2
+          fetch-depth: 0
+
+      - name: Restore established status contracts at their sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          header = Path('native/include/tensora.h').read_text()
+          by_value = {
+              int(value): name
+              for name, value in re.findall(
+                  r'\b(TS_STATUS_[A-Z0-9_]+)\s*=\s*(\d+)\b', header
+              )
+          }
+
+          expected = {
+              131: 4,
+              529: 3,
+              533: 3,
+              558: 6,
+          }
+          missing = set(expected.values()) - set(by_value)
+          if missing:
+              raise RuntimeError(
+                  f'missing public status values: {sorted(missing)}'
+              )
+
+          test_path = Path('native/tests/training_core_internal_test.cc')
+          test_lines = test_path.read_text().splitlines(keepends=True)
+          expected_tokens = {}
+          for line_number, value in expected.items():
+              token = by_value[value]
+              expected_tokens[line_number] = token
+              index = line_number - 1
+              candidates = [index]
+              for delta in (1, -1, 2, -2, 3, -3):
+                  candidate = index + delta
+                  if 0 <= candidate < len(test_lines):
+                      candidates.append(candidate)
+              for candidate in candidates:
+                  if re.search(
+                      r'\bTS_STATUS_[A-Z0-9_]+\b', test_lines[candidate]
+                  ):
+                      test_lines[candidate] = re.sub(
+                          r'\bTS_STATUS_[A-Z0-9_]+\b',
+                          token,
+                          test_lines[candidate],
+                          count=1,
+                      )
+                      break
+              else:
+                  raise RuntimeError(
+                      f'no status assertion near line {line_number}'
+                  )
+          test_path.write_text(''.join(test_lines))
+
+          source_paths = list(Path('native').rglob('*.cc')) + list(
+              Path('native').rglob('*.h')
+          )
+          corpus = '\n'.join(path.read_text() for path in source_paths)
+          factories = set(re.findall(r'\bStatus::([A-Za-z0-9_]+)\s*\(', corpus))
+
+          def normalized(value: str) -> str:
+              return re.sub(r'[^a-z0-9]', '', value.lower())
+
+          def factory_for(token: str) -> str:
+              suffix = token.removeprefix('TS_STATUS_')
+              target = normalized(suffix)
+              direct = ''.join(part.title() for part in suffix.lower().split('_'))
+              if direct in factories:
+                  return direct
+              matches = [name for name in factories if normalized(name) == target]
+              if len(matches) == 1:
+                  return matches[0]
+              aliases = {
+                  'invalidargument': ('InvalidArgument',),
+                  'invalidshape': ('InvalidShape', 'ShapeError'),
+                  'shapemismatch': ('ShapeMismatch', 'ShapeError'),
+                  'overflow': ('Overflow',),
+                  'unsupported': ('Unsupported',),
+                  'notfound': ('NotFound',),
+                  'invalidstate': ('InvalidState', 'FailedPrecondition'),
+                  'internal': ('Internal',),
+                  'outofmemory': ('OutOfMemory', 'ResourceExhausted'),
+              }
+              for candidate in aliases.get(target, ()):
+                  if candidate in factories:
+                      return candidate
+              raise RuntimeError(
+                  f'cannot map {token} to a Status factory; found {sorted(factories)}'
+              )
+
+          cases = (
+              (
+                  'CPU tensor storage metadata is inconsistent',
+                  expected_tokens[131],
+              ),
+              (
+                  'cpu storage full: byte size overflows size_t',
+                  expected_tokens[529],
+              ),
+              (
+                  'cpu storage: byte size overflows size_t',
+                  expected_tokens[533],
+              ),
+              (
+                  'tensor copy: tensor is not backed by CPU storage',
+                  expected_tokens[558],
+              ),
+          )
+
+          for message, token in cases:
+              desired_factory = factory_for(token)
+              matches = []
+              for path in source_paths:
+                  text = path.read_text()
+                  position = text.find(message)
+                  if position >= 0:
+                      matches.append((path, text, position))
+              if len(matches) != 1:
+                  raise RuntimeError(
+                      f'expected one source for {message!r}, found '
+                      f'{[str(item[0]) for item in matches]}'
+                  )
+              path, text, position = matches[0]
+              window_start = max(0, position - 500)
+              window_end = min(len(text), position + len(message) + 500)
+              window = text[window_start:window_end]
+              calls = list(re.finditer(r'\bStatus::([A-Za-z0-9_]+)\s*\(', window))
+              if not calls:
+                  raise RuntimeError(
+                      f'no Status factory around {message!r} in {path}'
+                  )
+              before_message = [
+                  match for match in calls
+                  if window_start + match.start() <= position
+              ]
+              selected = before_message[-1] if before_message else calls[0]
+              current_factory = selected.group(1)
+              absolute_start = window_start + selected.start(1)
+              absolute_end = window_start + selected.end(1)
+              if current_factory != desired_factory:
+                  text = (
+                      text[:absolute_start]
+                      + desired_factory
+                      + text[absolute_end:]
+                  )
+                  path.write_text(text)
+          PY
+
+      - name: Verify preserved native contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/status-contract \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/status-contract --parallel 2
+          ctest --test-dir build/status-contract --output-on-failure
+          git diff --check
+
+      - name: Commit source-level contract repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Tensora Qualification Bot'
+          git config user.email '120781817+eukalpia@users.noreply.github.com'
+          git add native
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(p1): preserve native failure status contracts'
+            git push origin HEAD:feature/p1-tensor-core-v2
+          fi
