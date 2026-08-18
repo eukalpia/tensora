@@ -1,0 +1,99 @@
+name: Apply P1A qualification fixes
+
+on:
+  push:
+    branches:
+      - feature/p1-tensor-core-v2
+    paths:
+      - .github/workflows/apply-p1a-qualification.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.actor == 'eukalpia'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact target branch
+        uses: actions/checkout@v6
+        with:
+          ref: feature/p1-tensor-core-v2
+          fetch-depth: 2
+
+      - name: Verify expected parent revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "7a429c68f11d7529ea091bf17fcb785472f27fee"
+
+      - name: Apply qualification patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/tensora-p1a-qualification.patch.gz.b64 <<'PATCH'
+          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
+          PATCH
+          base64 -d /tmp/tensora-p1a-qualification.patch.gz.b64 | gzip -d > /tmp/tensora-p1a-qualification.patch
+          git apply --check /tmp/tensora-p1a-qualification.patch
+          git apply /tmp/tensora-p1a-qualification.patch
+          git diff --check
+
+      - name: Set up Dart stable
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Verify Dart formatting and analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart format --output=none --set-exit-if-changed \
+            packages/tensora/integration_test/accelerator_training_integration_test.dart \
+            packages/tensora/integration_test/cuda_training_integration_test.dart \
+            packages/tensora/integration_test/training_integration_test.dart \
+            packages/tensora/integration_test/training_soak_test.dart \
+            packages/tensora/test/typed_tensor_integration_test.dart \
+            packages/tensora_train/integration_test/declarative_nn_v2_integration_test.dart
+          (cd packages/tensora && dart analyze --fatal-infos --fatal-warnings lib test integration_test)
+          (cd packages/tensora_train && dart analyze --fatal-infos --fatal-warnings lib test integration_test)
+
+      - name: Verify native core and sanitizers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/qualification-core \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/qualification-core --parallel 2
+          ctest --test-dir build/qualification-core --output-on-failure
+
+          cmake -S native -B build/qualification-sanitizers \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DTENSORA_ENABLE_SANITIZERS=ON \
+            -DTENSORA_WITH_TORCH=OFF \
+            -DTENSORA_WITH_ONNXRUNTIME=OFF \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/qualification-sanitizers --parallel 2
+          ASAN_OPTIONS='detect_leaks=1:halt_on_error=1' \
+          UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
+            ctest --test-dir build/qualification-sanitizers --output-on-failure
+
+      - name: Commit verified qualification fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-p1a-qualification.yml
+          git config user.name eukalpia
+          git config user.email 120781817+eukalpia@users.noreply.github.com
+          git add -A
+          git commit -m 'fix: qualify P1A across Dart and native matrices'
+          git push origin HEAD:feature/p1-tensor-core-v2
