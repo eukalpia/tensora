@@ -1,0 +1,289 @@
+name: P1 Qualification Repair V2
+
+on:
+  push:
+    branches:
+      - feature/p1-tensor-core-v2
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p1-qualification-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v6
+        with:
+          ref: feature/p1-tensor-core-v2
+          fetch-depth: 0
+
+      - name: Set up minimum supported Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.7.0
+
+      - name: Apply native contract repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+
+          def replace(path: Path, transform) -> None:
+              original = path.read_text()
+              updated = transform(original)
+              if original != updated:
+                  path.write_text(updated)
+
+          abi = root / 'native/tests/dtype_abi_contract_test.c'
+          replace(
+              abi,
+              lambda text: re.sub(
+                  r'TS_ABI_VERSION\s*==\s*5u',
+                  'TS_ABI_VERSION == 6u',
+                  text.replace('ts_abi_version_is_5', 'ts_abi_version_is_6'),
+              ),
+          )
+
+          tensor = root / 'native/src/tensor/tensor.cc'
+          text = tensor.read_text()
+          for name in (
+              'ts_tensor_from_host',
+              'ts_tensor_full',
+              'ts_tensor_cast',
+              'ts_tensor_copy_to_host',
+          ):
+              declaration = re.compile(
+                  rf'(?m)^(?!TS_API\s)(ts_status(?:_code)?\s+{name}\s*\()'
+              )
+              text, count = declaration.subn(r'TS_API \1', text, count=1)
+              if count == 0 and not re.search(
+                  rf'(?m)^TS_API\s+ts_status(?:_code)?\s+{name}\s*\(', text
+              ):
+                  raise SystemExit(f'missing exported definition: {name}')
+          tensor.write_text(text)
+
+          cmake = root / 'native/CMakeLists.txt'
+          text = cmake.read_text()
+          marker = '# P1 Windows white-box linkage contract'
+          if marker not in text:
+              text += '''
+
+          # P1 Windows white-box linkage contract
+          if(WIN32)
+            target_compile_definitions(tensora_handle_registry_tests PRIVATE TENSORA_NATIVE_BUILD)
+            target_compile_definitions(tensora_training_core_internal_tests PRIVATE TENSORA_NATIVE_BUILD)
+          endif()
+          '''
+          cmake.write_text(text)
+
+          header = (root / 'native/include/tensora.h').read_text()
+          codes = {
+              symbol: int(value)
+              for symbol, value in re.findall(
+                  r'(TS_STATUS_[A-Z0-9_]+)\s*=\s*(\d+)', header
+              )
+          }
+          status_text = '\n'.join(
+              path.read_text()
+              for path in (
+                  root / 'native/src/core/status.h',
+                  root / 'native/src/core/status.cc',
+              )
+              if path.exists()
+          )
+          by_code: dict[int, str] = {}
+          for factory, symbol in re.findall(
+              r'Status::([A-Za-z0-9_]+)\s*\([^)]*\)'
+              r'[\s\S]{0,320}?(TS_STATUS_[A-Z0-9_]+)',
+              status_text,
+          ):
+              if symbol in codes:
+                  by_code.setdefault(codes[symbol], factory)
+          candidates = {
+              3: ('AllocationFailed', 'ResourceExhausted', 'OutOfMemory'),
+              4: ('Unsupported', 'FailedPrecondition'),
+              6: ('Internal',),
+          }
+          for code, names in candidates.items():
+              if code in by_code:
+                  continue
+              for name in names:
+                  if re.search(rf'\bStatus::{name}\s*\(', status_text):
+                      by_code[code] = name
+                      break
+
+          def set_message_code(message: str, code: int) -> None:
+              factory = by_code.get(code)
+              if factory is None:
+                  raise SystemExit(f'no status factory for code {code}')
+              for path in (root / 'native/src').rglob('*.cc'):
+                  value = path.read_text()
+                  at = value.find(message)
+                  if at < 0:
+                      continue
+                  begin = max(0, at - 700)
+                  prefix = value[begin:at]
+                  matches = list(
+                      re.finditer(r'Status::([A-Za-z0-9_]+)\s*\(', prefix)
+                  )
+                  if not matches:
+                      raise SystemExit(f'no status constructor before {message}')
+                  match = matches[-1]
+                  left = begin + match.start(1)
+                  right = begin + match.end(1)
+                  value = value[:left] + factory + value[right:]
+                  path.write_text(value)
+                  return
+              raise SystemExit(f'message not found: {message}')
+
+          set_message_code('CPU tensor storage metadata is inconsistent', 4)
+          set_message_code('cpu storage full: byte size overflows size_t', 3)
+          set_message_code('cpu storage: byte size overflows size_t', 3)
+          set_message_code('tensor is not backed by CPU storage', 6)
+          PY
+
+      - name: Resolve workspace with Dart 3.7
+        run: dart pub get
+
+      - name: Discover and repair Dart 3.7 return promotions
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          dart analyze --format machine > build/analyze-3.7.machine 2>&1
+          initial_status=$?
+          set -e
+          if [ "$initial_status" -ne 0 ]; then
+            python3 <<'PY'
+            from pathlib import Path
+            import re
+
+            report = Path('build/analyze-3.7.machine').read_text().splitlines()
+            target = Path('packages/tensora/lib/src/native/native_runtime.dart')
+            source = target.read_text().splitlines(keepends=True)
+            diagnostics: list[tuple[int, str]] = []
+
+            for row in report:
+                if 'RETURN_OF_INVALID_TYPE' not in row.upper():
+                    continue
+                fields = row.split('|')
+                if len(fields) < 8:
+                    continue
+                file_name = fields[3].replace('\\|', '|')
+                if not file_name.endswith('native_runtime.dart'):
+                    continue
+                try:
+                    line = int(fields[4])
+                except ValueError:
+                    continue
+                message = fields[-1]
+                match = re.search(r"return type of '([^']+)'", message)
+                if match:
+                    diagnostics.append((line, match.group(1)))
+
+            if not diagnostics:
+                print(Path('build/analyze-3.7.machine').read_text())
+                raise SystemExit('Dart 3.7 failed without a recognized return diagnostic')
+
+            def cast_statement(line_number: int, expected: str) -> None:
+                anchor = max(0, line_number - 1)
+                start = None
+                for index in range(anchor, max(-1, anchor - 20), -1):
+                    if re.search(r'\breturn\b', source[index]):
+                        start = index
+                        break
+                if start is None:
+                    for index in range(anchor, min(len(source), anchor + 20)):
+                        if re.search(r'\breturn\b', source[index]):
+                            start = index
+                            break
+                if start is None:
+                    raise SystemExit(f'No return statement for line {line_number}')
+                end = start
+                while end < len(source) and ';' not in source[end]:
+                    end += 1
+                if end >= len(source):
+                    raise SystemExit(f'Unterminated return near line {line_number}')
+                statement = ''.join(source[start:end + 1])
+                if re.search(rf'\bas\s+{re.escape(expected)}\s*;', statement):
+                    return
+                return_at = statement.find('return')
+                semi = statement.rfind(';')
+                before = statement[:return_at]
+                expression = statement[return_at + len('return'):semi].strip()
+                after = statement[semi + 1:]
+                replacement = (
+                    before + 'return (' + expression + f') as {expected};' + after
+                )
+                source[start:end + 1] = [replacement]
+
+            for line, expected in sorted(diagnostics, reverse=True):
+                cast_statement(line, expected)
+            target.write_text(''.join(source))
+            PY
+          fi
+          dart format packages/tensora/lib/src/native/native_runtime.dart
+          dart analyze --fatal-infos --fatal-warnings
+
+      - name: Verify native core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S native -B build/p1-repair-v2 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTENSORA_BUILD_TESTS=ON \
+            -DTENSORA_BUILD_BENCHMARKS=OFF
+          cmake --build build/p1-repair-v2 --parallel 2
+          ctest --test-dir build/p1-repair-v2 --output-on-failure
+          cc -std=c11 -Wall -Wextra -Wpedantic -Werror \
+            -Inative/include \
+            native/tests/dtype_abi_contract_test.c \
+            -o build/p1-repair-v2/dtype_abi_contract
+          build/p1-repair-v2/dtype_abi_contract
+
+      - name: Set up current stable Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Verify current Dart and formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart format \
+            packages/tensora/lib/src/dtype/half_codec.dart \
+            packages/tensora/lib/src/native/native_bindings.dart \
+            packages/tensora/lib/src/native/native_runtime.dart
+          dart analyze --fatal-infos --fatal-warnings
+          dart test packages/tensora/test --reporter expanded
+          git diff --check
+
+      - name: Commit repair and remove temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/p1-qualification-repair.yml \
+            .github/workflows/p1-qualification-repair-v2.yml
+          git config user.name 'Tensora Qualification Bot'
+          git config user.email '120781817+eukalpia@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(p1): restore exact-SHA dtype qualification'
+          git push origin HEAD:feature/p1-tensor-core-v2
