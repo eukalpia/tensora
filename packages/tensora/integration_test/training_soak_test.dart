@@ -31,7 +31,7 @@ void main() {
       optimizer.zeroGrad();
       final prediction = model(x);
       final loss = Losses.mse(prediction, y);
-      final before = loss.toList().single;
+      final before = loss.toList<double>().single;
       expect(before.isFinite, isTrue);
       loss.backward();
       optimizer.step();

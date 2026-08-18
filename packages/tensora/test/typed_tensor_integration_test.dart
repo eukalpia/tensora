@@ -40,10 +40,7 @@ void main() {
       expect(bfloat16.toTypedData(), isA<Uint16List>());
 
       final float32 = track(
-        Tensor.fromList(
-          <Object>[1.5, -2, 0.25],
-          shape: Shape([3]),
-        ),
+        Tensor.fromList(<Object>[1.5, -2, 0.25], shape: Shape([3])),
       );
       expect(float32.toList<double>(), <double>[1.5, -2, 0.25]);
       expect(float32.toTypedData(), isA<Float32List>());
@@ -105,10 +102,11 @@ void main() {
           dtype: DType.int64,
         ),
       );
-      expect(
-        int64.toList<int>(),
-        <int>[-9007199254740991, 0, 9007199254740991],
-      );
+      expect(int64.toList<int>(), <int>[
+        -9007199254740991,
+        0,
+        9007199254740991,
+      ]);
       expect(int64.toTypedData(), isA<Int64List>());
 
       final boolean = track(
@@ -126,11 +124,7 @@ void main() {
       final full = Tensor.full(Shape([3]), -7, dtype: DType.int16);
       final zeros = Tensor.zeros(Shape([3]), dtype: DType.int64);
       final ones = Tensor.ones(Shape([3]), dtype: DType.boolean);
-      final falseValues = Tensor.full(
-        Shape([3]),
-        false,
-        dtype: DType.boolean,
-      );
+      final falseValues = Tensor.full(Shape([3]), false, dtype: DType.boolean);
       addTearDown(full.dispose);
       addTearDown(zeros.dispose);
       addTearDown(ones.dispose);

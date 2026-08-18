@@ -151,7 +151,7 @@ void main() {
     expect(snapshot.length, 4);
 
     final beforeTensor = model(input);
-    final before = beforeTensor.toList();
+    final before = beforeTensor.toList<double>();
     beforeTensor.dispose();
 
     const lossFunction = nn.MSELoss();
@@ -165,7 +165,7 @@ void main() {
       optimizer.zeroGrad();
       final prediction = model(input);
       final loss = lossFunction(prediction, target);
-      finalLoss = loss.toList().single;
+      finalLoss = loss.toList<double>().single;
       if (step == 0) initialLoss = finalLoss;
       loss.backward();
       optimizer.step();
@@ -180,7 +180,7 @@ void main() {
     expect(model.buildCount, 1);
 
     final trainedTensor = model(input);
-    final trained = trainedTensor.toList();
+    final trained = trainedTensor.toList<double>();
     trainedTensor.dispose();
     expect(trained, isNot(equals(before)));
 
@@ -190,7 +190,7 @@ void main() {
     expect(loadResult.unexpectedKeys, isEmpty);
 
     final restoredTensor = model(input);
-    final restored = restoredTensor.toList();
+    final restored = restoredTensor.toList<double>();
     restoredTensor.dispose();
     expectValues(restored, before, tolerance: 2e-5);
     expect(model.buildCount, 1);

@@ -54,7 +54,7 @@ inline const char* DTypeName(DType dtype) {
 
 inline Status DTypeFromCode(uint32_t code, DType* out) {
   if (out == nullptr) {
-    return InvalidArgument("dtype: output pointer is null");
+    return Status(TS_INVALID_ARGUMENT, "dtype: output pointer is null");
   }
   switch (code) {
     case TS_DTYPE_FLOAT16:
@@ -88,8 +88,8 @@ inline Status DTypeFromCode(uint32_t code, DType* out) {
       *out = DType::kBool;
       return Status::Ok();
     default:
-      return InvalidArgument("dtype: unknown stable dtype code " +
-                             std::to_string(code));
+      return Status(TS_INVALID_ARGUMENT,
+                    "dtype: unknown stable dtype code " + std::to_string(code));
   }
 }
 

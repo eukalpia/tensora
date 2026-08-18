@@ -48,7 +48,7 @@ void main() {
       expect(prediction.device, cuda);
       final loss = Losses.mse(prediction, y);
       expect(loss.device, cuda);
-      final value = loss.toList().single;
+      final value = loss.toList<double>().single;
       expect(value.isFinite, isTrue);
       if (step == 0) initialLoss = value;
       finalLoss = value;

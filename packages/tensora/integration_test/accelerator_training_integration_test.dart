@@ -139,7 +139,7 @@ void main() {
             device,
             reason: 'loss must remain on the requested accelerator',
           );
-          final value = loss.toList().single;
+          final value = loss.toList<double>().single;
           expect(value.isFinite, isTrue);
           firstLoss ??= value;
           lastLoss = value;
@@ -169,7 +169,7 @@ void main() {
       final finalPrediction = module(input);
       try {
         expect(finalPrediction.device, device);
-        final values = finalPrediction.toList();
+        final values = finalPrediction.toList<double>();
         expect(values.every((value) => value.isFinite), isTrue);
       } finally {
         finalPrediction.dispose();
