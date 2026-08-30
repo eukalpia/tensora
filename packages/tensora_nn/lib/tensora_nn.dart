@@ -15,6 +15,7 @@ export 'package:tensora/tensora.dart'
         UnsupportedOperationException;
 export 'src/activations.dart';
 export 'src/layers.dart';
+export 'src/lora.dart';
 export 'src/losses.dart';
 export 'src/model.dart';
 export 'src/module.dart';

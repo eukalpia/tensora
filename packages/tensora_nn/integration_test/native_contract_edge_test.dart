@@ -12,9 +12,10 @@ typedef _SetIntDart = void Function(int);
 
 void main() {
   final fixturePath = Platform.environment['TENSORA_NN_CONTRACT_FIXTURE'];
-  final fixtureSkip = fixturePath == null || fixturePath.isEmpty
-      ? 'requires the adversarial NN V2 contract fixture'
-      : false;
+  final fixtureSkip =
+      fixturePath == null || fixturePath.isEmpty
+          ? 'requires the adversarial NN V2 contract fixture'
+          : false;
 
   test(
     'Linear rejects native parameter-count contract violations atomically',
@@ -23,9 +24,10 @@ void main() {
       final reset = library.lookupFunction<_VoidNative, _VoidDart>(
         'ts_test_reset',
       );
-      final setTrainingMode = library.lookupFunction<_SetIntNative, _SetIntDart>(
-        'ts_test_set_training_mode',
-      );
+      final setTrainingMode = library
+          .lookupFunction<_SetIntNative, _SetIntDart>(
+            'ts_test_set_training_mode',
+          );
       reset();
       setTrainingMode(0); // fixture exposes one parameter
 
@@ -51,9 +53,10 @@ void main() {
       final reset = library.lookupFunction<_VoidNative, _VoidDart>(
         'ts_test_reset',
       );
-      final setTrainingMode = library.lookupFunction<_SetIntNative, _SetIntDart>(
-        'ts_test_set_training_mode',
-      );
+      final setTrainingMode = library
+          .lookupFunction<_SetIntNative, _SetIntDart>(
+            'ts_test_set_training_mode',
+          );
       reset();
       setTrainingMode(0);
 
@@ -84,9 +87,10 @@ void main() {
       final reset = library.lookupFunction<_VoidNative, _VoidDart>(
         'ts_test_reset',
       );
-      final setTrainingMode = library.lookupFunction<_SetIntNative, _SetIntDart>(
-        'ts_test_set_training_mode',
-      );
+      final setTrainingMode = library
+          .lookupFunction<_SetIntNative, _SetIntDart>(
+            'ts_test_set_training_mode',
+          );
       reset();
       setTrainingMode(0);
 
