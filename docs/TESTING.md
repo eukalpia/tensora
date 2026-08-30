@@ -201,7 +201,7 @@ The current portable binding copies input tensor values to host memory before co
 
 ## 8. ABI tests
 
-The C ABI is a security and compatibility boundary. Current ABI version is **4**.
+The C ABI is a security and compatibility boundary. Current ABI version is **5**.
 
 Tests cover:
 

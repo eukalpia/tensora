@@ -484,5 +484,3 @@ A milestone becomes a release candidate only after:
 7. examples are runnable;
 8. compatibility documentation is updated;
 9. no production path relies on placeholders or silent semantic fallbacks.
-
-See [docs/RELEASES.md](docs/RELEASES.md) for the release process.

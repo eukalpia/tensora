@@ -103,9 +103,9 @@ Dependencies must flow toward the core.
 ```text
 tensora_flutter
       ↓
-tensora_edge / task-specific packages
+tensora_train
       ↓
-tensora_nn / tensora_model / tensora_data
+tensora_nn / tensora_optim / tensora_data
       ↓
 tensora
       ↓
@@ -424,7 +424,7 @@ It may package established artifacts such as:
 
 The format must be versioned, strictly validated, resource-limited, and incapable of executing arbitrary packaged code.
 
-See `docs/MODEL_FORMAT.md`.
+No `.tmodel` implementation exists. This section records intent only.
 
 ## 19. Security boundary
 

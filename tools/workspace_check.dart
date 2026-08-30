@@ -8,11 +8,6 @@ const Map<String, String> _workspacePackages = <String, String>{
   'tensora_optim': 'packages/tensora_optim',
   'tensora_data': 'packages/tensora_data',
   'tensora_train': 'packages/tensora_train',
-  'tensora_edge': 'packages/tensora_edge',
-  'tensora_vision': 'packages/tensora_vision',
-  'tensora_audio': 'packages/tensora_audio',
-  'tensora_text': 'packages/tensora_text',
-  'tensora_transformers': 'packages/tensora_transformers',
 };
 
 const Map<String, Set<String>> _allowedDependencies = <String, Set<String>>{
@@ -21,11 +16,6 @@ const Map<String, Set<String>> _allowedDependencies = <String, Set<String>>{
   'tensora_optim': <String>{'tensora'},
   'tensora_data': <String>{},
   'tensora_train': <String>{'tensora', 'tensora_nn', 'tensora_optim'},
-  'tensora_edge': <String>{'tensora'},
-  'tensora_vision': <String>{'tensora'},
-  'tensora_audio': <String>{'tensora'},
-  'tensora_text': <String>{},
-  'tensora_transformers': <String>{'tensora_nn', 'tensora_text'},
 };
 
 Never _fail(String message) => throw StateError(message);
@@ -41,11 +31,9 @@ void main() {
   final root = Directory.current;
   final requiredDirectories = <String>{
     'native',
-    'compiler',
     'tools',
     'examples',
     'benchmarks',
-    'fuzz',
     'docs',
     'tests',
     ..._workspacePackages.values,

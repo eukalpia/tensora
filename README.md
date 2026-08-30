@@ -162,7 +162,7 @@ Tensora public API
       ↓
 Dart FFI
       ↓
-C ABI v4
+C ABI v5
       ↓
 Tensora native core
       ↓
@@ -267,7 +267,6 @@ Start with:
 - [Testing Strategy](docs/TESTING.md)
 - [Compatibility Policy](docs/COMPATIBILITY.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [RFC Process](docs/RFC_PROCESS.md)
 - [Security Policy](SECURITY.md)
 
 ## License

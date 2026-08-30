@@ -31,7 +31,8 @@ Open or discuss an RFC before implementing changes that materially affect:
 - compatibility guarantees;
 - release/versioning policy.
 
-See `docs/RFC_PROCESS.md`.
+Raise these in the pull request that introduces the change, before the
+implementation is broadly built out.
 
 ## Development model
 

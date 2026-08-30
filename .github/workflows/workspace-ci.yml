@@ -53,12 +53,7 @@ jobs:
             tensora_nn \
             tensora_optim \
             tensora_data \
-            tensora_train \
-            tensora_edge \
-            tensora_vision \
-            tensora_audio \
-            tensora_text \
-            tensora_transformers; do
+            tensora_train; do
             paths+=("packages/${package}/lib" "packages/${package}/test")
           done
           dart format "${paths[@]}"
@@ -79,12 +74,7 @@ jobs:
             tensora_nn \
             tensora_optim \
             tensora_data \
-            tensora_train \
-            tensora_edge \
-            tensora_vision \
-            tensora_audio \
-            tensora_text \
-            tensora_transformers; do
+            tensora_train; do
             (cd "packages/${package}" && dart analyze)
           done
 
@@ -96,12 +86,7 @@ jobs:
             tensora_nn \
             tensora_optim \
             tensora_data \
-            tensora_train \
-            tensora_edge \
-            tensora_vision \
-            tensora_audio \
-            tensora_text \
-            tensora_transformers; do
+            tensora_train; do
             (cd "packages/${package}" && dart test --reporter expanded)
           done
 

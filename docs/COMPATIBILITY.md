@@ -31,7 +31,7 @@ Tensora does not currently label any public runtime surface Stable.
 | Surface | State | Validated scope | Current limitations |
 | --- | --- | --- | --- |
 | Dart core package | Beta | Dart 3.7 minimum compatibility plus current stable Dart | Native runtime is still source-built/provided separately |
-| C ABI | Beta | ABI v4, C11 consumer tests, typed opaque handles, fixed-width statuses/devices | Pre-1.0 ABI may evolve through explicit version changes |
+| C ABI | Beta | ABI v5, C11 consumer tests, typed opaque handles, fixed-width statuses/devices | Pre-1.0 ABI may evolve through explicit version changes |
 | CPU tensor backend | Beta | Linux, macOS, Windows native + Dart FFI | `float32` only; compact eager operation set |
 | `float32` | Beta | Tensor creation, transfer, transforms, elementwise ops, reduction, 2D matmul, training/inference paths where documented | No other public dtype yet |
 | LibTorch CPU training | Beta | Linux, macOS, Windows native + Dart integration | Optional build dependency; not a packaged binary contract |
