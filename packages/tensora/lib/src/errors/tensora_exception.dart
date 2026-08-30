@@ -45,6 +45,15 @@ final class ModelRuntimeException extends TensoraException {
   const ModelRuntimeException(super.message, {super.operation});
 }
 
+/// A serialized model artifact was structurally invalid or unsafe to parse.
+///
+/// Artifact bytes are untrusted input, so parsers report every structural
+/// defect through this one type rather than a mix of format-specific errors:
+/// a caller can then guard an entire load with a single catch.
+final class MalformedArtifactException extends TensoraException {
+  const MalformedArtifactException(super.message, {super.operation});
+}
+
 /// A Tensor was used after deterministic disposal.
 final class DisposedTensorException extends TensoraException {
   const DisposedTensorException(super.message, {super.operation});
