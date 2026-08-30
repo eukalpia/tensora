@@ -25,8 +25,8 @@ void main() {
     for (var cycle = 0; cycle < 1000; cycle++) {
       final x = Tensor.fromList([-1, 0, 1, 2], shape: Shape([4, 1]));
       final y = Tensor.fromList([-1, 1, 3, 5], shape: Shape([4, 1]));
-      final model = Linear(1, 1);
-      final optimizer = SGD(model, learningRate: 0.05);
+      final model = NativeLinear(1, 1);
+      final optimizer = NativeSgd(model, learningRate: 0.05);
 
       optimizer.zeroGrad();
       final prediction = model(x);

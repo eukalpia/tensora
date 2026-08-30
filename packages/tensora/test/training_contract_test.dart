@@ -56,10 +56,10 @@ void main() {
   });
 
   test('module creation validates dimensions before native work', () {
-    expect(() => Linear(0, 1), throwsArgumentError);
-    expect(() => Linear(1, 0), throwsArgumentError);
+    expect(() => NativeLinear(0, 1), throwsArgumentError);
+    expect(() => NativeLinear(1, 0), throwsArgumentError);
 
-    final model = Linear(1, 1);
+    final model = NativeLinear(1, 1);
     expect(model.isDisposed, isFalse);
     model.dispose();
     expect(model.isDisposed, isTrue);

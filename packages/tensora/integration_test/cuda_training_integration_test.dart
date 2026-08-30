@@ -29,7 +29,7 @@ void main() {
     expect(x.device, cuda);
     expect(y.device, cuda);
 
-    final model = Linear(1, 1);
+    final model = NativeLinear(1, 1);
     model.to(cuda);
     final parameters = model.parameters();
     expect(parameters, isNotEmpty);
@@ -38,7 +38,7 @@ void main() {
       parameter.dispose();
     }
 
-    final optimizer = SGD(model, learningRate: 0.1);
+    final optimizer = NativeSgd(model, learningRate: 0.1);
     var initialLoss = double.nan;
     var finalLoss = double.nan;
 

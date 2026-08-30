@@ -327,7 +327,7 @@ void main() {
   test(
     'Parameter covers state, replacement, freeze, and disposal contracts',
     () {
-      final module = Linear(1, 1);
+      final module = NativeLinear(1, 1);
       addTearDown(module.dispose);
 
       final initialViews = module.parameters();

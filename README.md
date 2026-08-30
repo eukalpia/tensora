@@ -103,15 +103,16 @@ When `device` is an accelerator, host-created values are staged in CPU memory an
 ## Training example
 
 ```dart
-import 'package:tensora/tensora.dart';
+import 'package:tensora_nn/tensora_nn.dart';
+import 'package:tensora_optim/tensora_optim.dart';
 
 void main() {
   final device = TensoraRuntime.preferredDevice;
   final x = Tensor.fromList([-1, 0, 1, 2], shape: Shape([4, 1]), device: device);
   final y = Tensor.fromList([-1, 1, 3, 5], shape: Shape([4, 1]), device: device);
 
-  final model = Linear(1, 1)..to(device);
-  final optimizer = SGD(model, learningRate: 0.1);
+  final model = Linear(inFeatures: 1, outFeatures: 1)..to(device);
+  final optimizer = SGD(parameters: model.parameters, learningRate: 0.1);
 
   for (var step = 0; step < 100; step++) {
     optimizer.zeroGrad();

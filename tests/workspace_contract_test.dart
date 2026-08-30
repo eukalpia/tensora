@@ -1,8 +1,8 @@
+// Importing the foundation and the neural-network package together must work.
+// It did not before the native handle owners were renamed, because both
+// packages exported a type called Module.
+import 'package:tensora/tensora.dart';
 import 'package:tensora_data/tensora_data.dart';
-// Neural-network and foundation value types are reached through the training
-// package's re-export chain. Importing package:tensora directly here would
-// collide: it still exports a legacy native-backed Module alongside the
-// composable one from tensora_nn.
 import 'package:tensora_train/tensora_train.dart';
 import 'package:test/test.dart';
 
@@ -77,5 +77,13 @@ void main() {
     expect(Shape(<int>[2, 3]), Shape(<int>[2, 3]));
     expect(Device.cuda(1), isNot(Device.cuda(0)));
     expect(DType.float32.byteWidth, 4);
+  });
+
+  test('the composable and native module hierarchies coexist by name', () {
+    // Naming regression guard. Both packages are imported unprefixed above, so
+    // this only compiles while the two hierarchies keep distinct names.
+    expect(Identity(), isA<Module>());
+    expect(NativeLinear, isNot(Linear));
+    expect(<Type>[NativeModule, NativeOptimizer, NativeSgd], hasLength(3));
   });
 }

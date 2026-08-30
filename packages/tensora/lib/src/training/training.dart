@@ -94,8 +94,8 @@ abstract final class TensoraRuntime {
 
 /// Base class for native-backed neural-network modules.
 @pragma('vm:isolate-unsendable')
-abstract base class Module {
-  Module._(this._handle) {
+abstract base class NativeModule {
+  NativeModule._(this._handle) {
     _moduleFinalizer.attach(this, _handle, detach: this);
   }
 
@@ -189,18 +189,18 @@ abstract base class Module {
 }
 
 /// A native fully connected affine layer.
-final class Linear extends Module {
-  Linear._(int handle, this.inFeatures, this.outFeatures, this.bias)
+final class NativeLinear extends NativeModule {
+  NativeLinear._(int handle, this.inFeatures, this.outFeatures, this.bias)
     : super._(handle);
 
   /// Creates a Linear layer with shape `[inFeatures, outFeatures]`.
-  factory Linear(int inFeatures, int outFeatures, {bool bias = true}) {
+  factory NativeLinear(int inFeatures, int outFeatures, {bool bias = true}) {
     final handle = NativeTrainingRuntime.instance.createLinear(
       inFeatures,
       outFeatures,
       bias,
     );
-    return Linear._(handle, inFeatures, outFeatures, bias);
+    return NativeLinear._(handle, inFeatures, outFeatures, bias);
   }
 
   /// Number of input features.
@@ -215,8 +215,8 @@ final class Linear extends Module {
 
 /// Base class for native-backed optimizers.
 @pragma('vm:isolate-unsendable')
-abstract base class Optimizer {
-  Optimizer._(this._handle) {
+abstract base class NativeOptimizer {
+  NativeOptimizer._(this._handle) {
     _optimizerFinalizer.attach(this, _handle, detach: this);
   }
 
@@ -258,11 +258,11 @@ abstract base class Optimizer {
 }
 
 /// Stochastic gradient descent.
-final class SGD extends Optimizer {
-  SGD._(int handle) : super._(handle);
+final class NativeSgd extends NativeOptimizer {
+  NativeSgd._(int handle) : super._(handle);
 
-  factory SGD(
-    Module module, {
+  factory NativeSgd(
+    NativeModule module, {
     double learningRate = 0.01,
     double momentum = 0,
     double weightDecay = 0,
@@ -277,22 +277,22 @@ final class SGD extends Optimizer {
       momentum: momentum,
       weightDecay: weightDecay,
     );
-    return SGD._(handle);
+    return NativeSgd._(handle);
   }
 }
 
 /// Adam optimizer.
-final class Adam extends Optimizer {
-  Adam._(int handle) : super._(handle);
+final class NativeAdam extends NativeOptimizer {
+  NativeAdam._(int handle) : super._(handle);
 
-  factory Adam(
-    Module module, {
+  factory NativeAdam(
+    NativeModule module, {
     double learningRate = 0.001,
     double beta1 = 0.9,
     double beta2 = 0.999,
     double epsilon = 1e-8,
     double weightDecay = 0,
-  }) => Adam._(
+  }) => NativeAdam._(
     _createAdam(
       module,
       learningRate: learningRate,
@@ -306,17 +306,17 @@ final class Adam extends Optimizer {
 }
 
 /// AdamW optimizer with decoupled weight decay.
-final class AdamW extends Optimizer {
-  AdamW._(int handle) : super._(handle);
+final class NativeAdamW extends NativeOptimizer {
+  NativeAdamW._(int handle) : super._(handle);
 
-  factory AdamW(
-    Module module, {
+  factory NativeAdamW(
+    NativeModule module, {
     double learningRate = 0.001,
     double beta1 = 0.9,
     double beta2 = 0.999,
     double epsilon = 1e-8,
     double weightDecay = 0.01,
-  }) => AdamW._(
+  }) => NativeAdamW._(
     _createAdam(
       module,
       learningRate: learningRate,
@@ -369,7 +369,7 @@ abstract final class Losses {
 }
 
 int _createAdam(
-  Module module, {
+  NativeModule module, {
   required double learningRate,
   required double beta1,
   required double beta2,

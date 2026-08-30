@@ -76,12 +76,16 @@ A LibTorch-enabled native build adds:
 
 Example:
 
+> These are the thin native handle owners. Most applications should use the
+> composable `Module` API in `package:tensora_nn` and the optimizers in
+> `package:tensora_optim`, which build on them.
+
 ```dart
 final device = TensoraRuntime.preferredDevice;
 final x = Tensor.fromList([-1, 0, 1, 2], shape: Shape([4, 1]), device: device);
 final y = Tensor.fromList([-1, 1, 3, 5], shape: Shape([4, 1]), device: device);
-final model = Linear(1, 1)..to(device);
-final optimizer = SGD(model, learningRate: 0.1);
+final model = NativeLinear(1, 1)..to(device);
+final optimizer = NativeSgd(model, learningRate: 0.1);
 
 for (var step = 0; step < 100; step++) {
   optimizer.zeroGrad();

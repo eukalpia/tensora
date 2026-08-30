@@ -98,7 +98,7 @@ final class Linear extends Module {
       throw ArgumentError.value(outFeatures, 'outFeatures', 'must be positive');
     }
 
-    final native = core.Linear(inFeatures, outFeatures, bias: bias);
+    final native = core.NativeLinear(inFeatures, outFeatures, bias: bias);
     final tensors = <core.Tensor>[];
     try {
       tensors.addAll(native.parameters());
@@ -137,7 +137,7 @@ final class Linear extends Module {
     required List<NamedParameter> parameters,
   }) : _parameters = parameters;
 
-  final core.Linear _native;
+  final core.NativeLinear _native;
   final List<NamedParameter> _parameters;
 
   final int inFeatures;

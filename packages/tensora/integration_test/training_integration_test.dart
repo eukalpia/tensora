@@ -145,7 +145,7 @@ void main() {
   });
 
   test('Parameter freeze and view refresh preserve native identity', () {
-    final model = Linear(1, 1);
+    final model = NativeLinear(1, 1);
     addTearDown(model.dispose);
 
     final initialViews = model.parameters();
@@ -182,8 +182,8 @@ void main() {
 
     final x = Tensor.fromList([-1, 0, 1, 2], shape: Shape([4, 1]));
     final y = Tensor.fromList([-1, 1, 3, 5], shape: Shape([4, 1]));
-    final model = Linear(1, 1);
-    final optimizer = SGD(model, learningRate: 0.1);
+    final model = NativeLinear(1, 1);
+    final optimizer = NativeSgd(model, learningRate: 0.1);
     addTearDown(x.dispose);
     addTearDown(y.dispose);
     addTearDown(optimizer.dispose);
@@ -264,9 +264,9 @@ void main() {
   });
 
   test('Adam and AdamW validate and own native optimizer handles', () {
-    final model = Linear(2, 1, bias: false);
-    final adam = Adam(model);
-    final adamW = AdamW(model);
+    final model = NativeLinear(2, 1, bias: false);
+    final adam = NativeAdam(model);
+    final adamW = NativeAdamW(model);
     addTearDown(model.dispose);
     addTearDown(adam.dispose);
     addTearDown(adamW.dispose);
@@ -276,7 +276,7 @@ void main() {
     adam.zeroGrad();
     adamW.zeroGrad();
 
-    expect(() => SGD(model, learningRate: 0), throwsArgumentError);
-    expect(() => Adam(model, beta1: 1), throwsArgumentError);
+    expect(() => NativeSgd(model, learningRate: 0), throwsArgumentError);
+    expect(() => NativeAdam(model, beta1: 1), throwsArgumentError);
   });
 }

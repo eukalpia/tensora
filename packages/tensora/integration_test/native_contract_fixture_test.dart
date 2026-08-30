@@ -359,7 +359,7 @@ void main() {
   test(
     'Module parameter collection releases all partially adopted tensors',
     () {
-      final module = Linear(1, 1);
+      final module = NativeLinear(1, 1);
       try {
         setTrainingMode(1);
         expect(

@@ -61,8 +61,8 @@ void main() {
 
   test('module and optimizer reject use after deterministic disposal', () {
     final input = Tensor.ones(Shape([1, 1]));
-    final model = Linear(1, 1);
-    final optimizer = SGD(model);
+    final model = NativeLinear(1, 1);
+    final optimizer = NativeSgd(model);
     addTearDown(input.dispose);
 
     optimizer.dispose();
@@ -88,25 +88,25 @@ void main() {
       throwsA(isA<DisposedTensorException>()),
     );
     expect(() => model(input), throwsA(isA<DisposedTensorException>()));
-    expect(() => SGD(model), throwsA(isA<DisposedTensorException>()));
+    expect(() => NativeSgd(model), throwsA(isA<DisposedTensorException>()));
   });
 
   test('module paths and optimizer hyperparameters validate eagerly', () {
-    final model = Linear(2, 1, bias: false);
+    final model = NativeLinear(2, 1, bias: false);
     addTearDown(model.dispose);
 
     expect(() => model.save(''), throwsArgumentError);
     expect(() => model.load('  '), throwsArgumentError);
-    expect(() => SGD(model, learningRate: 0), throwsArgumentError);
-    expect(() => SGD(model, momentum: -1), throwsArgumentError);
-    expect(() => SGD(model, weightDecay: -1), throwsArgumentError);
-    expect(() => Adam(model, learningRate: 0), throwsArgumentError);
-    expect(() => Adam(model, beta1: -0.1), throwsArgumentError);
-    expect(() => Adam(model, beta2: 1), throwsArgumentError);
-    expect(() => Adam(model, epsilon: 0), throwsArgumentError);
-    expect(() => Adam(model, weightDecay: -1), throwsArgumentError);
-    expect(() => AdamW(model, beta1: double.nan), throwsArgumentError);
-    expect(() => Linear(0, 1), throwsArgumentError);
-    expect(() => Linear(1, 0), throwsArgumentError);
+    expect(() => NativeSgd(model, learningRate: 0), throwsArgumentError);
+    expect(() => NativeSgd(model, momentum: -1), throwsArgumentError);
+    expect(() => NativeSgd(model, weightDecay: -1), throwsArgumentError);
+    expect(() => NativeAdam(model, learningRate: 0), throwsArgumentError);
+    expect(() => NativeAdam(model, beta1: -0.1), throwsArgumentError);
+    expect(() => NativeAdam(model, beta2: 1), throwsArgumentError);
+    expect(() => NativeAdam(model, epsilon: 0), throwsArgumentError);
+    expect(() => NativeAdam(model, weightDecay: -1), throwsArgumentError);
+    expect(() => NativeAdamW(model, beta1: double.nan), throwsArgumentError);
+    expect(() => NativeLinear(0, 1), throwsArgumentError);
+    expect(() => NativeLinear(1, 0), throwsArgumentError);
   });
 }

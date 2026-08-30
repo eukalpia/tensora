@@ -73,8 +73,8 @@ void main() {
     expect(runtime.liveTensorCount(), baselineTensors);
     expect(runtime.liveStorageBytes(), baselineStorage);
 
-    final module = Linear(1, 1);
-    SGD? optimizer;
+    final module = NativeLinear(1, 1);
+    NativeSgd? optimizer;
     Tensor? input;
     Tensor? target;
     try {
@@ -103,7 +103,7 @@ void main() {
         reason: 'disposed parameter views must release every Tensora wrapper',
       );
 
-      optimizer = SGD(module, learningRate: 0.05);
+      optimizer = NativeSgd(module, learningRate: 0.05);
       input = Tensor.fromList(
         [-2, -1, 1, 2],
         shape: Shape([4, 1]),
