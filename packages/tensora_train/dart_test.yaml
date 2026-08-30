@@ -1,0 +1,3 @@
+# The trainer leak assertions read process-global native handle counters,
+# so suites must not run concurrently against one shared runtime.
+concurrency: 1
