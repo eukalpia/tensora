@@ -36,7 +36,7 @@ Tensora does not currently label any public runtime surface Stable.
 | `float32` | Beta | Tensor creation, transfer, transforms, elementwise ops, reduction, 2D matmul, training/inference paths where documented | No other public dtype yet |
 | LibTorch CPU training | Beta | Linux, macOS, Windows native + Dart integration | Optional build dependency; not a packaged binary contract |
 | Apple MPS training | Beta | Real Apple Silicon hosted CI: device transfer, matmul, module transfer, forward/loss/backward, optimizer steps, lifecycle checks | Validated operation surface is intentionally narrow |
-| NVIDIA CUDA training | Experimental | Device/runtime integration and manual hardware qualification workflow | Physical NVIDIA qualification still required |
+| NVIDIA CUDA training | Beta | Real RTX 4070 Ti SUPER (sm_89) execution: device discovery, transfer, `Linear` forward, MSE loss, backward, SGD steps to convergence, checkpoint round-trip, lifecycle counters | Qualified on one Ada-generation device on Windows; recorded manual qualification, not hosted CI |
 | Intel XPU training | Experimental | Device/runtime integration and manual hardware qualification workflow | Physical Intel qualification still required |
 | AMD HIP/ROCm training identity | Experimental | Device/runtime integration and manual ROCm qualification workflow | Physical AMD qualification still required; runtime behavior follows the linked LibTorch/ROCm build |
 | ONNX Runtime CPU / Linux | Beta | Native + Dart model load, metadata, inference, profiling, concurrency/lifecycle validation | Deterministic fixture, not a broad model-zoo compatibility claim |
@@ -77,6 +77,32 @@ Hosted Apple Silicon CI validates:
 - real CoreML inference execution.
 
 The Apple hardware evidence is tied to the exact runtime/provider versions exercised in CI and is not a promise for arbitrary historical macOS devices.
+
+### NVIDIA CUDA qualification record
+
+Qualified by direct execution rather than by a workflow that exists but has not
+run.
+
+| | |
+| --- | --- |
+| Device | NVIDIA GeForce RTX 4070 Ti SUPER, compute capability 8.9, 16 GB |
+| Driver | 616.56 |
+| Toolkit | CUDA 12.8 |
+| Runtime | LibTorch 2.9.1+cu128, built for `sm_89` |
+| Host | Windows 11, MSVC 19.38, AMD Ryzen 9 7950X3D |
+
+Tensora's own device model reports `availableDevices = [Device.cuda(0),
+Device.cpu]` and `preferredDevice = Device.cuda(0)`. A 200-step regression
+drives the loss from `1.782e+1` to `1.208e-13` with every tensor, module
+parameter, forward output and loss residing on `cuda:0`. Live tensor, module
+and optimizer counters return to their baseline after disposal.
+
+Covered: discovery, host-to-device transfer, `Linear` forward, MSE loss,
+backward, SGD steps, checkpoint save and load, deterministic release.
+
+Not covered by this record: multiple GPUs, CUDA architectures other than Ada,
+Linux hosts, and the CUDA ONNX Runtime execution provider, which is a separate
+build and a separate claim.
 
 ### Windows
 

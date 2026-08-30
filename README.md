@@ -63,7 +63,7 @@ Support claims are intentionally narrower than implementation breadth.
 | Apple MPS training | Real Apple Silicon MPS execution in hosted macOS CI, including forward/backward/optimizer and lifecycle checks |
 | ONNX CPU inference | GitHub-hosted Linux and Windows native + Dart inference validation |
 | Apple CoreML inference | Real CoreML provider execution in hosted Apple Silicon CI |
-| NVIDIA CUDA | Implementation and manual hardware qualification workflow; physical qualification still required |
+| NVIDIA CUDA training | Real RTX 4070 Ti SUPER (sm_89) execution: forward, backward, optimizer steps to convergence, checkpoint, and lifecycle checks without CPU fallback |
 | Intel XPU | Implementation and manual hardware qualification workflow; physical qualification still required |
 | AMD HIP/ROCm | Implementation and manual hardware qualification workflow; physical qualification still required |
 | DirectML / OpenVINO / MIGraphX | Provider integration paths exist; hardware/provider qualification is still required before support is promoted |
@@ -212,7 +212,7 @@ Hardware qualification for other GPU vendors is kept separate from ordinary host
 - pre-1.0 API/ABI and source-built native runtime;
 - only `float32` is a public tensor dtype today;
 - no published native binary distribution contract yet;
-- CUDA/XPU/HIP and several ONNX accelerator providers still require physical qualification before promotion;
+- XPU/HIP and several ONNX accelerator providers still require physical qualification before promotion;
 - ONNX input binding is currently host-materialized rather than device zero-copy;
 - Flutter/mobile runtime integration is not implemented yet;
 - `.tmodel` is not implemented yet;
