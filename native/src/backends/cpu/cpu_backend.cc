@@ -11,6 +11,7 @@
 
 #include "autograd/autograd.h"
 #include "core/allocation_guard.h"
+#include "kernels/gemm.h"
 
 namespace tensora {
 namespace cpu_backend_internal {
@@ -88,8 +89,58 @@ Status LogicalValues(const Tensor& tensor,
   return Status::Ok();
 }
 
+
+Status CpuMatrixOperand(const Tensor& tensor,
+                        const char* operation,
+                        const float** out_base,
+                        int64_t* out_row_stride,
+                        int64_t* out_col_stride) {
+  if (out_base == nullptr || out_row_stride == nullptr ||
+      out_col_stride == nullptr) {
+    return InvalidArgument(std::string(operation) +
+                           ": output operand pointer is null");
+  }
+  *out_base = nullptr;
+  *out_row_stride = 0;
+  *out_col_stride = 0;
+
+  Status status = EnsureCpuFloat32(tensor, operation);
+  if (!status.ok()) return status;
+  if (tensor.shape().dimensions.size() != 2) {
+    return InvalidShape(std::string(operation) + ": operand must be rank 2");
+  }
+  auto storage = std::dynamic_pointer_cast<CpuStorage>(tensor.storage());
+  if (!storage) {
+    return Unsupported(std::string(operation) +
+                       ": operand is not backed by CPU storage");
+  }
+
+  const int64_t rows = tensor.shape().dimensions[0];
+  const int64_t columns = tensor.shape().dimensions[1];
+  const uint64_t row_stride = tensor.shape().strides[0];
+  const uint64_t column_stride = tensor.shape().strides[1];
+
+  // Prove the whole logical extent is addressable before a kernel receives a
+  // raw pointer. Strides are non-negative by construction, so the last element
+  // is also the highest address touched.
+  const uint64_t last_index = tensor.storage_offset() +
+                              static_cast<uint64_t>(rows - 1) * row_stride +
+                              static_cast<uint64_t>(columns - 1) * column_stride;
+  if (last_index >= storage->numel()) {
+    return InternalError(std::string(operation) +
+                         ": operand view exceeds its backing storage");
+  }
+
+  *out_base = storage->values().data() +
+              static_cast<size_t>(tensor.storage_offset());
+  *out_row_stride = static_cast<int64_t>(row_stride);
+  *out_col_stride = static_cast<int64_t>(column_stride);
+  return Status::Ok();
+}
+
 }  // namespace cpu_backend_internal
 
+using cpu_backend_internal::CpuMatrixOperand;
 using cpu_backend_internal::EnsureCpuFloat32;
 using cpu_backend_internal::LogicalValues;
 using cpu_backend_internal::MakeTensor;
@@ -263,11 +314,18 @@ Status CpuBackend::Matmul(const Tensor& left,
     return InvalidShape("matmul: inner dimensions must match");
   }
 
-  std::vector<float> left_values;
-  std::vector<float> right_values;
-  status = LogicalValues(left, "matmul", &left_values);
+  const float* left_base = nullptr;
+  int64_t left_row_stride = 0;
+  int64_t left_column_stride = 0;
+  status = CpuMatrixOperand(left, "matmul", &left_base, &left_row_stride,
+                            &left_column_stride);
   if (!status.ok()) return status;
-  status = LogicalValues(right, "matmul", &right_values);
+
+  const float* right_base = nullptr;
+  int64_t right_row_stride = 0;
+  int64_t right_column_stride = 0;
+  status = CpuMatrixOperand(right, "matmul", &right_base, &right_row_stride,
+                            &right_column_stride);
   if (!status.ok()) return status;
 
   const int64_t output_dims[2] = {m, n};
@@ -278,18 +336,11 @@ Status CpuBackend::Matmul(const Tensor& left,
   std::shared_ptr<CpuStorage> storage;
   status = CpuStorage::Filled(output_shape.numel, 0.0f, &storage);
   if (!status.ok()) return status;
-  auto& output = storage->mutable_values();
 
-  for (int64_t row = 0; row < m; ++row) {
-    for (int64_t inner = 0; inner < k; ++inner) {
-      const float left_value =
-          left_values[static_cast<size_t>(row * k + inner)];
-      for (int64_t col = 0; col < n; ++col) {
-        output[static_cast<size_t>(row * n + col)] +=
-            left_value * right_values[static_cast<size_t>(inner * n + col)];
-      }
-    }
-  }
+  kernels::Sgemm(m, n, k, 1.0f, left_base, left_row_stride,
+                 left_column_stride, right_base, right_row_stride,
+                 right_column_stride, 0.0f, storage->mutable_values().data(),
+                 n, 1);
 
   status = MakeTensor(std::move(output_shape), std::move(storage), out);
   if (!status.ok()) return status;

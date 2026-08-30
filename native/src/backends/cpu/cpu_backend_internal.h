@@ -22,6 +22,16 @@ Status LogicalValues(const Tensor& tensor,
                      const char* operation,
                      std::vector<float>* out);
 
+// Resolves a rank-2 CPU tensor into a raw base pointer plus row/column strides
+// after proving the view lies inside its backing storage. Kernels consume the
+// strides directly, so a transposed or otherwise strided operand needs no
+// materialization before it is multiplied.
+Status CpuMatrixOperand(const Tensor& tensor,
+                        const char* operation,
+                        const float** out_base,
+                        int64_t* out_row_stride,
+                        int64_t* out_col_stride);
+
 }  // namespace tensora::cpu_backend_internal
 
 #endif  // TENSORA_BACKENDS_CPU_CPU_BACKEND_INTERNAL_H_

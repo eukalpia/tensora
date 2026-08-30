@@ -28,6 +28,29 @@ TS_STATIC_ASSERT(ts_onnx_session_handle_is_exactly_64_bits,
 TS_STATIC_ASSERT(ts_dtype_is_exactly_32_bits, sizeof(ts_dtype_t) == 4);
 TS_STATIC_ASSERT(ts_device_is_exactly_32_bits, sizeof(ts_device_t) == 4);
 
+/* Device codes are compile-time constants. Asserting their distinctness at
+   compile time keeps the guarantee while avoiding a constant runtime branch. */
+TS_STATIC_ASSERT(ts_device_cpu_differs_from_cuda,
+                 TS_DEVICE_CPU != TS_DEVICE_CUDA);
+TS_STATIC_ASSERT(ts_device_cpu_differs_from_mps,
+                 TS_DEVICE_CPU != TS_DEVICE_MPS);
+TS_STATIC_ASSERT(ts_device_cpu_differs_from_xpu,
+                 TS_DEVICE_CPU != TS_DEVICE_XPU);
+TS_STATIC_ASSERT(ts_device_cpu_differs_from_hip,
+                 TS_DEVICE_CPU != TS_DEVICE_HIP);
+TS_STATIC_ASSERT(ts_device_cuda_differs_from_mps,
+                 TS_DEVICE_CUDA != TS_DEVICE_MPS);
+TS_STATIC_ASSERT(ts_device_cuda_differs_from_xpu,
+                 TS_DEVICE_CUDA != TS_DEVICE_XPU);
+TS_STATIC_ASSERT(ts_device_cuda_differs_from_hip,
+                 TS_DEVICE_CUDA != TS_DEVICE_HIP);
+TS_STATIC_ASSERT(ts_device_mps_differs_from_xpu,
+                 TS_DEVICE_MPS != TS_DEVICE_XPU);
+TS_STATIC_ASSERT(ts_device_mps_differs_from_hip,
+                 TS_DEVICE_MPS != TS_DEVICE_HIP);
+TS_STATIC_ASSERT(ts_device_xpu_differs_from_hip,
+                 TS_DEVICE_XPU != TS_DEVICE_HIP);
+
 static int test_disabled_training_contract(ts_tensor_t tensor) {
 #if defined(TENSORA_WITH_TORCH)
   (void)tensor;
@@ -301,7 +324,6 @@ int main(void) {
   if (ts_abi_version() != TS_ABI_VERSION) return 1;
   if (ts_noop() != TS_OK) return 2;
   if (ts_last_error_message() == NULL) return 201;
-  if (TS_DEVICE_CPU == TS_DEVICE_CUDA) return 3;
   if (ts_training_available(&training_available) != TS_OK) return 4;
 #if defined(TENSORA_WITH_TORCH)
   if (training_available != 1) return 5;
@@ -420,13 +442,6 @@ int main(void) {
 
   if (strcmp(ts_status_name(TS_MODEL_ERROR), "MODEL_ERROR") != 0) return 51;
   if (strcmp(ts_status_name(999), "UNKNOWN_STATUS") != 0) return 52;
-
-  if (TS_DEVICE_CPU == TS_DEVICE_MPS || TS_DEVICE_CPU == TS_DEVICE_XPU ||
-      TS_DEVICE_CPU == TS_DEVICE_HIP || TS_DEVICE_CUDA == TS_DEVICE_MPS ||
-      TS_DEVICE_CUDA == TS_DEVICE_XPU || TS_DEVICE_CUDA == TS_DEVICE_HIP ||
-      TS_DEVICE_MPS == TS_DEVICE_XPU || TS_DEVICE_MPS == TS_DEVICE_HIP ||
-      TS_DEVICE_XPU == TS_DEVICE_HIP)
-    return 53;
 
   {
     uint32_t count = 99;

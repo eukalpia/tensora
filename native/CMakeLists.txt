@@ -47,7 +47,41 @@ if(TENSORA_WITH_ONNXRUNTIME)
   )
 endif()
 
+# Compute kernels. These are shared by the shared library and by the test
+# targets that compile the CPU backend directly.
+set(TENSORA_KERNEL_SOURCES
+  src/kernels/cpu_features.cc
+  src/kernels/gemm.cc
+  src/kernels/gemm_avx2.cc
+  src/kernels/gemm_avx512.cc
+  src/kernels/gemm_scalar.cc
+  src/kernels/thread_pool.cc
+)
+
+# Per-ISA microkernels are compiled once per instruction set and selected at
+# run time. Flags are set at directory scope so every target that compiles these
+# files agrees on them. A binary built here must still run on a host without
+# AVX-512, so the instruction set is never assumed, only offered.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
+  if(MSVC)
+    set(TENSORA_AVX2_FLAGS /arch:AVX2)
+    set(TENSORA_AVX512_FLAGS /arch:AVX512)
+  else()
+    set(TENSORA_AVX2_FLAGS -mavx2 -mfma)
+    set(TENSORA_AVX512_FLAGS -mavx512f -mavx512dq -mavx512bw -mavx512vl -mfma)
+  endif()
+  set_source_files_properties(src/kernels/gemm_avx2.cc PROPERTIES
+    COMPILE_OPTIONS "${TENSORA_AVX2_FLAGS}"
+    COMPILE_DEFINITIONS TENSORA_KERNELS_HAVE_AVX2=1
+  )
+  set_source_files_properties(src/kernels/gemm_avx512.cc PROPERTIES
+    COMPILE_OPTIONS "${TENSORA_AVX512_FLAGS}"
+    COMPILE_DEFINITIONS TENSORA_KERNELS_HAVE_AVX512=1
+  )
+endif()
+
 set(TENSORA_NATIVE_SOURCES
+  ${TENSORA_KERNEL_SOURCES}
   src/backends/cpu/cpu_backend.cc
   src/c_api.cc
   src/core/status.cc
@@ -177,6 +211,7 @@ if(TENSORA_BUILD_TESTS)
 
   add_executable(tensora_handle_registry_tests
     tests/handle_registry_test.cc
+    ${TENSORA_KERNEL_SOURCES}
     src/backends/cpu/cpu_backend.cc
     src/core/status.cc
     src/memory/cpu_storage.cc
@@ -202,6 +237,17 @@ if(TENSORA_BUILD_TESTS)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
+
+  add_executable(tensora_gemm_kernel_tests
+    tests/gemm_kernel_test.cc
+    ${TENSORA_KERNEL_SOURCES}
+  )
+  target_compile_features(tensora_gemm_kernel_tests PRIVATE cxx_std_20)
+  target_include_directories(tensora_gemm_kernel_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  target_link_libraries(tensora_gemm_kernel_tests PRIVATE Threads::Threads)
 
   add_executable(tensora_c_abi_tests tests/c_abi_test.c)
   target_include_directories(tensora_c_abi_tests PRIVATE
@@ -266,6 +312,7 @@ if(TENSORA_BUILD_TESTS)
 
     add_executable(tensora_training_core_internal_tests
       tests/training_core_internal_test.cc
+      ${TENSORA_KERNEL_SOURCES}
       src/backends/cpu/cpu_backend.cc
       src/core/status.cc
       src/memory/cpu_storage.cc
@@ -332,6 +379,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_native_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_handle_registry_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_device_codec_tests PRIVATE /W4 /WX /permissive-)
+    target_compile_options(tensora_gemm_kernel_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_c_abi_tests PRIVATE /W4 /WX)
     target_compile_options(tensora_cpu_training_tests PRIVATE /W4 /WX /permissive-)
     target_compile_options(tensora_autograd_finite_difference_tests PRIVATE /W4 /WX /permissive-)
@@ -356,6 +404,7 @@ if(TENSORA_BUILD_TESTS)
     target_compile_options(tensora_native_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_handle_registry_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_device_codec_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(tensora_gemm_kernel_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_c_abi_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_cpu_training_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(tensora_autograd_finite_difference_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -385,6 +434,8 @@ if(TENSORA_BUILD_TESTS)
     target_link_options(tensora_handle_registry_tests PRIVATE -fsanitize=address,undefined)
     target_compile_options(tensora_device_codec_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
     target_link_options(tensora_device_codec_tests PRIVATE -fsanitize=address,undefined)
+    target_compile_options(tensora_gemm_kernel_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
+    target_link_options(tensora_gemm_kernel_tests PRIVATE -fsanitize=address,undefined)
     target_compile_options(tensora_c_abi_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
     target_link_options(tensora_c_abi_tests PRIVATE -fsanitize=address,undefined)
     target_compile_options(tensora_cpu_training_tests PRIVATE ${TENSORA_SANITIZER_FLAGS})
@@ -414,6 +465,8 @@ if(TENSORA_BUILD_TESTS)
     target_link_options(tensora_handle_registry_tests PRIVATE -fsanitize=thread)
     target_compile_options(tensora_device_codec_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
     target_link_options(tensora_device_codec_tests PRIVATE -fsanitize=thread)
+    target_compile_options(tensora_gemm_kernel_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
+    target_link_options(tensora_gemm_kernel_tests PRIVATE -fsanitize=thread)
     target_compile_options(tensora_c_abi_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
     target_link_options(tensora_c_abi_tests PRIVATE -fsanitize=thread)
     target_compile_options(tensora_cpu_training_tests PRIVATE ${TENSORA_THREAD_SANITIZER_FLAGS})
@@ -439,6 +492,7 @@ if(TENSORA_BUILD_TESTS)
   add_test(NAME tensora_native_tests COMMAND tensora_native_tests)
   add_test(NAME tensora_handle_registry_tests COMMAND tensora_handle_registry_tests)
   add_test(NAME tensora_device_codec_tests COMMAND tensora_device_codec_tests)
+  add_test(NAME tensora_gemm_kernel_tests COMMAND tensora_gemm_kernel_tests)
   add_test(NAME tensora_c_abi_tests COMMAND tensora_c_abi_tests)
   add_test(NAME tensora_cpu_training_tests COMMAND tensora_cpu_training_tests)
   add_test(NAME tensora_autograd_finite_difference_tests COMMAND tensora_autograd_finite_difference_tests)
