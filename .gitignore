@@ -4,3 +4,6 @@ build/
 **/pubspec.lock
 *.log
 .DS_Store
+
+# Transient agent worktrees
+.claude/

@@ -1,11 +1,10 @@
 name: Coverage Snapshot
 
+# This workflow packages a runtime tarball and coverage artifacts on request.
+# It is not a gate: high-assurance-ci.yml is what enforces the Dart coverage
+# threshold. Running both on every pull request paid an hour of CI twice for
+# one answer, so this one is now on-demand only.
 on:
-  push:
-    branches:
-      - feature/coverage-snapshot-20260814
-      - feature/stability-100-tensor-core
-  pull_request:
   workflow_dispatch:
 
 permissions:
